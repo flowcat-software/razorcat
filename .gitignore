@@ -1,0 +1,6 @@
+# Private notes (plan, decisions, spikes, mockups): a separate private repo
+/internal/
+
+# Spike tooling and generated test media (large, reproducible)
+/spikes/.tools/
+/spikes/media/
