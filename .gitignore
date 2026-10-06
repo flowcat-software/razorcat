@@ -4,3 +4,4 @@
 # Spike tooling and generated test media (large, reproducible)
 /spikes/.tools/
 /spikes/media/
+/spikes/.cache/

@@ -1,0 +1,8 @@
+[
+  { "label": "synth obs-like 1080p60 10m", "path": "../media/obs-1080p60-10m.mp4", "barcode": true },
+  { "label": "synth phone h264 vfr", "path": "../media/phone-h264-vfr.mp4" },
+  { "label": "synth phone hevc vfr rotated", "path": "../media/phone-hevc-vfr-rotated.mp4" },
+  { "label": "synth mkv 720p30", "path": "../media/short-h264.mkv", "barcode": true },
+  { "label": "synth no-audio 720p30", "path": "../media/no-audio-720p30.mp4", "barcode": true },
+  { "label": "synth gif", "path": "../media/small.gif", "barcode": true }
+]

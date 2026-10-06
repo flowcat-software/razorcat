@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Driveby playback spike",
+  "version": "0.0.0",
+  "identifier": "com.driveby.spike.playback",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1430",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      { "label": "main", "title": "Driveby playback spike", "width": 1000, "height": 900 }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": false }
+}
