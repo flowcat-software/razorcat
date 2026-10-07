@@ -2,6 +2,9 @@
 //! honouring `Range`. Rust owns the media (PLAN §1): only the open source is served, at a URL
 //! that changes with every file opened (`/source/{generation}`), so nothing else on disk can be
 //! asked for and a stale `<video>` can't read the new file. Ported from spike 0.2.
+//!
+//! `/frames/{generation}` is the source's frame times (`grid::times`), for the player: two
+//! little-endian f64s per grid frame (when its picture starts showing, and the middle of it).
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -10,6 +13,7 @@ use std::path::PathBuf;
 use tauri::http::{header, Request, Response, StatusCode};
 use tauri::{Manager, Runtime, UriSchemeContext, UriSchemeResponder};
 
+use crate::media::grid;
 use crate::state::AppState;
 
 pub const SCHEME: &str = "media";
@@ -24,6 +28,18 @@ pub fn source_url(generation: u64) -> String {
     format!("http://{SCHEME}.localhost/source/{generation}")
 }
 
+/// Where the page reads the frame times of the source opened as `generation`.
+pub fn frames_url(generation: u64) -> String {
+    format!("http://{SCHEME}.localhost/frames/{generation}")
+}
+
+/// What a request asks for.
+#[derive(Debug, PartialEq)]
+enum Route {
+    Source(u64),
+    Frames(u64),
+}
+
 pub fn handle<R: Runtime>(
     ctx: UriSchemeContext<'_, R>,
     req: Request<Vec<u8>>,
@@ -33,27 +49,67 @@ pub fn handle<R: Runtime>(
     // File reads stay off the thread that called us.
     std::thread::spawn(move || {
         let path = req.uri().path().to_string();
-        let open = {
-            let state = app.state::<AppState>();
-            let source = state.source.lock().unwrap();
-            source.as_ref().map(|s| (s.generation, s.path.clone()))
-        };
-        let resp = match (route(&path), open) {
-            (Some(asked), Some((generation, file))) if asked == generation => {
-                serve(&file, range(&req)).unwrap_or_else(|e| {
-                    eprintln!("[protocol] {}: {e}", file.display());
-                    reply(StatusCode::INTERNAL_SERVER_ERROR, vec![])
-                })
+        let state = app.state::<AppState>();
+        let resp = match route(&path) {
+            Some(Route::Source(asked)) => {
+                let file = {
+                    let source = state.source.lock().unwrap();
+                    source
+                        .as_ref()
+                        .filter(|s| s.generation == asked)
+                        .map(|s| s.path.clone())
+                };
+                match file {
+                    Some(file) => serve(&file, range(&req)).unwrap_or_else(|e| {
+                        eprintln!("[protocol] {}: {e}", file.display());
+                        reply(StatusCode::INTERNAL_SERVER_ERROR, vec![])
+                    }),
+                    None => reply(StatusCode::NOT_FOUND, vec![]),
+                }
             }
-            _ => reply(StatusCode::NOT_FOUND, vec![]),
+            Some(Route::Frames(asked)) => {
+                let times = {
+                    let source = state.source.lock().unwrap();
+                    source
+                        .as_ref()
+                        .filter(|s| s.generation == asked)
+                        .map(|s| grid::times(&s.info.video, &s.grid))
+                };
+                match times {
+                    Some(times) => frames(&times),
+                    None => reply(StatusCode::NOT_FOUND, vec![]),
+                }
+            }
+            None => reply(StatusCode::NOT_FOUND, vec![]),
         };
         responder.respond(resp);
     });
 }
 
-/// The generation asked for by `/source/{generation}`.
-fn route(path: &str) -> Option<u64> {
-    path.strip_prefix("/source/")?.parse().ok()
+/// `/source/{generation}` or `/frames/{generation}`.
+fn route(path: &str) -> Option<Route> {
+    if let Some(g) = path.strip_prefix("/source/") {
+        return g.parse().ok().map(Route::Source);
+    }
+    path.strip_prefix("/frames/")?
+        .parse()
+        .ok()
+        .map(Route::Frames)
+}
+
+/// The frame times as bytes. The page fetches them (the video doesn't), so they need CORS.
+fn frames(times: &[(f64, f64)]) -> Response<Vec<u8>> {
+    let body: Vec<u8> = times
+        .iter()
+        .flat_map(|&(a, b)| [a.to_le_bytes(), b.to_le_bytes()])
+        .flatten()
+        .collect();
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/octet-stream")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .body(body)
+        .unwrap()
 }
 
 /// The `Range` header's `bytes=start-[end]`.
@@ -113,8 +169,10 @@ mod tests {
 
     #[test]
     fn routes() {
-        assert_eq!(route("/source/3"), Some(3));
+        assert_eq!(route("/source/3"), Some(Route::Source(3)));
+        assert_eq!(route("/frames/12"), Some(Route::Frames(12)));
         assert_eq!(route("/source/x"), None);
+        assert_eq!(route("/frames/"), None);
         assert_eq!(route("/C:/Windows/win.ini"), None);
         assert_eq!(route("/source/3/../../x"), None);
     }

@@ -1,14 +1,52 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { commands, events, type SourceInfo } from "../shared/ipc";
 import { CommandBar } from "./CommandBar";
 import { EmptyEditor } from "./EmptyEditor";
 import { formatRate, sourceFacts } from "./format";
+import { Player } from "./player";
 import { Preview } from "./Preview";
 import { StatusBar, type Notice } from "./StatusBar";
 import { TimelineBar } from "./TimelineBar";
 import styles from "./EditorApp.module.css";
 
 const openVideo = () => void commands.openDialog();
+
+/** The transport's keys (mockup's keys table). True if the key was the player's. */
+function transportKey(e: KeyboardEvent, player: Player): boolean {
+  if (e.ctrlKey || e.altKey || e.metaKey) return false;
+  const second = Math.round(player.fps);
+  switch (e.code) {
+    case "ArrowLeft":
+      player.step(e.shiftKey ? -second : -1);
+      return true;
+    case "ArrowRight":
+      player.step(e.shiftKey ? second : 1);
+      return true;
+    case "Home":
+      player.seek(0);
+      return true;
+    case "End":
+      player.seek(player.frames - 1);
+      return true;
+  }
+  // Held down, these would flip back and forth.
+  if (e.shiftKey || e.repeat) return ["Space", "KeyJ", "KeyK", "KeyL"].includes(e.code);
+  switch (e.code) {
+    case "Space":
+      player.toggle();
+      return true;
+    case "KeyK":
+      player.pause();
+      return true;
+    case "KeyJ":
+      player.slower();
+      return true;
+    case "KeyL":
+      player.faster();
+      return true;
+  }
+  return false;
+}
 
 /**
  * The main window (mockup/main.html). Two halves: above the preview, the picture (the command
@@ -19,6 +57,27 @@ const openVideo = () => void commands.openDialog();
 export function EditorApp() {
   const [source, setSource] = useState<SourceInfo | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const player = useMemo(
+    () => source && new Player(source.frames, source.rateNum / source.rateDen, source.framesUrl),
+    [source],
+  );
+
+  useEffect(() => {
+    if (!player) return;
+    player.open();
+    return () => player.close();
+  }, [player]);
+
+  useEffect(() => {
+    if (!player) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input, textarea, select, [contenteditable]")) return;
+      if (transportKey(e, player)) e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [player]);
 
   useEffect(() => {
     const stops: (() => void)[] = [];
@@ -68,8 +127,8 @@ export function EditorApp() {
   }, []);
 
   const empty = source === null;
-  // Controls stay disabled until the increment that makes them work: the transport (1.4), the
-  // timeline's zoom (1.7), editing and export (Phase 2), the picture's tools (Phases 3-4).
+  // Controls stay disabled until the increment that makes them work: the timeline's zoom (1.7),
+  // editing and export (Phase 2), the picture's tools (Phases 3-4).
   const notYet = true;
   return (
     <div className={styles.app}>
@@ -88,12 +147,16 @@ export function EditorApp() {
       </div>
       <div className={styles.preview}>
         {source ? (
-          <Preview source={source} onError={(text) => setNotice({ text, error: true })} />
+          <Preview
+            source={source}
+            player={player!}
+            onError={(text) => setNotice({ text, error: true })}
+          />
         ) : (
           <EmptyEditor onOpen={openVideo} />
         )}
       </div>
-      <TimelineBar empty={empty || notYet} />
+      <TimelineBar source={source} player={player} noEdits={notYet} />
       <div className={styles.timelineOptions}>
         {source
           ? `${source.frames} frames at ${formatRate(source.rateNum, source.rateDen)}`

@@ -1,18 +1,33 @@
-import type { ReactNode } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
+import type { SourceInfo } from "../shared/ipc";
+import type { Player, PlayerState } from "./player";
+import { needsHours, timecode } from "./timecode";
 import styles from "./EditorApp.module.css";
 
 interface Props {
-  /** No video yet: nothing to play or edit. */
-  empty: boolean;
+  /** The open video and its player; null before one is open. */
+  source: SourceInfo | null;
+  player: Player | null;
+  /** Editing isn't built yet (Phase 2). */
+  noEdits: boolean;
 }
+
+const PAUSED: PlayerState = { frame: 0, speed: 0 };
+const nothing = () => () => {};
+const paused = () => PAUSED;
+
+/** Keeps focus off the transport, so Space and the arrows always reach the player. */
+const keepFocus = (e: React.MouseEvent) => e.preventDefault();
 
 function BarButton({
   label,
   disabled,
+  onClick,
   children,
 }: {
   label: string;
   disabled: boolean;
+  onClick?: () => void;
   children: ReactNode;
 }) {
   return (
@@ -22,6 +37,8 @@ function BarButton({
       aria-label={label}
       title={label}
       disabled={disabled}
+      onMouseDown={keepFocus}
+      onClick={onClick}
     >
       <svg viewBox="0 0 24 24" aria-hidden>
         {children}
@@ -30,49 +47,82 @@ function BarButton({
   );
 }
 
+/** The readout: the playhead and the length, as timecode or (a click) frame numbers. */
+function Readout({ source, frame }: { source: SourceInfo | null; frame: number }) {
+  const [inFrames, setInFrames] = useState(false);
+  let now = "00:00.00";
+  let total = "";
+  if (source) {
+    const { frames, rateNum: num, rateDen: den } = source;
+    const hours = needsHours(frames, num, den);
+    now = inFrames ? String(frame) : timecode(frame, num, den, hours);
+    total = inFrames ? String(frames - 1) : timecode(frames, num, den, hours);
+  }
+  return (
+    <button
+      type="button"
+      className={styles.timecode}
+      title="Click: timecode / frames"
+      disabled={!source}
+      onMouseDown={keepFocus}
+      onClick={() => setInFrames((f) => !f)}
+    >
+      {now}
+      {total && <small>/ {total}</small>}
+    </button>
+  );
+}
+
 /**
  * The bar under the preview: the time readout, the transport and the timeline's edits (the
- * mockup's; they arrive in Phases 1 and 2).
+ * mockup's; the edits arrive in Phase 2).
  */
-export function TimelineBar({ empty }: Props) {
+export function TimelineBar({ source, player, noEdits }: Props) {
+  const { frame, speed } = useSyncExternalStore(
+    player?.subscribe ?? nothing,
+    player?.getState ?? paused,
+  );
+  const off = !player;
   return (
     <div className={styles.timelineBar}>
-      <button
-        type="button"
-        className={styles.timecode}
-        title="Click: timecode / frames"
-        disabled={empty}
-      >
-        00:00:00:00
-      </button>
+      <Readout source={source} frame={frame} />
       <span className={styles.barDivider} />
-      <BarButton label="Start (Home)" disabled={empty}>
+      <BarButton label="Start (Home)" disabled={off} onClick={() => player?.seek(0)}>
         <path d="M6 5v14M18 6l-8 6 8 6z" />
       </BarButton>
-      <BarButton label="Previous edit (↑)" disabled={empty}>
+      <BarButton label="Previous edit (↑)" disabled={off || noEdits}>
         <path d="M11 6l-6 6 6 6M19 6l-6 6 6 6" />
       </BarButton>
-      <BarButton label="Back one frame (←)" disabled={empty}>
+      <BarButton label="Back one frame (←)" disabled={off} onClick={() => player?.step(-1)}>
         <path d="M15 6l-6 6 6 6" />
       </BarButton>
-      <BarButton label="Play (Space)" disabled={empty}>
-        <path d="M7 5l12 7-12 7z" />
-      </BarButton>
-      <BarButton label="Forward one frame (→)" disabled={empty}>
+      {speed === 0 ? (
+        <BarButton label="Play (Space)" disabled={off} onClick={() => player?.toggle()}>
+          <path d="M7 5l12 7-12 7z" />
+        </BarButton>
+      ) : (
+        <BarButton label="Pause (Space)" disabled={off} onClick={() => player?.toggle()}>
+          <path d="M8 5v14M16 5v14" />
+        </BarButton>
+      )}
+      <BarButton label="Forward one frame (→)" disabled={off} onClick={() => player?.step(1)}>
         <path d="M9 6l6 6-6 6" />
       </BarButton>
-      <BarButton label="Next edit (↓)" disabled={empty}>
+      <BarButton label="Next edit (↓)" disabled={off || noEdits}>
         <path d="M13 6l6 6-6 6M5 6l6 6-6 6" />
       </BarButton>
-      <BarButton label="End (End)" disabled={empty}>
+      <BarButton label="End (End)" disabled={off} onClick={() => player?.seek(player.frames - 1)}>
         <path d="M18 5v14M6 6l8 6-8 6z" />
       </BarButton>
+      {speed !== 0 && speed !== 1 ? (
+        <span className={styles.speed}>{speed < 0 ? `◀ ${-speed}×` : `${speed}×`}</span>
+      ) : null}
       <span className={styles.barDivider} />
       <button
         type="button"
         className={`${styles.barButton} ${styles.withText}`}
         title="Split at the playhead (S)"
-        disabled={empty}
+        disabled={off || noEdits}
       >
         <svg viewBox="0 0 24 24" aria-hidden>
           <path d="M12 3v18M8 7l-4 5 4 5M16 7l4 5-4 5" />
@@ -83,7 +133,7 @@ export function TimelineBar({ empty }: Props) {
         type="button"
         className={`${styles.barButton} ${styles.withText}`}
         title="Add a range at the playhead (R)"
-        disabled={empty}
+        disabled={off || noEdits}
       >
         <svg viewBox="0 0 24 24" aria-hidden>
           <path d="M4 6v12M20 6v12M4 12h16" />

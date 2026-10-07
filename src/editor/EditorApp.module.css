@@ -334,8 +334,26 @@
   text-align: left;
 }
 
+.timecode:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.timecode small {
+  margin-left: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 400;
+}
+
 .timecode:disabled {
   color: var(--text-3);
+}
+
+/* The speed while it isn't plain 1x forward (J, L again). */
+.speed {
+  padding: 0 6px;
+  color: var(--text-2);
+  font: 600 12px/1 var(--mono);
 }
 
 .barButton {

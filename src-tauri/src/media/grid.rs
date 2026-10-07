@@ -107,6 +107,44 @@ pub fn build(v: &VideoIndex) -> Option<Grid> {
     })
 }
 
+/// Where each grid frame's picture is in the source, in seconds on the player's clock (the
+/// presentation times, as `<video>` reports them): for each grid frame, when its source frame
+/// starts showing and the middle of that frame. The player seeks to the middle, so rounding
+/// can't land on a neighbour, and reads the start to tell which grid frame is on screen.
+pub fn times(v: &VideoIndex, g: &Grid) -> Vec<(f64, f64)> {
+    let mut shown: Vec<u32> = (0..v.len() as u32)
+        .filter(|&i| v.pts[i as usize] >= 0)
+        .collect();
+    shown.sort_by_key(|&i| v.pts[i as usize]);
+    // Where each source frame stops showing: when the next one starts, or after the last's
+    // duration.
+    let mut end = vec![0i64; v.len()];
+    for w in shown.windows(2) {
+        end[w[0] as usize] = v.pts[w[1] as usize];
+    }
+    if let Some(&last) = shown.last() {
+        let p = v.pts[last as usize];
+        let len = if v.last_duration > 0 {
+            i64::from(v.last_duration)
+        } else {
+            // No duration recorded: as long as the gap before it.
+            shown
+                .len()
+                .checked_sub(2)
+                .map_or(1, |i| p - v.pts[shown[i] as usize])
+        };
+        end[last as usize] = p + len.max(1);
+    }
+    let ts = f64::from(v.timescale);
+    g.source
+        .iter()
+        .map(|&i| {
+            let (a, b) = (v.pts[i as usize], end[i as usize]);
+            (a as f64 / ts, (a + b) as f64 / 2.0 / ts)
+        })
+        .collect()
+}
+
 /// The grid slot a time (ticks from the start) rounds to: `round(t * rate / timescale)`.
 fn slot(ticks: u64, timescale: u32, rate: Rate) -> u64 {
     let a = u128::from(ticks) * u128::from(rate.num);
@@ -238,6 +276,41 @@ mod tests {
         assert_eq!(g.frames, 7);
         assert_eq!(g.source, [0, 1, 1, 2, 3, 3, 4]);
         assert!(g.variable);
+    }
+
+    #[test]
+    fn times_seek_to_the_middle_of_each_shown_frame() {
+        // Frame 1 shows for two slots (frame 2 dropped); both grid frames seek inside it.
+        let pts = [0, 256, 768, 1024, 1536];
+        let v = track(15360, &pts, 256);
+        let t = times(&v, &build(&v).unwrap());
+        let s = |ticks: f64| ticks / 15360.0;
+        assert_eq!(t[0], (0.0, s(128.0)));
+        assert_eq!(t[1], (s(256.0), s(512.0)));
+        assert_eq!(t[2], t[1]);
+        assert_eq!(t[6], (s(1536.0), s(1664.0)));
+    }
+
+    #[test]
+    fn times_follow_presentation_order() {
+        // B-frames: decode order I P B, shown I B P.
+        let v = track(30, &[0, 2, 1], 1);
+        let t = times(&v, &build(&v).unwrap());
+        assert_eq!(
+            t,
+            [
+                (0.0, 0.5 / 30.0),
+                (1.0 / 30.0, 1.5 / 30.0),
+                (2.0 / 30.0, 2.5 / 30.0)
+            ]
+        );
+    }
+
+    #[test]
+    fn the_last_frame_without_a_duration_lasts_one_gap() {
+        let v = track(30, &[0, 1, 2], 0);
+        let t = times(&v, &build(&v).unwrap());
+        assert_eq!(t[2], (2.0 / 30.0, 2.5 / 30.0));
     }
 
     #[test]

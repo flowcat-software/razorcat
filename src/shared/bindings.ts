@@ -16,6 +16,8 @@ export const commands = {
 	path: string,
 	/**  Where the page reads the file (`media://`, see protocol.rs). */
 	url: string,
+	/**  Where the player reads the frame times (see protocol.rs). */
+	framesUrl: string,
 	/**  The file name, for the title and messages. */
 	name: string,
 	bytes: number | null,
@@ -98,6 +100,8 @@ export type SourceInfo = {
 	path: string,
 	/**  Where the page reads the file (`media://`, see protocol.rs). */
 	url: string,
+	/**  Where the player reads the frame times (see protocol.rs). */
+	framesUrl: string,
 	/**  The file name, for the title and messages. */
 	name: string,
 	bytes: number | null,

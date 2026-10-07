@@ -27,6 +27,8 @@ pub struct SourceInfo {
     pub path: String,
     /// Where the page reads the file (`media://`, see protocol.rs).
     pub url: String,
+    /// Where the player reads the frame times (see protocol.rs).
+    pub frames_url: String,
     /// The file name, for the title and messages.
     pub name: String,
     pub bytes: f64,
@@ -61,6 +63,7 @@ impl Source {
         SourceInfo {
             path: self.path.display().to_string(),
             url: crate::protocol::source_url(self.generation),
+            frames_url: crate::protocol::frames_url(self.generation),
             name: file_name(&self.path),
             bytes: std::fs::metadata(&self.path).map_or(0.0, |m| m.len() as f64),
             codec: codec_name(&self.info.codec),
