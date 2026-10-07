@@ -11,6 +11,7 @@ build one feature per increment, each one confirmed by him and committed before 
 `internal/` holds our private notes. It's a separate private git repo and is gitignored here:
 commit its changes in `internal/`, never in this repo. If it's missing, ask Richard for it.
 `internal/PLAN.md` is read up front. Read the others when needed:
+
 - `internal/decisions.md`: the decisions log. Append to it; search it rather than reading it
   whole.
 - `internal/research.md`: other tools.
@@ -23,8 +24,8 @@ If the plan turns out to be wrong, update `internal/PLAN.md` at the same time (c
 ## Reusing Vandal
 
 Much of Driveby starts as copies of Vandal's files (PLAN §6 lists which). Copy them and adapt;
-never import across the two repos, and never change Vandal from here unless Richard asks. Say
-in the commit message which Vandal file something came from. Vandal's `CLAUDE.md` and
+never import across the two repos, and never change Vandal from here unless Richard asks. Commit
+messages needn't say which Vandal file something came from. Vandal's `CLAUDE.md` and
 `DEVELOPMENT.md` explain the conventions being copied. Its private notes (`internal/`, e.g.
 `decisions.md`) explain why things are the way they are: search them when a copied piece seems
 odd.
