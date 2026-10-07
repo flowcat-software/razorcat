@@ -7,6 +7,7 @@ use crate::appearance::{self, WindowsAccent};
 use crate::editor;
 use crate::settings::{self, Settings};
 use crate::settings_window;
+use crate::sidecar::{self, MediaTools};
 use crate::state::AppState;
 
 /// The editor's page has loaded: shows the window. Returns a file to open, if Driveby was
@@ -43,4 +44,16 @@ pub fn update_settings(app: AppHandle, settings: Settings) -> Result<Settings, S
 #[specta::specta]
 pub fn open_settings(app: AppHandle) {
     settings_window::open(&app);
+}
+
+/// The bundled ffmpeg's and gifski's versions (Settings › About); runs each once.
+#[tauri::command]
+#[specta::specta]
+pub async fn media_tools() -> MediaTools {
+    tauri::async_runtime::spawn_blocking(sidecar::media_tools)
+        .await
+        .unwrap_or(MediaTools {
+            ffmpeg: None,
+            gifski: None,
+        })
 }

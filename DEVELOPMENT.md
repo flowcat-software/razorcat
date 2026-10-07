@@ -19,6 +19,7 @@ ffmpeg, export) and a React + TypeScript UI (`src/`, built with Vite).
 
 ```powershell
 npm install
+npm run fetch-tools   # once: the bundled ffmpeg and gifski (see Media tools)
 npm run tauri:dev
 ```
 
@@ -67,6 +68,28 @@ When `npm run security` fails with nothing changed on our side, a new advisory h
 published against something we use. Upgrade it (once the fix is a week old), or, if it doesn't
 apply to Driveby, add it to `ignore` in `src-tauri/deny.toml` with the reason. Yanked crates only
 warn: run `cargo update -p <crate>` once the replacement is a week old.
+
+## Media tools
+
+Driveby runs ffmpeg (decoding, proxies, export) and gifski (GIF export) as Tauri sidecars:
+separate programs shipped beside `driveby.exe` (`bundle.externalBin` in `tauri.conf.json`),
+started by `src-tauri/src/sidecar.rs` with no console window. Settings › About shows their
+versions, which proves they're there and run.
+
+`npm run fetch-tools` (`scripts/fetch-tools.mjs`) downloads them into `src-tauri/binaries/`
+(gitignored), named as Tauri expects (`ffmpeg-x86_64-pc-windows-msvc.exe`), with their licences.
+Each download is pinned by URL and SHA-256 and checked; the archives stay in
+`src-tauri/binaries/.cache/`, so a rerun needs no network. Without them the Rust build fails,
+naming the missing binary.
+
+- **ffmpeg:** [BtbN's](https://github.com/BtbN/FFmpeg-Builds) GPL build of the n8.1.3 release,
+  checked against the release's `checksums.sha256`. Pin a dated `autobuild-…` release, never
+  `latest` (it changes daily), and one at least a week old, like any dependency. BtbN prunes old
+  autobuilds: the cache keeps ours. It's the full build (165 MB) for now; a build with only what
+  Driveby uses comes before the beta.
+- **gifski:** the 1.34.0 release, checked against the SHA-256 GitHub records for the asset.
+
+To update one, change its `url` and `sha256` in the script, run it, and check About.
 
 ## The name
 

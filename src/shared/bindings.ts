@@ -24,6 +24,8 @@ export const commands = {
 	updateSettings: (settings: Settings) => typedError<Settings, string>(__TAURI_INVOKE("update_settings", { settings })),
 	/**  Open (or focus) the settings window. */
 	openSettings: () => __TAURI_INVOKE<void>("open_settings"),
+	/**  The bundled ffmpeg's and gifski's versions (Settings › About); runs each once. */
+	mediaTools: () => __TAURI_INVOKE<MediaTools>("media_tools"),
 };
 
 /** Events */
@@ -38,6 +40,12 @@ export type Appearance = {
 	theme?: ThemeMode,
 	/**  `"windows"` (the Windows accent color) or a `#rrggbb`. */
 	accent?: string,
+};
+
+/**  The bundled tools' versions, for Settings › About. `None` when one is missing or broken. */
+export type MediaTools = {
+	ffmpeg: string | null,
+	gifski: string | null,
 };
 
 /**  A file to open in the editor (from a second launch; later Open and drag-drop). */

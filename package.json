@@ -15,7 +15,8 @@
     "format": "prettier --write .",
     "test": "vitest run --passWithNoTests",
     "security": "npm audit --omit=dev && cargo deny --manifest-path src-tauri/Cargo.toml check advisories sources",
-    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json"
+    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "fetch-tools": "node scripts/fetch-tools.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

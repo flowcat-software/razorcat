@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getName } from "@tauri-apps/api/app";
 import logo from "../../../src-tauri/icons/128x128@2x.png";
 import pkg from "../../../package.json";
+import { commands, type MediaTools } from "../../shared/ipc";
 import type { AboutItem } from "../schema";
 import type { ControlProps } from "./index";
 import styles from "./controls.module.css";
@@ -11,6 +12,9 @@ export function AboutCard({ id }: ControlProps<AboutItem>) {
   // The product name from tauri.conf.json, so a rename is one edit there.
   const [name, setName] = useState("");
   useEffect(() => void getName().then(setName), []);
+  // The bundled ffmpeg and gifski, asked for their versions: proof they're there and run.
+  const [tools, setTools] = useState<MediaTools | null>(null);
+  useEffect(() => void commands.mediaTools().then(setTools), []);
   return (
     <div id={id} className={styles.about}>
       <img className={styles.aboutLogo} src={logo} alt="" />
@@ -26,6 +30,12 @@ export function AboutCard({ id }: ControlProps<AboutItem>) {
           <br />
           Free software under the GNU GPL v3.0 or later.
         </p>
+        {tools && (
+          <p className={styles.aboutMeta}>
+            Includes FFmpeg {tools.ffmpeg ?? "(missing)"} (GPL) and gifski{" "}
+            {tools.gifski ?? "(missing)"} (AGPL)
+          </p>
+        )}
       </div>
     </div>
   );

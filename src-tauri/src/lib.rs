@@ -4,6 +4,7 @@ mod commands;
 mod editor;
 mod settings;
 mod settings_window;
+mod sidecar;
 mod state;
 
 use std::path::Path;
@@ -21,6 +22,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::get_settings,
             commands::update_settings,
             commands::open_settings,
+            commands::media_tools,
         ])
         .events(collect_events![
             editor::OpenFile,

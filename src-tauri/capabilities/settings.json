@@ -1,9 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "settings",
-  "description": "Settings window: listen for settings changes and show itself once rendered. Changes go through Rust commands.",
+  "description": "Settings window: listen for settings changes, show itself once rendered, and read the product name (About). Changes go through Rust commands.",
   "windows": ["settings"],
   "permissions": [
+    "core:app:allow-name",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "core:window:allow-show",
