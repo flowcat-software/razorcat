@@ -40,6 +40,18 @@ export function EditorApp() {
     };
   }, []);
 
+  // Ctrl+, opens Settings, as in Vandal.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === "Comma" && e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
+        e.preventDefault();
+        void commands.openSettings();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const empty = true;
   return (
     <div className={styles.app}>

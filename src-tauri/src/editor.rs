@@ -32,7 +32,8 @@ pub struct OpenFile {
 /// Opens the editor window, hidden. Its title is the product name from `tauri.conf.json`, so a
 /// rename is one edit there.
 pub fn open(app: &AppHandle) -> tauri::Result<()> {
-    WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("editor.html".into()))
+    let builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("editor.html".into()));
+    crate::appearance::themed(app, builder)
         .title(crate::product_name(app))
         .inner_size(SIZE.0, SIZE.1)
         .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)

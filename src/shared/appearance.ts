@@ -1,14 +1,27 @@
-// Light / dark and the accent color. Until the settings window exists (scaffold 0.1d) both
-// follow Windows: theme.css does light/dark from the system, and this sets the Windows accent
-// and keeps it in step while the window is open.
+// Light / dark / follow Windows and the accent color. Rust sets
+// `data-theme` on the page root before it paints (appearance.rs); this keeps
+// it in step with the setting while the window is open, and sets the accent.
+// theme.css does the rest.
 
-import { onAccent } from "./accent";
-import { commands, events, type WindowsAccent } from "./ipc";
+import { accentShades, onAccent, type AccentShades } from "./accent";
+import { commands, events, type Settings, type WindowsAccent } from "./ipc";
 
-function applyAccent(shades: WindowsAccent | null): void {
+type Appearance = Partial<Settings["appearance"]>;
+
+/** The settings' accent, and Windows' (undefined until asked). */
+let accent = "windows";
+let windowsAccent: WindowsAccent | null | undefined;
+
+function applyTheme(a: Appearance | undefined): void {
+  document.documentElement.dataset.theme = a?.theme ?? "system";
+}
+
+/** Override theme.css's accent, or fall back to it (our blue) when there's none. */
+function applyAccent(): void {
   const style = document.documentElement.style;
+  const shades: AccentShades | null =
+    accent === "windows" ? (windowsAccent ?? null) : accentShades(accent);
   if (!shades) {
-    // theme.css's own accent (our blue).
     style.removeProperty("--accent");
     style.removeProperty("--on-accent");
     return;
@@ -20,8 +33,24 @@ function applyAccent(shades: WindowsAccent | null): void {
   );
 }
 
-/** Follow the Windows accent in this window. */
+function apply(a: Appearance | undefined): void {
+  applyTheme(a);
+  accent = a?.accent ?? "windows";
+  if (accent === "windows" && windowsAccent === undefined) {
+    void commands.windowsAccent().then((w) => {
+      windowsAccent = w;
+      applyAccent();
+    });
+  }
+  applyAccent();
+}
+
+/** Follow the appearance settings (and the Windows accent) in this window. */
 export function startAppearanceSync(): void {
-  void events.windowsAccentChanged.listen(({ payload }) => applyAccent(payload));
-  void commands.windowsAccent().then(applyAccent);
+  void events.settingsChanged.listen(({ payload }) => apply(payload.appearance));
+  void events.windowsAccentChanged.listen(({ payload }) => {
+    windowsAccent = payload;
+    applyAccent();
+  });
+  void commands.getSettings().then((s) => apply(s.appearance));
 }

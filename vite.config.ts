@@ -16,6 +16,7 @@ export default defineConfig(() => ({
     rolldownOptions: {
       input: {
         editor: page("editor"),
+        settings: page("settings"),
       },
     },
   },

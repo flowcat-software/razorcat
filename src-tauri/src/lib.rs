@@ -2,6 +2,8 @@ mod appearance;
 mod cli;
 mod commands;
 mod editor;
+mod settings;
+mod settings_window;
 mod state;
 
 use std::path::Path;
@@ -15,11 +17,15 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             commands::editor_ready,
-            commands::windows_accent
+            commands::windows_accent,
+            commands::get_settings,
+            commands::update_settings,
+            commands::open_settings,
         ])
         .events(collect_events![
             editor::OpenFile,
-            appearance::WindowsAccentChanged
+            appearance::WindowsAccentChanged,
+            settings::SettingsChanged,
         ])
 }
 
@@ -69,10 +75,11 @@ pub fn run() {
             editor::focus(app);
             open_from_args(app, &args, Path::new(&cwd));
         }))
+        .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(specta.invoke_handler())
         .setup(move |app| {
             specta.mount_events(app);
-            app.manage(AppState::default());
+            app.manage(AppState::new(settings::load(app.handle())));
             appearance::watch_windows_accent(app.handle());
             editor::open(app.handle())?;
             let args: Vec<String> = std::env::args().collect();

@@ -18,19 +18,44 @@ export const commands = {
 	light: string,
 	dark: string,
 } | null>("windows_accent"),
+	/**  The current settings. */
+	getSettings: () => __TAURI_INVOKE<Settings>("get_settings"),
+	/**  Validate, save and apply new settings; returns them as stored (normalized). */
+	updateSettings: (settings: Settings) => typedError<Settings, string>(__TAURI_INVOKE("update_settings", { settings })),
+	/**  Open (or focus) the settings window. */
+	openSettings: () => __TAURI_INVOKE<void>("open_settings"),
 };
 
 /** Events */
 export const events = {
 	openFile: makeEvent<OpenFile>("open-file"),
+	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	windowsAccentChanged: makeEvent<WindowsAccentChanged>("windows-accent-changed"),
 };
 
 /* Types */
+export type Appearance = {
+	theme?: ThemeMode,
+	/**  `"windows"` (the Windows accent color) or a `#rrggbb`. */
+	accent?: string,
+};
+
 /**  A file to open in the editor (from a second launch; later Open and drag-drop). */
 export type OpenFile = {
 	path: string,
 };
+
+export type Settings = {
+	version?: number,
+	/**  How the app looks. */
+	appearance?: Appearance,
+};
+
+/**  Rust → all windows: settings changed (from any source), here's the new state. */
+export type SettingsChanged = Settings;
+
+/**  Light, dark, or following Windows. */
+export type ThemeMode = "system" | "light" | "dark";
 
 /**
  *  The Windows accent color as Windows 11 apps use it: a darker shade on light backgrounds, a
@@ -45,6 +70,15 @@ export type WindowsAccent = {
 export type WindowsAccentChanged = WindowsAccent | null;
 
 /* Tauri Specta runtime */
+async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
+    try {
+        return { status: "ok", data: await result };
+    } catch (e) {
+        if (e instanceof Error) throw e;
+        return { status: "error", error: e as any };
+    }
+}
+
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;
 
 function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deserialize?: (payload: any) => T) {

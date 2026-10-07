@@ -1,4 +1,5 @@
 import { SETTINGS_ICON } from "../shared/icons";
+import { commands } from "../shared/ipc";
 import styles from "./EditorApp.module.css";
 
 interface Props {
@@ -59,7 +60,7 @@ export function StatusBar({ text, empty }: Props) {
         className={styles.iconButton}
         aria-label="Settings"
         title="Settings (Ctrl+,)"
-        disabled
+        onClick={() => void commands.openSettings()}
       >
         {SETTINGS_ICON}
       </button>
