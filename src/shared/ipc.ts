@@ -1,6 +1,6 @@
 // Typed IPC surface for the frontend. Always go through this module rather than raw `invoke`
 // strings; `bindings.ts` is generated from the Rust commands.
-import type { Settings as SettingsWire } from "./bindings";
+import type { Settings as SettingsWire, SourceInfo as SourceInfoWire } from "./bindings";
 
 export { commands, events } from "./bindings";
 export type * from "./bindings";
@@ -10,7 +10,7 @@ export type * from "./bindings";
  * - every field present: the structs are `#[serde(default)]` (so older files load), which
  *   specta renders as optional;
  * - `f64` as `number`: specta types it `number | null` because NaN serializes as null, but
- *   settings never contain NaN (validation replaces it). Array elements too.
+ *   settings and source facts never contain NaN (validation replaces it). Array elements too.
  */
 type Complete<T> = T extends readonly (infer U)[]
   ? Complete<NumberNotNull<U>>[]
@@ -20,3 +20,4 @@ type Complete<T> = T extends readonly (infer U)[]
 type NumberNotNull<T> = [T] extends [number | null] ? (null extends T ? number : T) : T;
 
 export type Settings = Complete<SettingsWire>;
+export type SourceInfo = Complete<SourceInfoWire>;

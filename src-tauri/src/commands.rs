@@ -8,14 +8,23 @@ use crate::editor;
 use crate::settings::{self, Settings};
 use crate::settings_window;
 use crate::sidecar::{self, MediaTools};
+use crate::source::SourceInfo;
 use crate::state::AppState;
 
-/// The editor's page has loaded: shows the window. Returns a file to open, if Driveby was
-/// started with one.
+/// The editor's page has loaded: shows the window, and opens a file Driveby was started with
+/// ([`editor::SourceOpened`] follows). Returns the open source, if the page reloaded.
 #[tauri::command]
 #[specta::specta]
-pub fn editor_ready(app: AppHandle, window: WebviewWindow) -> Option<String> {
+pub fn editor_ready(app: AppHandle, window: WebviewWindow) -> Option<SourceInfo> {
     editor::ready(&app, &window)
+}
+
+/// Show the Open dialog and open the picked file ([`editor::SourceOpened`] or
+/// [`editor::OpenFailed`] follows).
+#[tauri::command]
+#[specta::specta]
+pub async fn open_dialog(app: AppHandle) {
+    let _ = tauri::async_runtime::spawn_blocking(move || editor::ask_open(&app)).await;
 }
 
 /// The Windows accent color, if Windows has one.

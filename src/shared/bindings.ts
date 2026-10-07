@@ -9,10 +9,37 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	/**
-	 *  The editor's page has loaded: shows the window. Returns a file to open, if Driveby was
-	 *  started with one.
+	 *  The editor's page has loaded: shows the window, and opens a file Driveby was started with
+	 *  ([`editor::SourceOpened`] follows). Returns the open source, if the page reloaded.
 	 */
-	editorReady: () => __TAURI_INVOKE<string | null>("editor_ready"),
+	editorReady: () => __TAURI_INVOKE<{
+	path: string,
+	/**  The file name, for the title and messages. */
+	name: string,
+	bytes: number | null,
+	/**  "H.264", "HEVC", or the codec's code if unfamiliar. */
+	codec: string,
+	/**  The picture as shown: rotation applied. */
+	width: number,
+	height: number,
+	/**  Degrees clockwise the stored picture is turned to show it. */
+	rotation: number,
+	/**  The timeline rate, frames per second as `rate_num / rate_den`. */
+	rateNum: number,
+	rateDen: number,
+	/**  Timeline frames. */
+	frames: number,
+	/**  Seconds: timeline frames at the timeline rate. */
+	duration: number | null,
+	audioTracks: number,
+	/**  The source's frame timing varies (a phone clip, a recorder dropping frames). */
+	variable: boolean,
+} | null>("editor_ready"),
+	/**
+	 *  Show the Open dialog and open the picked file ([`editor::SourceOpened`] or
+	 *  [`editor::OpenFailed`] follows).
+	 */
+	openDialog: () => __TAURI_INVOKE<void>("open_dialog"),
 	/**  The Windows accent color, if Windows has one. */
 	windowsAccent: () => __TAURI_INVOKE<{
 	light: string,
@@ -30,8 +57,9 @@ export const commands = {
 
 /** Events */
 export const events = {
-	openFile: makeEvent<OpenFile>("open-file"),
+	openFailed: makeEvent<OpenFailed>("open-failed"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
+	sourceOpened: makeEvent<SourceOpened>("source-opened"),
 	windowsAccentChanged: makeEvent<WindowsAccentChanged>("windows-accent-changed"),
 };
 
@@ -48,9 +76,10 @@ export type MediaTools = {
 	gifski: string | null,
 };
 
-/**  A file to open in the editor (from a second launch; later Open and drag-drop). */
-export type OpenFile = {
-	path: string,
+/**  Rust → editor: a file couldn't be opened; the one before (if any) stays. */
+export type OpenFailed = {
+	/**  A sentence for the user. */
+	message: string,
 };
 
 export type Settings = {
@@ -61,6 +90,34 @@ export type Settings = {
 
 /**  Rust → all windows: settings changed (from any source), here's the new state. */
 export type SettingsChanged = Settings;
+
+/**  What the page shows about the open source. */
+export type SourceInfo = {
+	path: string,
+	/**  The file name, for the title and messages. */
+	name: string,
+	bytes: number | null,
+	/**  "H.264", "HEVC", or the codec's code if unfamiliar. */
+	codec: string,
+	/**  The picture as shown: rotation applied. */
+	width: number,
+	height: number,
+	/**  Degrees clockwise the stored picture is turned to show it. */
+	rotation: number,
+	/**  The timeline rate, frames per second as `rate_num / rate_den`. */
+	rateNum: number,
+	rateDen: number,
+	/**  Timeline frames. */
+	frames: number,
+	/**  Seconds: timeline frames at the timeline rate. */
+	duration: number | null,
+	audioTracks: number,
+	/**  The source's frame timing varies (a phone clip, a recorder dropping frames). */
+	variable: boolean,
+};
+
+/**  Rust → editor: a file was opened (it replaces the one before). */
+export type SourceOpened = SourceInfo;
 
 /**  Light, dark, or following Windows. */
 export type ThemeMode = "system" | "light" | "dark";

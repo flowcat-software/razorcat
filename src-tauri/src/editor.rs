@@ -1,32 +1,44 @@
 //! The main window: the editor. It opens hidden and shows once its page has loaded (no white
-//! flash), and takes the files Driveby is asked to open.
+//! flash), and opens the files Driveby is given: from Open, a drop, "Open with" or a second
+//! launch.
 
 use std::path::PathBuf;
 
 use serde::Serialize;
 use specta::Type;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri_plugin_dialog::DialogExt;
 use tauri_specta::Event;
 
+use crate::source::{self, SourceInfo};
 use crate::state::AppState;
 
 pub const LABEL: &str = "editor";
 const SIZE: (f64, f64) = (1280.0, 800.0);
 const MIN_SIZE: (f64, f64) = (720.0, 480.0);
 
+/// What the Open dialog offers. MP4 and MOV open directly; the rest are converted on open
+/// (Phase 1.6). Keep in step with `windows/hooks.nsh` ("Open with").
+pub const EXTENSIONS: &[&str] = &["mp4", "m4v", "mov", "mkv", "gif"];
+
 #[derive(Default)]
 pub struct EditorState {
-    /// The page has called `editor_ready`; files go to it as [`OpenFile`] events from now on.
+    /// The page has called `editor_ready`; files open in it from now on.
     ready: bool,
-    /// A file asked for before the page was ready; `editor_ready` hands it over.
+    /// A file asked for before the page was ready; opened when it is.
     pending: Option<PathBuf>,
 }
 
-/// A file to open in the editor (from a second launch; later Open and drag-drop).
+/// Rust → editor: a file was opened (it replaces the one before).
+#[derive(Clone, Serialize, Type, Event)]
+pub struct SourceOpened(pub SourceInfo);
+
+/// Rust → editor: a file couldn't be opened; the one before (if any) stays.
 #[derive(Clone, Serialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
-pub struct OpenFile {
-    pub path: String,
+pub struct OpenFailed {
+    /// A sentence for the user.
+    pub message: String,
 }
 
 /// Opens the editor window, hidden. Its title is the product name from `tauri.conf.json`, so a
@@ -43,8 +55,9 @@ pub fn open(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// The page has loaded: show the window and hand over a file asked for before then.
-pub fn ready(app: &AppHandle, window: &WebviewWindow) -> Option<String> {
+/// The page has loaded: show the window, and open a file asked for before then. Returns the
+/// open source, if any (the page reloaded).
+pub fn ready(app: &AppHandle, window: &WebviewWindow) -> Option<SourceInfo> {
     let pending = {
         let app_state = app.state::<AppState>();
         let mut state = app_state.editor.lock().unwrap();
@@ -54,28 +67,81 @@ pub fn ready(app: &AppHandle, window: &WebviewWindow) -> Option<String> {
     if let Err(e) = window.show().and_then(|_| window.set_focus()) {
         eprintln!("[editor] couldn't show the window: {e}");
     }
-    pending.map(|p| p.to_string_lossy().into_owned())
+    if let Some(path) = pending {
+        request_open(app, path);
+    }
+    let state = app.state::<AppState>();
+    let source = state.source.lock().unwrap();
+    source.as_ref().map(|s| s.info())
 }
 
 /// Open `path` in the editor: now if its page is ready, else once it is. The MVP edits one
-/// source, so a file asked for while another waits replaces it.
+/// source, so it replaces the one open (and a file asked for while another waits replaces that).
 pub fn request_open(app: &AppHandle, path: PathBuf) {
     eprintln!("[editor] open {}", path.display());
-    let ready = {
+    {
         let app_state = app.state::<AppState>();
         let mut state = app_state.editor.lock().unwrap();
         if !state.ready {
-            state.pending = Some(path.clone());
+            state.pending = Some(path);
+            return;
         }
-        state.ready
-    };
-    if ready {
-        let event = OpenFile {
-            path: path.to_string_lossy().into_owned(),
-        };
-        if let Err(e) = event.emit_to(app, LABEL) {
-            eprintln!("[editor] couldn't send the file to the page: {e}");
+    }
+    // Reading the index takes milliseconds, but it's file I/O: off the main thread.
+    let app = app.clone();
+    std::thread::spawn(move || match source::open(&path) {
+        Ok(opened) => {
+            if let Some(folder) = path.parent() {
+                crate::folders::opened_from(&app, folder);
+            }
+            let info = opened.info();
+            eprintln!(
+                "[editor] opened {}: {}x{} {} at {}/{} fps, {} frames{}",
+                info.name,
+                info.width,
+                info.height,
+                info.codec,
+                info.rate_num,
+                info.rate_den,
+                info.frames,
+                if info.variable { ", variable" } else { "" }
+            );
+            *app.state::<AppState>().source.lock().unwrap() = Some(opened);
+            if let Some(window) = app.get_webview_window(LABEL) {
+                let _ = window.set_title(&format!("{} — {}", info.name, crate::product_name(&app)));
+            }
+            if let Err(e) = SourceOpened(info).emit_to(&app, LABEL) {
+                eprintln!("[editor] couldn't tell the page: {e}");
+            }
         }
+        Err(message) => {
+            eprintln!("[editor] {message}");
+            let _ = OpenFailed { message }.emit_to(&app, LABEL);
+        }
+    });
+}
+
+/// The Open dialog, starting in the folder last opened from; opens the picked file.
+pub fn ask_open(app: &AppHandle) {
+    let mut dialog = app
+        .dialog()
+        .file()
+        .set_title("Open video")
+        .add_filter("Videos", EXTENSIONS)
+        .add_filter("All files", &["*"]);
+    if let Some(start) = crate::folders::open_start(app) {
+        dialog = dialog.set_directory(start);
+    }
+    if let Some(window) = app.get_webview_window(LABEL) {
+        dialog = dialog.set_parent(&window);
+    }
+    let picked = dialog.blocking_pick_file().and_then(|p| {
+        p.into_path()
+            .map_err(|e| eprintln!("[editor] can't open the picked file: {e}"))
+            .ok()
+    });
+    if let Some(path) = picked {
+        request_open(app, path);
     }
 }
 

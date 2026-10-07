@@ -2,18 +2,26 @@ import { SETTINGS_ICON } from "../shared/icons";
 import { commands } from "../shared/ipc";
 import styles from "./EditorApp.module.css";
 
-interface Props {
-  /** The hint or message on the left. */
+/** A message in the status bar (a file that couldn't open), as Vandal's. */
+export interface Notice {
   text: string;
+  error?: boolean;
+}
+
+interface Props {
+  /** The message on the left; "Ready" without one. */
+  notice: Notice | null;
   /** No video yet: the timeline's view controls don't apply. */
   empty: boolean;
 }
 
-/** The bottom row: hints, snapping, the timeline's zoom, and Settings (Vandal's gear). */
-export function StatusBar({ text, empty }: Props) {
+/** The bottom row: messages, snapping, the timeline's zoom, and Settings (Vandal's gear). */
+export function StatusBar({ notice, empty }: Props) {
   return (
     <footer className={styles.status}>
-      <span>{text}</span>
+      <span className={notice?.error ? styles.noticeError : undefined} role="status">
+        {notice?.text ?? "Ready"}
+      </span>
       <span className={styles.spacer} />
       <button
         type="button"

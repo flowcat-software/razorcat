@@ -1,8 +1,9 @@
 import styles from "./EditorApp.module.css";
 
 interface Props {
-  /** No video yet: only Open works (from Phase 1). */
+  /** No video yet: only Open works. */
   empty: boolean;
+  onOpen: () => void;
 }
 
 /** The tools that work on the picture, by the mockup; they arrive in Phases 3 and 4. */
@@ -33,7 +34,7 @@ const TOOLS = [
 ];
 
 /** The editor's top row: the picture's tools on the left, file actions on the right. */
-export function CommandBar({ empty }: Props) {
+export function CommandBar({ empty, onOpen }: Props) {
   return (
     <div className={styles.commandBar}>
       <div className={styles.tools}>
@@ -84,7 +85,7 @@ export function CommandBar({ empty }: Props) {
         className={styles.button}
         aria-label="Open (Ctrl+O)"
         title="Open (Ctrl+O)"
-        disabled
+        onClick={onOpen}
       >
         <svg viewBox="0 0 24 24" aria-hidden>
           <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
