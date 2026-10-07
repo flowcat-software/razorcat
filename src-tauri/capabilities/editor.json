@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "editor",
-  "description": "The editor window. Nothing yet: permissions are added with the features that need them.",
+  "description": "The editor window: listens for events from Rust (a file to open). No filesystem access: files are opened and read in Rust.",
   "windows": ["editor"],
-  "permissions": []
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
 }
