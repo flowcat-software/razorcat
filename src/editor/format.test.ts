@@ -31,6 +31,7 @@ describe("formatBytes", () => {
 describe("sourceFacts", () => {
   const base: SourceInfo = {
     path: "D:\\obs\\IMG_2821.MOV",
+    url: "http://media.localhost/source/1",
     name: "IMG_2821.MOV",
     bytes: 58_731_362,
     codec: "H.264",

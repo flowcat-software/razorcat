@@ -3,6 +3,7 @@ import { commands, events, type SourceInfo } from "../shared/ipc";
 import { CommandBar } from "./CommandBar";
 import { EmptyEditor } from "./EmptyEditor";
 import { formatRate, sourceFacts } from "./format";
+import { Preview } from "./Preview";
 import { StatusBar, type Notice } from "./StatusBar";
 import { TimelineBar } from "./TimelineBar";
 import styles from "./EditorApp.module.css";
@@ -87,7 +88,7 @@ export function EditorApp() {
       </div>
       <div className={styles.preview}>
         {source ? (
-          <p className={styles.message}>The picture arrives in Phase 1.3.</p>
+          <Preview source={source} onError={(text) => setNotice({ text, error: true })} />
         ) : (
           <EmptyEditor onOpen={openVideo} />
         )}

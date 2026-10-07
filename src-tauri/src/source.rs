@@ -2,6 +2,7 @@
 //! about it. The MVP edits one source; opening another replaces it.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
 use specta::Type;
@@ -11,6 +12,9 @@ use crate::media::mp4::{self, Mp4Error, Mp4Info};
 
 /// An opened source: what Rust keeps (the index, for the protocol, proxies and export later).
 pub struct Source {
+    /// Counts the files opened this run: the source's URL (`protocol::source_url`) changes with
+    /// each, so the page never reads a stale one.
+    pub generation: u64,
     pub path: PathBuf,
     pub info: Mp4Info,
     pub grid: Grid,
@@ -21,6 +25,8 @@ pub struct Source {
 #[serde(rename_all = "camelCase")]
 pub struct SourceInfo {
     pub path: String,
+    /// Where the page reads the file (`media://`, see protocol.rs).
+    pub url: String,
     /// The file name, for the title and messages.
     pub name: String,
     pub bytes: f64,
@@ -54,6 +60,7 @@ impl Source {
         let rate = self.grid.rate;
         SourceInfo {
             path: self.path.display().to_string(),
+            url: crate::protocol::source_url(self.generation),
             name: file_name(&self.path),
             bytes: std::fs::metadata(&self.path).map_or(0.0, |m| m.len() as f64),
             codec: codec_name(&self.info.codec),
@@ -111,7 +118,9 @@ pub fn open(path: &Path) -> Result<Source, String> {
     })?;
     let grid = grid::build(&info.video)
         .ok_or_else(|| format!("{} has no frames to show.", file_name(path)))?;
+    static OPENED: AtomicU64 = AtomicU64::new(0);
     Ok(Source {
+        generation: OPENED.fetch_add(1, Ordering::Relaxed) + 1,
         path: path.to_path_buf(),
         info,
         grid,

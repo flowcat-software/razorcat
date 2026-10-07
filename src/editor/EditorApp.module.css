@@ -231,9 +231,29 @@
 .preview {
   position: relative;
   flex: 1;
-  min-height: 200px;
+  min-height: 160px;
   overflow: hidden;
   background: var(--canvas);
+}
+
+.previewArea {
+  position: absolute;
+  inset: 0;
+}
+
+/* The fitted picture: crop, grow and markup will sit on it too. */
+.stage {
+  position: absolute;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 0.18);
+}
+
+.video {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
 }
 
 .message {
@@ -363,7 +383,9 @@
 .timeline {
   position: relative;
   height: 232px;
-  flex-shrink: 0;
+  /* In a short window the timeline gives way (to a minimum), so the status bar stays. */
+  flex-shrink: 1;
+  min-height: 96px;
   background: var(--tl-bg);
 }
 

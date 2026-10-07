@@ -14,6 +14,8 @@ export const commands = {
 	 */
 	editorReady: () => __TAURI_INVOKE<{
 	path: string,
+	/**  Where the page reads the file (`media://`, see protocol.rs). */
+	url: string,
 	/**  The file name, for the title and messages. */
 	name: string,
 	bytes: number | null,
@@ -94,6 +96,8 @@ export type SettingsChanged = Settings;
 /**  What the page shows about the open source. */
 export type SourceInfo = {
 	path: string,
+	/**  Where the page reads the file (`media://`, see protocol.rs). */
+	url: string,
 	/**  The file name, for the title and messages. */
 	name: string,
 	bytes: number | null,

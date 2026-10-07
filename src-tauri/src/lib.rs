@@ -5,6 +5,7 @@ mod editor;
 mod folders;
 mod media;
 mod placement;
+mod protocol;
 mod settings;
 mod settings_window;
 mod sidecar;
@@ -95,6 +96,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .register_asynchronous_uri_scheme_protocol(protocol::SCHEME, protocol::handle)
         .invoke_handler(specta.invoke_handler())
         .setup(move |app| {
             specta.mount_events(app);
