@@ -2,6 +2,9 @@ mod appearance;
 mod cli;
 mod commands;
 mod editor;
+// Used from Phase 1.2, when Open reads the file.
+#[allow(dead_code)]
+mod media;
 mod settings;
 mod settings_window;
 mod sidecar;
