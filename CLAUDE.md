@@ -79,8 +79,9 @@ npm run tauri:dev   # smoke run
   stop the app and run `cargo clean -p <crate>`.
 - **Tests that drive the desktop:** never act on whatever window is in the foreground. Find the
   target window by its owning process. A test once closed VS Code this way, twice.
-- **PowerShell:** run Node tooling from PowerShell, because Git Bash on this machine has an old
-  Node 16 first on PATH.
+- **PowerShell:** run Node tooling from PowerShell. Git Bash's nvm used to default to Node 16;
+  since 2026-10-07 it defaults to the system Node (as PowerShell), but a shell opened before
+  then, or one launched from it, can still carry Node 16 on its PATH: check `node --version`.
 - **Editing files:** never edit source files with Windows PowerShell `Get-Content`/
   `Set-Content`. PowerShell 5.1 reads UTF-8 as Windows-1252 and corrupts non-ASCII text.
 - **Synthetic input from PowerShell:**

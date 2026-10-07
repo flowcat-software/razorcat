@@ -11,7 +11,8 @@ ffmpeg, export) and a React + TypeScript UI (`src/`, built with Vite).
 - Rust stable (`x86_64-pc-windows-msvc`) and Visual Studio Build Tools with the "Desktop
   development with C++" workload.
 - Node LTS and npm 11.12 or later (for `.npmrc`'s `min-release-age` and `allow-git`). Run Node
-  tooling from PowerShell. On this machine, Git Bash puts an old Node 16 first on PATH.
+  tooling from PowerShell. In Git Bash, an nvm default other than `system` puts a different Node
+  first on PATH (`nvm alias default system` fixes it).
 - `cargo-deny`, for `npm run security`: `cargo install --locked cargo-deny` (a couple of
   minutes, once).
 
