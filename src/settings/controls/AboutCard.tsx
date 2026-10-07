@@ -7,6 +7,17 @@ import type { AboutItem } from "../schema";
 import type { ControlProps } from "./index";
 import styles from "./controls.module.css";
 
+/**
+ * The version, with the build number and commit for `npm run build:local` builds:
+ * "0.1.0+8 (2cf53f9, modified)". Dev builds show package.json's.
+ */
+function versionLabel(): string {
+  const { VITE_BUILD_VERSION, VITE_BUILD_COMMIT, VITE_BUILD_MODIFIED } = import.meta.env;
+  const version = VITE_BUILD_VERSION || pkg.version;
+  const details = [VITE_BUILD_COMMIT, VITE_BUILD_MODIFIED && "modified"].filter(Boolean);
+  return details.length ? `${version} (${details.join(", ")})` : version;
+}
+
 /** Settings › About: the logo, name and version, what the app is and who made it. */
 export function AboutCard({ id }: ControlProps<AboutItem>) {
   // The product name from tauri.conf.json, so a rename is one edit there.
@@ -20,7 +31,7 @@ export function AboutCard({ id }: ControlProps<AboutItem>) {
       <img className={styles.aboutLogo} src={logo} alt="" />
       <div className={styles.aboutText}>
         <p className={styles.aboutName}>
-          {name} <span className={styles.aboutVersion}>{pkg.version}</span>
+          {name} <span className={styles.aboutVersion}>{versionLabel()}</span>
         </p>
         <p className={styles.aboutDescription}>A small, fast, precise video editor.</p>
         <p className={styles.aboutMeta}>

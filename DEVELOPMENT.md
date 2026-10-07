@@ -91,6 +91,27 @@ naming the missing binary.
 
 To update one, change its `url` and `sha256` in the script, run it, and check About.
 
+## Build an installer
+
+```powershell
+npm run build:local
+```
+
+This builds a release installer with a build number: a per-user NSIS installer (no admin) in
+`src-tauri/target/release/bundle/nsis/`, for example `Driveby_0.1.0+8_x64-setup.exe`. It
+includes ffmpeg and gifski beside `driveby.exe`, and the licences (Driveby's, ffmpeg's GPL,
+gifski's AGPL) in its `licenses` folder. Settings › About shows the same version and the
+commit it was built from, for example `0.1.0+8 (2cf53f9)`, plus "modified" if there were
+uncommitted changes. For just the release exe, without an installer, use
+`npm run build:local -- --no-bundle`. Other arguments are passed on to `tauri build` too.
+
+- **The build number (`+8`) is the commit count** for now: every new commit gives the next
+  build a higher number, and nothing in the repo changes. Once there are release tags, it
+  becomes the count since the last one, as in Vandal.
+- **Digits only:** Windows file versions are numeric, so NSIS writes the number into the exe's
+  file version (`0.1.0.8`).
+- The installer has no updater and isn't code-signed yet: those come with releases.
+
 ## The name
 
 The product name may still change. It lives in `src-tauri/tauri.conf.json` (`productName`,
