@@ -18,6 +18,8 @@ pub struct Source {
     pub path: PathBuf,
     pub info: Mp4Info,
     pub grid: Grid,
+    /// Its proxy, once made or found in the cache (proxy.rs).
+    pub proxy: Option<PathBuf>,
 }
 
 /// What the page shows about the open source.
@@ -29,6 +31,8 @@ pub struct SourceInfo {
     pub url: String,
     /// Where the player reads the frame times (see protocol.rs).
     pub frames_url: String,
+    /// Where the player reads the proxy, if it's ready (else `ProxyReady` says when it is).
+    pub proxy_url: Option<String>,
     /// The file name, for the title and messages.
     pub name: String,
     pub bytes: f64,
@@ -64,6 +68,10 @@ impl Source {
             path: self.path.display().to_string(),
             url: crate::protocol::source_url(self.generation),
             frames_url: crate::protocol::frames_url(self.generation),
+            proxy_url: self
+                .proxy
+                .as_ref()
+                .map(|_| crate::protocol::proxy_url(self.generation)),
             name: file_name(&self.path),
             bytes: std::fs::metadata(&self.path).map_or(0.0, |m| m.len() as f64),
             codec: codec_name(&self.info.codec),
@@ -127,6 +135,7 @@ pub fn open(path: &Path) -> Result<Source, String> {
         path: path.to_path_buf(),
         info,
         grid,
+        proxy: None,
     })
 }
 

@@ -33,6 +33,7 @@ describe("sourceFacts", () => {
     path: "D:\\obs\\IMG_2821.MOV",
     url: "http://media.localhost/source/1",
     framesUrl: "http://media.localhost/frames/1",
+    proxyUrl: null,
     name: "IMG_2821.MOV",
     bytes: 58_731_362,
     codec: "H.264",

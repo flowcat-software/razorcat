@@ -1,17 +1,28 @@
 //! The bundled media tools (ffmpeg, gifski): Tauri sidecars (`bundle.externalBin`), copied next
 //! to Driveby's exe by both the installer and dev builds (as `ffmpeg.exe`, `gifski.exe`).
 //! `npm run fetch-tools` downloads the pinned builds. They run as child processes with no
-//! console window.
+//! console window, and `spawn` ties them to Driveby: they end when it does, even if it crashes.
 
+use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Child, Command};
+use std::sync::OnceLock;
+
+use windows::Win32::Foundation::HANDLE;
+use windows::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+};
 
 use serde::Serialize;
 use specta::Type;
 
 /// Windows' CREATE_NO_WINDOW: a console tool started from a GUI app would open a console.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// Windows' BELOW_NORMAL_PRIORITY_CLASS, for background work, so the app stays quick.
+const BELOW_NORMAL: u32 = 0x0000_4000;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Tool {
@@ -58,6 +69,49 @@ pub fn command(tool: Tool) -> Result<Command, String> {
     let mut cmd = Command::new(path(tool)?);
     cmd.creation_flags(CREATE_NO_WINDOW);
     Ok(cmd)
+}
+
+/// A command for background work (proxies): as `command`, at below-normal priority.
+pub fn background(tool: Tool) -> Result<Command, String> {
+    let mut cmd = Command::new(path(tool)?);
+    cmd.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL);
+    Ok(cmd)
+}
+
+/// Starts `cmd` inside Driveby's job object, which Windows closes when Driveby exits (or
+/// crashes), killing whatever is still running: no ffmpeg is left behind writing a proxy.
+pub fn spawn(cmd: &mut Command) -> std::io::Result<Child> {
+    let child = cmd.spawn()?;
+    if let Some(job) = job() {
+        let process = HANDLE(child.as_raw_handle());
+        if let Err(e) = unsafe { AssignProcessToJobObject(job, process) } {
+            eprintln!("[sidecar] couldn't tie the tool to Driveby: {e}");
+        }
+    }
+    Ok(child)
+}
+
+/// The job object, made once; it lives (open) as long as Driveby.
+fn job() -> Option<HANDLE> {
+    // HANDLE isn't Send; the raw value is, and a job handle is usable from any thread.
+    static JOB: OnceLock<Option<usize>> = OnceLock::new();
+    let raw = JOB.get_or_init(|| unsafe {
+        let job = CreateJobObjectW(None, None)
+            .map_err(|e| eprintln!("[sidecar] no job object: {e}"))
+            .ok()?;
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            (&raw const limits).cast(),
+            size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )
+        .map_err(|e| eprintln!("[sidecar] job object limits: {e}"))
+        .ok()?;
+        Some(job.0 as usize)
+    });
+    raw.map(|h| HANDLE(h as *mut _))
 }
 
 /// The version the tool reports, e.g. "n8.1.3-20260926" or "1.34.0".

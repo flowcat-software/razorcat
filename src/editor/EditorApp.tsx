@@ -57,6 +57,8 @@ function transportKey(e: KeyboardEvent, player: Player): boolean {
 export function EditorApp() {
   const [source, setSource] = useState<SourceInfo | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  /** The proxy of the open source: ready (its URL) or how far along; keyed by the source. */
+  const [proxy, setProxy] = useState<{ source: string; url?: string; done?: number } | null>(null);
   const player = useMemo(
     () => source && new Player(source.frames, source.rateNum / source.rateDen, source.framesUrl),
     [source],
@@ -90,6 +92,15 @@ export function EditorApp() {
         setNotice(null);
       }),
       events.openFailed.listen(({ payload }) => setNotice({ text: payload.message, error: true })),
+      events.proxyProgress.listen(({ payload }) => {
+        const done = payload.done ?? 0;
+        setProxy((p) => (p?.url && p.source === payload.source ? p : { ...payload, done }));
+      }),
+      events.proxyReady.listen(({ payload }) => setProxy(payload)),
+      events.proxyFailed.listen(({ payload }) => {
+        setProxy(null);
+        setNotice({ text: payload.message, error: true });
+      }),
     ])
       .then((unlisten) => {
         // Unmounted meanwhile (StrictMode mounts twice): stop listening, and leave reporting
@@ -127,6 +138,13 @@ export function EditorApp() {
   }, []);
 
   const empty = source === null;
+  const mine = source && proxy?.source === source.url ? proxy : null;
+  const proxyUrl = source?.proxyUrl ?? mine?.url ?? null;
+  // The proxy's progress shows until it's ready, unless there's something to say.
+  const making =
+    mine && !proxyUrl
+      ? { text: `Preparing fast stepping… ${Math.floor((mine.done ?? 0) * 100)}%` }
+      : null;
   // Controls stay disabled until the increment that makes them work: the timeline's zoom (1.7),
   // editing and export (Phase 2), the picture's tools (Phases 3-4).
   const notYet = true;
@@ -150,6 +168,7 @@ export function EditorApp() {
           <Preview
             source={source}
             player={player!}
+            proxyUrl={proxyUrl}
             onError={(text) => setNotice({ text, error: true })}
           />
         ) : (
@@ -163,7 +182,7 @@ export function EditorApp() {
           : "Open a video, then split with S, mark ranges with R, and trim by dragging a clip's edge."}
       </div>
       <div className={styles.timeline} />
-      <StatusBar notice={notice} empty={empty || notYet} />
+      <StatusBar notice={notice ?? making} empty={empty || notYet} />
     </div>
   );
 }

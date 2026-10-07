@@ -8,6 +8,8 @@ interface Props {
   source: SourceInfo;
   /** Drives the video (player.ts). */
   player: Player;
+  /** The proxy, once it's ready (proxy.rs). */
+  proxyUrl: string | null;
   /** The picture can't be shown (a codec WebView2 can't play). */
   onError: (message: string) => void;
 }
@@ -19,9 +21,10 @@ const MARGIN = 16;
  * The picture: the source's `<video>`, fitted into the preview at its shape as shown. The stage
  * (the fitted box) is where crop, grow and markup will sit later (Phases 3-4).
  */
-export function Preview({ source, player, onError }: Props) {
+export function Preview({ source, player, proxyUrl, onError }: Props) {
   const areaRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const proxyRef = useRef<HTMLVideoElement>(null);
   const [area, setArea] = useState({ width: 0, height: 0 });
   /**
    * The video's own size, rotated already if WebView2 honours the file's rotation flag; with the
@@ -46,6 +49,11 @@ export function Preview({ source, player, onError }: Props) {
     player.attach(videoRef.current);
     return () => player.attach(null);
   }, [player, source.url]);
+
+  useEffect(() => {
+    player.attachProxy(proxyRef.current);
+    return () => player.attachProxy(null);
+  }, [player, proxyUrl]);
 
   const stage = fitRect(area, { width: source.width, height: source.height }, MARGIN);
   const natural = measured?.url === source.url ? measured : null;
@@ -81,6 +89,17 @@ export function Preview({ source, player, onError }: Props) {
             )
           }
         />
+        {proxyUrl && (
+          // Already upright and the picture's shape: it fills the stage.
+          <video
+            key={proxyUrl}
+            ref={proxyRef}
+            className={styles.proxy}
+            src={proxyUrl}
+            preload="auto"
+            muted
+          />
+        )}
       </div>
     </div>
   );

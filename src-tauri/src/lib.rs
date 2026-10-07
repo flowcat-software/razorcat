@@ -6,6 +6,7 @@ mod folders;
 mod media;
 mod placement;
 mod protocol;
+mod proxy;
 mod settings;
 mod settings_window;
 mod sidecar;
@@ -33,6 +34,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .events(collect_events![
             editor::SourceOpened,
             editor::OpenFailed,
+            proxy::ProxyProgress,
+            proxy::ProxyReady,
+            proxy::ProxyFailed,
             appearance::WindowsAccentChanged,
             settings::SettingsChanged,
         ])

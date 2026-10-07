@@ -3,7 +3,7 @@
 //! that changes with every file opened (`/source/{generation}`), so nothing else on disk can be
 //! asked for and a stale `<video>` can't read the new file. Ported from spike 0.2.
 //!
-//! `/frames/{generation}` is the source's frame times (`grid::times`), for the player: two
+//! `/proxy/{generation}` is its proxy (proxy.rs), once made. `/frames/{generation}` is the source's frame times (`grid::times`), for the player: two
 //! little-endian f64s per grid frame (when its picture starts showing, and the middle of it).
 
 use std::fs::File;
@@ -28,6 +28,11 @@ pub fn source_url(generation: u64) -> String {
     format!("http://{SCHEME}.localhost/source/{generation}")
 }
 
+/// Where the page reads the proxy of the source opened as `generation`.
+pub fn proxy_url(generation: u64) -> String {
+    format!("http://{SCHEME}.localhost/proxy/{generation}")
+}
+
 /// Where the page reads the frame times of the source opened as `generation`.
 pub fn frames_url(generation: u64) -> String {
     format!("http://{SCHEME}.localhost/frames/{generation}")
@@ -37,6 +42,7 @@ pub fn frames_url(generation: u64) -> String {
 #[derive(Debug, PartialEq)]
 enum Route {
     Source(u64),
+    Proxy(u64),
     Frames(u64),
 }
 
@@ -51,13 +57,16 @@ pub fn handle<R: Runtime>(
         let path = req.uri().path().to_string();
         let state = app.state::<AppState>();
         let resp = match route(&path) {
-            Some(Route::Source(asked)) => {
+            Some(route @ (Route::Source(_) | Route::Proxy(_))) => {
                 let file = {
                     let source = state.source.lock().unwrap();
-                    source
-                        .as_ref()
-                        .filter(|s| s.generation == asked)
-                        .map(|s| s.path.clone())
+                    match (source.as_ref(), route) {
+                        (Some(s), Route::Source(asked)) if s.generation == asked => {
+                            Some(s.path.clone())
+                        }
+                        (Some(s), Route::Proxy(asked)) if s.generation == asked => s.proxy.clone(),
+                        _ => None,
+                    }
                 };
                 match file {
                     Some(file) => serve(&file, range(&req)).unwrap_or_else(|e| {
@@ -86,15 +95,16 @@ pub fn handle<R: Runtime>(
     });
 }
 
-/// `/source/{generation}` or `/frames/{generation}`.
+/// `/source/`, `/proxy/` or `/frames/`, then the generation.
 fn route(path: &str) -> Option<Route> {
-    if let Some(g) = path.strip_prefix("/source/") {
-        return g.parse().ok().map(Route::Source);
+    let (kind, generation) = path.strip_prefix('/')?.split_once('/')?;
+    let generation = generation.parse().ok()?;
+    match kind {
+        "source" => Some(Route::Source(generation)),
+        "proxy" => Some(Route::Proxy(generation)),
+        "frames" => Some(Route::Frames(generation)),
+        _ => None,
     }
-    path.strip_prefix("/frames/")?
-        .parse()
-        .ok()
-        .map(Route::Frames)
 }
 
 /// The frame times as bytes. The page fetches them (the video doesn't), so they need CORS.
@@ -171,6 +181,7 @@ mod tests {
     fn routes() {
         assert_eq!(route("/source/3"), Some(Route::Source(3)));
         assert_eq!(route("/frames/12"), Some(Route::Frames(12)));
+        assert_eq!(route("/proxy/4"), Some(Route::Proxy(4)));
         assert_eq!(route("/source/x"), None);
         assert_eq!(route("/frames/"), None);
         assert_eq!(route("/C:/Windows/win.ini"), None);

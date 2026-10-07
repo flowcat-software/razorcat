@@ -18,6 +18,8 @@ export const commands = {
 	url: string,
 	/**  Where the player reads the frame times (see protocol.rs). */
 	framesUrl: string,
+	/**  Where the player reads the proxy, if it's ready (else `ProxyReady` says when it is). */
+	proxyUrl: string | null,
 	/**  The file name, for the title and messages. */
 	name: string,
 	bytes: number | null,
@@ -62,6 +64,9 @@ export const commands = {
 /** Events */
 export const events = {
 	openFailed: makeEvent<OpenFailed>("open-failed"),
+	proxyFailed: makeEvent<ProxyFailed>("proxy-failed"),
+	proxyProgress: makeEvent<ProxyProgress>("proxy-progress"),
+	proxyReady: makeEvent<ProxyReady>("proxy-ready"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	sourceOpened: makeEvent<SourceOpened>("source-opened"),
 	windowsAccentChanged: makeEvent<WindowsAccentChanged>("windows-accent-changed"),
@@ -86,6 +91,28 @@ export type OpenFailed = {
 	message: string,
 };
 
+/**  Rust → editor: the proxy couldn't be made. Stepping stays on the original. */
+export type ProxyFailed = {
+	source: string,
+	/**  A sentence for the user. */
+	message: string,
+};
+
+/**  Rust → editor: the proxy for a source is this far along. */
+export type ProxyProgress = {
+	/**  The source it's for (its `SourceInfo::url`). */
+	source: string,
+	/**  0 to 1. */
+	done: number | null,
+};
+
+/**  Rust → editor: the proxy for a source is ready. */
+export type ProxyReady = {
+	source: string,
+	/**  Where the page reads it (see protocol.rs). */
+	url: string,
+};
+
 export type Settings = {
 	version?: number,
 	/**  How the app looks. */
@@ -102,6 +129,8 @@ export type SourceInfo = {
 	url: string,
 	/**  Where the player reads the frame times (see protocol.rs). */
 	framesUrl: string,
+	/**  Where the player reads the proxy, if it's ready (else `ProxyReady` says when it is). */
+	proxyUrl: string | null,
 	/**  The file name, for the title and messages. */
 	name: string,
 	bytes: number | null,

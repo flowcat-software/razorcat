@@ -127,7 +127,13 @@ pub fn request_open(app: &AppHandle, path: PathBuf) {
     // Reading the index takes milliseconds, but it's file I/O: off the main thread.
     let app = app.clone();
     std::thread::spawn(move || match source::open(&path) {
-        Ok(opened) => {
+        Ok(mut opened) => {
+            opened.proxy = crate::proxy::cached(&app, &path);
+            let make = opened.proxy.is_none().then_some((
+                opened.generation,
+                opened.grid.rate,
+                opened.grid.frames,
+            ));
             if let Some(folder) = path.parent() {
                 crate::folders::opened_from(&app, folder);
             }
@@ -149,6 +155,9 @@ pub fn request_open(app: &AppHandle, path: PathBuf) {
             }
             if let Err(e) = SourceOpened(info).emit_to(&app, LABEL) {
                 eprintln!("[editor] couldn't tell the page: {e}");
+            }
+            if let Some((generation, rate, frames)) = make {
+                crate::proxy::make(&app, generation, path, rate, frames);
             }
         }
         Err(message) => {

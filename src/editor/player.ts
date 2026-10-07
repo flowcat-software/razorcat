@@ -1,36 +1,85 @@
-// The player: the open source's `<video>`, driven in timeline frames.
+// The player: the open source's `<video>`, driven in timeline frames, with its proxy.
 //
-// The playhead is a timeline frame. Showing frame n seeks the video to the middle of n's picture
-// (`FrameTimes.seek`), so it lands on exactly that picture; while playing, each picture the video
-// presents (`requestVideoFrameCallback`) moves the playhead to the frame showing it. Seeks are
-// coalesced: while one is under way, only the latest target waits, so holding an arrow key never
-// queues up a backlog. The video can't play backward, so J does it by seeking frame after frame.
+// The playhead is a timeline frame. Showing frame n seeks the original to the middle of n's
+// picture (`FrameTimes.seek`), so it lands on exactly that picture; while playing, each picture
+// the original presents (`requestVideoFrameCallback`) moves the playhead to the frame showing it.
+// Seeks are coalesced: while one is under way, only the latest target waits, so holding an arrow
+// key never queues up a backlog.
+//
+// Once the proxy is ready (proxy.rs: small, a keyframe every 10 frames, proxy frame k is
+// timeline frame k), stepping seeks both. The proxy shows on top until the original has the same
+// frame on screen, then the original's full-quality picture takes over. Playing uses the
+// original; playing backward (which `<video>` can't) seeks frame after frame, on the proxy when
+// there is one.
 
 import { frameAt, parseFrameTimes, type FrameTimes } from "./frameTimes";
 
 export interface PlayerState {
   /** The playhead: the timeline frame shown (or being sought to). */
   frame: number;
-  /**
-   * Playing speed: 0 paused, 1 forward, 2/4/8 faster (L again), negative backward (J). Backward
-   * is choppy on long recordings until the proxy comes (1.5).
-   */
+  /** Playing speed: 0 paused, 1 forward, 2/4/8 faster (L again), negative backward (J). */
   speed: number;
 }
 
 /** The speeds J and L step through. */
 const FASTEST = 8;
 
+/** One `<video>` and its seeks, coalesced; and the time of the picture it has on screen. */
+class Seeker {
+  private seeking = false;
+  private queued: number | null = null;
+  /** The media time of the picture on screen; NaN before the first. */
+  shownTime = NaN;
+  private gone = false;
+
+  constructor(
+    readonly video: HTMLVideoElement,
+    /** Each picture presented, and each seek finished. */
+    private readonly changed: (meta?: VideoFrameCallbackMetadata) => void,
+  ) {
+    video.addEventListener("seeked", this.onSeeked);
+    const onFrame = (_now: number, meta: VideoFrameCallbackMetadata) => {
+      if (this.gone) return;
+      this.shownTime = meta.mediaTime;
+      this.changed(meta);
+      video.requestVideoFrameCallback(onFrame);
+    };
+    video.requestVideoFrameCallback(onFrame);
+  }
+
+  get busy() {
+    return this.seeking;
+  }
+
+  seek(time: number) {
+    if (this.seeking) {
+      this.queued = time;
+      return;
+    }
+    this.seeking = true;
+    this.video.currentTime = time;
+  }
+
+  private onSeeked = () => {
+    this.seeking = false;
+    const t = this.queued;
+    this.queued = null;
+    if (t !== null) this.seek(t);
+    else this.changed();
+  };
+
+  detach() {
+    this.gone = true;
+    this.video.removeEventListener("seeked", this.onSeeked);
+  }
+}
+
 export class Player {
   private state: PlayerState = { frame: 0, speed: 0 };
   private readonly listeners = new Set<() => void>();
-  private video: HTMLVideoElement | null = null;
   private times: FrameTimes | null = null;
-  /** A seek under way, and the frame waiting to be sought to after it. */
-  private seeking = false;
-  private queued: number | null = null;
-  /** The frame on screen, from the last presented picture; -1 before the first. */
-  private shown = -1;
+  private original: Seeker | null = null;
+  private proxy: Seeker | null = null;
   private backward = 0;
   private gone = false;
 
@@ -79,30 +128,27 @@ export class Player {
     this.listeners.forEach((fn) => fn());
   }
 
-  /** The `<video>` element, as React mounts it (null as it unmounts). */
-  attach = (video: HTMLVideoElement | null) => {
-    if (video === this.video) return;
-    const old = this.video;
-    if (old) {
+  /** The original's `<video>`, as React mounts it (null as it unmounts). */
+  attach(video: HTMLVideoElement | null) {
+    if (video === (this.original?.video ?? null)) return;
+    if (this.original) {
       this.stop();
-      old.removeEventListener("seeked", this.onSeeked);
-      old.removeEventListener("ended", this.onEnded);
+      this.original.video.removeEventListener("ended", this.onEnded);
+      this.original.detach();
     }
-    this.video = video;
-    this.seeking = false;
-    this.queued = null;
-    if (!video) return;
-    video.addEventListener("seeked", this.onSeeked);
-    video.addEventListener("ended", this.onEnded);
-    const onFrame = (_now: number, meta: VideoFrameCallbackMetadata) => {
-      // A replaced element stops here.
-      if (this.video !== video) return;
-      this.presented(meta);
-      video.requestVideoFrameCallback(onFrame);
-    };
-    video.requestVideoFrameCallback(onFrame);
+    this.original = video && new Seeker(video, this.onOriginal);
+    video?.addEventListener("ended", this.onEnded);
     this.show(this.state.frame);
-  };
+  }
+
+  /** The proxy's `<video>`, once there is one. */
+  attachProxy(video: HTMLVideoElement | null) {
+    if (video === (this.proxy?.video ?? null)) return;
+    this.proxy?.detach();
+    this.proxy = video && new Seeker(video, this.paint);
+    if (video) video.style.visibility = "hidden";
+    this.showProxy(this.state.frame);
+  }
 
   // --- transport ---
 
@@ -143,43 +189,42 @@ export class Player {
   }
 
   private play(speed: number) {
-    const v = this.video;
+    const v = this.original?.video;
     if (!v) return;
-    const last = this.frames - 1;
     this.stop();
     if (speed > 0) {
-      if (this.state.frame >= last) this.seek(0);
+      if (this.state.frame >= this.frames - 1) this.seek(0);
       v.playbackRate = speed;
       this.set({ speed });
+      this.paint();
       void v.play().catch((e: unknown) => {
         console.error("[player] play:", e);
         this.set({ speed: 0 });
       });
-    } else {
-      if (this.state.frame <= 0) return;
-      this.set({ speed });
-      const from = this.state.frame;
-      const t0 = performance.now();
-      const tick = (now: number) => {
-        const n = Math.max(0, from - Math.round(((now - t0) / 1000) * this.fps * -speed));
-        this.set({ frame: n });
-        this.show(n);
-        if (n === 0) {
-          this.backward = 0;
-          this.set({ speed: 0 });
-        } else {
-          this.backward = requestAnimationFrame(tick);
-        }
-      };
-      this.backward = requestAnimationFrame(tick);
+      return;
     }
+    if (this.state.frame <= 0) return;
+    this.set({ speed });
+    const from = this.state.frame;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const n = Math.max(0, from - Math.round(((now - t0) / 1000) * this.fps * -speed));
+      this.set({ frame: n });
+      // The proxy alone, if there is one: the original catches up when it stops.
+      if (this.proxy) this.showProxy(n);
+      else this.show(n);
+      if (n === 0) this.pause();
+      else this.backward = requestAnimationFrame(tick);
+    };
+    this.backward = requestAnimationFrame(tick);
   }
 
   /** Stops playing, either way, leaving the playhead where it is. */
   private stop() {
     cancelAnimationFrame(this.backward);
     this.backward = 0;
-    if (this.video && !this.video.paused) this.video.pause();
+    const v = this.original?.video;
+    if (v && !v.paused) v.pause();
     this.set({ speed: 0 });
   }
 
@@ -187,41 +232,64 @@ export class Player {
     return Math.max(0, Math.min(this.frames - 1, Math.round(n)));
   }
 
-  // --- the video ---
+  // --- the videos ---
 
-  /** Seeks the video to frame `n`'s picture, or queues it behind the seek under way. */
+  /** Seeks the original, and the proxy if there is one, to frame `n`. */
   private show(n: number) {
-    const v = this.video;
-    if (!v || !this.times) return;
-    if (this.seeking) {
-      this.queued = n;
-      return;
-    }
-    this.seeking = true;
-    v.currentTime = this.times.seek[n];
+    if (!this.times) return;
+    this.original?.seek(this.times.seek[n]);
+    this.showProxy(n);
   }
 
-  private onSeeked = () => {
-    this.seeking = false;
-    const n = this.queued;
-    this.queued = null;
-    if (n !== null) this.show(n);
+  private showProxy(n: number) {
+    const p = this.proxy;
+    if (!p) return;
+    // The proxy can end a frame short of the grid.
+    const last = Number.isFinite(p.video.duration)
+      ? Math.floor(p.video.duration * this.fps - 0.5)
+      : n;
+    p.seek((Math.min(n, last) + 0.5) / this.fps);
+    this.paint();
+  }
+
+  /** Whether the original has the playhead's picture on screen. */
+  private originalShowsFrame() {
+    const o = this.original;
+    if (!o || !this.times || o.busy) return false;
+    return Math.abs(o.shownTime - this.times.start[this.state.frame]) < 1e-3;
+  }
+
+  /** Puts the proxy on top while it's nearer the playhead than the original. */
+  private paint = () => {
+    const p = this.proxy;
+    if (!p) return;
+    const k = Math.round(p.shownTime * this.fps - 0.5);
+    const proxyShowsFrame = !p.busy && k === this.state.frame;
+    let on: boolean;
+    if (this.state.speed > 0 || this.originalShowsFrame()) on = false;
+    else if (proxyShowsFrame) on = true;
+    else return;
+    p.video.style.visibility = on ? "visible" : "hidden";
+  };
+
+  private onOriginal = (meta?: VideoFrameCallbackMetadata) => {
+    if (meta && this.times) {
+      const n = frameAt(this.times.start, meta.mediaTime);
+      if (this.state.speed > 0) this.set({ frame: n });
+      else if (import.meta.env.DEV && !this.original?.busy && this.state.speed === 0) {
+        this.check(meta);
+      }
+    }
+    this.paint();
   };
 
   private onEnded = () => {
     this.stop();
     this.set({ frame: this.frames - 1 });
+    this.paint();
   };
 
-  /** Every picture the video presents: while playing forward, it moves the playhead. */
-  private presented(meta: VideoFrameCallbackMetadata) {
-    if (!this.times) return;
-    this.shown = frameAt(this.times.start, meta.mediaTime);
-    if (this.state.speed > 0) this.set({ frame: this.shown });
-    else if (import.meta.env.DEV && !this.seeking && this.state.speed === 0) this.check(meta);
-  }
-
-  /** Development: paused, the picture on screen must be the playhead's. */
+  /** Development: paused, the original's picture must be the playhead's. */
   private check(meta: VideoFrameCallbackMetadata) {
     const want = this.times!.start[this.state.frame];
     if (Math.abs(meta.mediaTime - want) > 1e-3) {
@@ -230,10 +298,5 @@ export class Player {
           `showing ${meta.mediaTime.toFixed(6)} s`,
       );
     }
-  }
-
-  /** The frame whose picture is on screen (tests and checks). */
-  get shownFrame() {
-    return this.shown;
   }
 }
