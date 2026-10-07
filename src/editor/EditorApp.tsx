@@ -1,8 +1,17 @@
 import { useEffect, useState } from "react";
 import { commands, events } from "../shared/ipc";
+import { CommandBar } from "./CommandBar";
+import { EmptyEditor } from "./EmptyEditor";
+import { StatusBar } from "./StatusBar";
+import { TimelineBar } from "./TimelineBar";
+import styles from "./EditorApp.module.css";
 
-// The main window. An empty shell until the layout lands (scaffold 0.1c); for now it shows the
-// file it was asked to open, which Phase 1 will actually open.
+/**
+ * The main window (mockup/main.html). Two halves: above the preview, the picture (the command
+ * bar's tools and their options); below it, time (the timeline bar, the timeline's options,
+ * the timeline). For now it's the empty frame; the file it's asked to open shows in the status
+ * bar until Phase 1 opens it.
+ */
 export function EditorApp() {
   const [file, setFile] = useState<string | null>(null);
 
@@ -31,10 +40,19 @@ export function EditorApp() {
     };
   }, []);
 
+  const empty = true;
   return (
-    <main style={{ padding: 16, fontFamily: "system-ui, sans-serif" }}>
-      <p>Driveby</p>
-      {file && <p>To open: {file}</p>}
-    </main>
+    <div className={styles.app}>
+      <CommandBar empty={empty} />
+      <div className={styles.optionsBar}>{empty && "No video open"}</div>
+      <div className={styles.preview}>{empty && <EmptyEditor />}</div>
+      <TimelineBar empty={empty} />
+      <div className={styles.timelineOptions}>
+        {empty &&
+          "Open a video, then split with S, mark ranges with R, and trim by dragging a clip's edge."}
+      </div>
+      <div className={styles.timeline} />
+      <StatusBar text={file ? `Asked to open ${file}` : "Ready"} empty={empty} />
+    </div>
   );
 }

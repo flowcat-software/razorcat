@@ -1,0 +1,423 @@
+/* The editor window (mockup/main.html). Two halves: above the preview, the picture (the
+   command bar's tools and their options bar); below it, time (the timeline bar, the timeline
+   options bar, the timeline). Styles follow Vandal's editor. */
+
+.app {
+  /* App chrome, not a document: no stray text selection. */
+  user-select: none;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  /* Chrome that doesn't fit is cut, never scrolled. */
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* ---- command bar: tools on the left, file actions on the right (Vandal's) ---- */
+
+.commandBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 48px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  container-type: inline-size;
+}
+
+.commandBar svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Narrow windows: the action buttons drop their labels (tooltips remain). */
+@container (max-width: 720px) {
+  .label {
+    display: none;
+  }
+}
+
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tool {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+}
+
+.tool:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.tool[aria-pressed="true"] {
+  background: var(--selected);
+  color: var(--accent);
+}
+
+/* The active tool's accent pill. */
+.tool[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  left: 11px;
+  bottom: 2px;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.tool:disabled {
+  color: var(--text-3);
+}
+
+.toolbarDivider {
+  width: 1px;
+  height: 24px;
+  margin: 0 6px;
+  background: var(--border);
+}
+
+.button {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 0 12px 0 10px;
+  border: 0;
+  border-radius: 6px;
+  white-space: nowrap;
+  background: var(--button-bg);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  color: var(--text);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--button-bg-hover);
+}
+
+.button:active:not(:disabled) {
+  background: var(--button-bg-active);
+}
+
+.split {
+  position: relative;
+  display: flex;
+  height: 34px;
+  border-radius: 6px;
+  background: var(--accent);
+}
+
+.splitMain,
+.splitMore {
+  display: flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--on-accent);
+}
+
+.splitMain {
+  gap: 8px;
+  padding: 0 12px 0 10px;
+  border-radius: 6px 0 0 6px;
+  white-space: nowrap;
+}
+
+.splitMore {
+  justify-content: center;
+  width: 30px;
+  padding: 0;
+  border-left: 1px solid rgb(255 255 255 / 0.3);
+  border-radius: 0 6px 6px 0;
+}
+
+.splitMore svg {
+  width: 14px;
+  height: 14px;
+}
+
+.splitMain:hover:not(:disabled),
+.splitMore:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.1);
+}
+
+.button:disabled {
+  opacity: 0.6;
+}
+
+/* An accent fill reads as live even when faded: disabled, it turns into a plain button. */
+.split:has(:disabled) {
+  background: var(--button-bg);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+}
+
+.split:has(:disabled) .splitMain,
+.split:has(:disabled) .splitMore {
+  color: var(--text-3);
+}
+
+.split:has(:disabled) .splitMore {
+  border-left-color: var(--control-border);
+}
+
+/* ---- the two options bars: the picture's (top) and the timeline's (bottom) ---- */
+
+.optionsBar,
+.timelineOptions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 0 12px;
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.optionsBar {
+  /* Above the preview, so option menus open over it. */
+  position: relative;
+  z-index: 5;
+  height: 44px;
+  box-shadow:
+    inset 0 1px 0 var(--border),
+    inset 0 -1px 0 var(--border);
+}
+
+/* Always shown, so selecting never moves the timeline. */
+.timelineOptions {
+  height: 36px;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+/* ---- preview ---- */
+
+.preview {
+  position: relative;
+  flex: 1;
+  min-height: 200px;
+  overflow: hidden;
+  background: var(--canvas);
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.emptyCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.emptyCard svg {
+  width: 20px;
+  height: 20px;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.emptyHint {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.emptyHint kbd {
+  font: 12px var(--mono);
+}
+
+/* ---- the timeline bar: time readout, transport, edits ---- */
+
+.timelineBar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  flex-shrink: 0;
+  padding: 0 10px;
+  background: var(--surface);
+  box-shadow:
+    inset 0 1px 0 var(--border),
+    inset 0 -1px 0 var(--border);
+  overflow: hidden;
+}
+
+.timelineBar svg {
+  width: 18px;
+  height: 18px;
+}
+
+.timecode {
+  min-width: 128px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: 600 15px/1 var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.timecode:disabled {
+  color: var(--text-3);
+}
+
+.barButton {
+  height: 28px;
+  min-width: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.barButton:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.barButton:disabled {
+  color: var(--text-3);
+}
+
+.withText {
+  padding: 0 9px;
+}
+
+.kbd {
+  font: 11px/1 var(--mono);
+  color: var(--text-3);
+}
+
+.barDivider {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--border);
+}
+
+/* ---- timeline ---- */
+
+.timeline {
+  position: relative;
+  height: 232px;
+  flex-shrink: 0;
+  background: var(--tl-bg);
+}
+
+/* ---- status bar (Vandal's) ---- */
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0 8px 0 12px;
+  box-shadow: inset 0 1px 0 var(--border);
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* Only the hint line gives way in a narrow window; the controls keep their size. */
+.status > * {
+  flex-shrink: 0;
+}
+
+.status > :first-child {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status svg {
+  width: 14px;
+  height: 14px;
+}
+
+.divider {
+  width: 1px;
+  height: 14px;
+  margin: 0 6px;
+  background: var(--border);
+}
+
+.iconButton,
+.textButton {
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.iconButton {
+  width: 24px;
+  padding: 0;
+}
+
+.textButton {
+  padding: 0 8px;
+}
+
+.iconButton:hover:not(:disabled),
+.textButton:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.iconButton:disabled,
+.textButton:disabled {
+  color: var(--text-3);
+}

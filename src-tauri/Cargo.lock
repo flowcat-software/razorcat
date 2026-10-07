@@ -872,6 +872,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-single-instance",
  "tauri-specta",
+ "windows",
 ]
 
 [[package]]

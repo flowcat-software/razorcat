@@ -1,0 +1,82 @@
+/* Design tokens shared by all windows: light, dark, or following Windows. Values follow
+   Windows 11's Fluent palette, as Vandal's. */
+
+:root {
+  /* Follow Windows unless the setting says otherwise (data-theme, see
+     src/shared/appearance.ts). Every color token is light-dark(light, dark). */
+  color-scheme: light dark;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+
+  --accent: light-dark(#1f6fe5, #6aa7ff);
+  --on-accent: light-dark(#fff, #0b1a33);
+  --focus: light-dark(#1b1b1b, #fff);
+
+  --bg: light-dark(#f3f3f3, #202020);
+  --bg-nav: var(--bg);
+  --surface: light-dark(#fbfbfb, #2b2b2b);
+  /* The backdrop around the picture. */
+  --canvas: light-dark(#e4e4e4, #171717);
+  --border: light-dark(rgb(0 0 0 / 0.07), rgb(255 255 255 / 0.06));
+  /* Between the rows of a settings card: the page background, a gap in the card. */
+  --divider: light-dark(#f3f3f3, #202020);
+  --hover: light-dark(rgb(0 0 0 / 0.04), rgb(255 255 255 / 0.05));
+  --selected: light-dark(rgb(0 0 0 / 0.06), rgb(255 255 255 / 0.07));
+
+  --text: light-dark(#1b1b1b, #fff);
+  --text-2: light-dark(#5d5d5d, #c5c5c5);
+  --text-3: light-dark(#c4c4c4, #5a5a5a);
+
+  --control-bg: light-dark(#fff, rgb(255 255 255 / 0.06));
+  --control-bg-hover: light-dark(#f9f9f9, rgb(255 255 255 / 0.08));
+  --control-bg-focus: light-dark(#fff, #1f1f1f);
+  --control-border: light-dark(rgb(0 0 0 / 0.14), rgb(255 255 255 / 0.1));
+  /* An add-on segment inside a control (a value box's remove button). */
+  --control-addon: light-dark(rgb(0 0 0 / 0.04), rgb(0 0 0 / 0.2));
+  --button-bg: light-dark(#fbfbfb, rgb(255 255 255 / 0.06));
+  --button-bg-hover: light-dark(#f6f6f6, rgb(255 255 255 / 0.09));
+  --button-bg-active: light-dark(#f0f0f0, rgb(255 255 255 / 0.04));
+  --thumb-ring: light-dark(#fff, #454545);
+
+  --error-bg: light-dark(#fde7e9, #442726);
+  --error-text: light-dark(#c42b1c, #ff99a4);
+  --error-border: light-dark(rgb(196 43 28 / 0.25), rgb(255 153 164 / 0.25));
+  /* Allowed but worth knowing (Windows' caution InfoBar colors). */
+  --warning-bg: light-dark(#fff4ce, #433519);
+  --warning-border: light-dark(rgb(157 93 0 / 0.3), rgb(252 225 0 / 0.25));
+  /* A delete button's hover (as Windows' close button), with white on it. */
+  --danger: light-dark(#c42b1c, #b02719); /* dark: 10% darker, less glaring */
+  --success-text: light-dark(#0f7b0f, #6ccb5f);
+
+  /* The timeline (mockup/main.html). */
+  --tl-bg: light-dark(#ececec, #1c1c1c);
+  --tl-lane: light-dark(#e2e2e2, #232323);
+  --clip: light-dark(#3d6fb8, #34598f);
+  --clip-sel: light-dark(#2a5aa3, #4570b0);
+  --mark: light-dark(#8a5cc4, #6f4aa0);
+  --range: light-dark(rgb(240 160 0 / 0.3), rgb(255 190 40 / 0.22));
+  --range-edge: light-dark(#d08a00, #ffbe28);
+  --playhead: light-dark(#e0352b, #ff5a4f);
+  /* The snap guide: neutral, so it can't be mistaken for a range (amber) or the playhead (red). */
+  --snap: light-dark(#1b1b1b, #ffffff);
+  --mono: "Cascadia Mono", Consolas, monospace;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}

@@ -1,3 +1,4 @@
+mod appearance;
 mod cli;
 mod commands;
 mod editor;
@@ -12,8 +13,14 @@ use crate::state::AppState;
 
 fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
-        .commands(collect_commands![commands::editor_ready])
-        .events(collect_events![editor::OpenFile])
+        .commands(collect_commands![
+            commands::editor_ready,
+            commands::windows_accent
+        ])
+        .events(collect_events![
+            editor::OpenFile,
+            appearance::WindowsAccentChanged
+        ])
 }
 
 #[cfg(debug_assertions)]
@@ -66,6 +73,7 @@ pub fn run() {
         .setup(move |app| {
             specta.mount_events(app);
             app.manage(AppState::default());
+            appearance::watch_windows_accent(app.handle());
             editor::open(app.handle())?;
             let args: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().unwrap_or_default();

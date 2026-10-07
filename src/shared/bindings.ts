@@ -13,11 +13,17 @@ export const commands = {
 	 *  started with one.
 	 */
 	editorReady: () => __TAURI_INVOKE<string | null>("editor_ready"),
+	/**  The Windows accent color, if Windows has one. */
+	windowsAccent: () => __TAURI_INVOKE<{
+	light: string,
+	dark: string,
+} | null>("windows_accent"),
 };
 
 /** Events */
 export const events = {
 	openFile: makeEvent<OpenFile>("open-file"),
+	windowsAccentChanged: makeEvent<WindowsAccentChanged>("windows-accent-changed"),
 };
 
 /* Types */
@@ -25,6 +31,18 @@ export const events = {
 export type OpenFile = {
 	path: string,
 };
+
+/**
+ *  The Windows accent color as Windows 11 apps use it: a darker shade on light backgrounds, a
+ *  lighter one on dark (WinUI's AccentDark1 and AccentLight2), as `#rrggbb`.
+ */
+export type WindowsAccent = {
+	light: string,
+	dark: string,
+};
+
+/**  Rust → pages: the Windows accent changed (None: not available). */
+export type WindowsAccentChanged = WindowsAccent | null;
 
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;
