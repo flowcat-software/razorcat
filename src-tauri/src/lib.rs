@@ -4,6 +4,7 @@ mod commands;
 mod editor;
 mod folders;
 mod media;
+mod placement;
 mod settings;
 mod settings_window;
 mod sidecar;
@@ -106,14 +107,24 @@ pub fn run() {
             eprintln!("[startup] ready");
             Ok(())
         })
-        // A file dropped on the editor opens there (the first, if several: one source).
+        // The editor: a file dropped on it opens there (the first, if several: one source), and
+        // its place on screen is remembered.
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
-                if window.label() == editor::LABEL {
+            if window.label() != editor::LABEL {
+                return;
+            }
+            let app = window.app_handle();
+            match event {
+                tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
                     if let Some(path) = paths.first() {
-                        editor::request_open(window.app_handle(), path.clone());
+                        editor::request_open(app, path.clone());
                     }
                 }
+                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                    editor::moved(app, window)
+                }
+                tauri::WindowEvent::CloseRequested { .. } => editor::closing(app, window),
+                _ => {}
             }
         })
         .run(tauri::generate_context!())

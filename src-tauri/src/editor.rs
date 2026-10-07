@@ -10,6 +10,7 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder}
 use tauri_plugin_dialog::DialogExt;
 use tauri_specta::Event;
 
+use crate::placement::{self, Placement};
 use crate::source::{self, SourceInfo};
 use crate::state::AppState;
 
@@ -27,6 +28,11 @@ pub struct EditorState {
     ready: bool,
     /// A file asked for before the page was ready; opened when it is.
     pending: Option<PathBuf>,
+    /// Where the window is when not maximized or minimized, kept up to date as it moves, so
+    /// closing it maximized still remembers where it was.
+    normal: Option<Placement>,
+    /// It was maximized when it last closed: it shows maximized.
+    show_maximized: bool,
 }
 
 /// Rust → editor: a file was opened (it replaces the one before).
@@ -41,30 +47,61 @@ pub struct OpenFailed {
     pub message: String,
 }
 
-/// Opens the editor window, hidden. Its title is the product name from `tauri.conf.json`, so a
-/// rename is one edit there.
+/// Opens the editor window, hidden, where it was last time (if that's still on a screen), else
+/// centred. Its title is the product name from `tauri.conf.json`, so a rename is one edit there.
 pub fn open(app: &AppHandle) -> tauri::Result<()> {
+    let saved = placement::load(app);
     let builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("editor.html".into()));
-    crate::appearance::themed(app, builder)
+    let window = crate::appearance::themed(app, builder)
         .title(crate::product_name(app))
         .inner_size(SIZE.0, SIZE.1)
         .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)
         .center()
         .visible(false)
         .build()?;
+    placement::apply(app, &window, saved);
+    let app_state = app.state::<AppState>();
+    let mut state = app_state.editor.lock().unwrap();
+    state.normal = saved.normal;
+    state.show_maximized = saved.maximized;
     Ok(())
+}
+
+/// The window moved or resized: note where it is, unless it's maximized or minimized.
+pub fn moved(app: &AppHandle, window: &tauri::Window) {
+    if let Some(p) = placement::current(window) {
+        app.state::<AppState>().editor.lock().unwrap().normal = Some(p);
+    }
+}
+
+/// The window is closing: remember where it was for next time.
+pub fn closing(app: &AppHandle, window: &tauri::Window) {
+    let normal =
+        placement::current(window).or(app.state::<AppState>().editor.lock().unwrap().normal);
+    placement::save(
+        app,
+        placement::Saved {
+            normal,
+            maximized: placement::is_maximized(window),
+        },
+    );
 }
 
 /// The page has loaded: show the window, and open a file asked for before then. Returns the
 /// open source, if any (the page reloaded).
 pub fn ready(app: &AppHandle, window: &WebviewWindow) -> Option<SourceInfo> {
-    let pending = {
+    let (pending, maximized) = {
         let app_state = app.state::<AppState>();
         let mut state = app_state.editor.lock().unwrap();
         state.ready = true;
-        state.pending.take()
+        (state.pending.take(), state.show_maximized)
     };
-    if let Err(e) = window.show().and_then(|_| window.set_focus()) {
+    let shown = if maximized {
+        placement::show_maximized(window)
+    } else {
+        window.show()
+    };
+    if let Err(e) = shown.and_then(|_| window.set_focus()) {
         eprintln!("[editor] couldn't show the window: {e}");
     }
     if let Some(path) = pending {
