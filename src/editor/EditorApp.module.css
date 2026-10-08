@@ -622,3 +622,9 @@
   background: var(--border);
   margin: 4px 0;
 }
+
+/* A menu toggle's check, when it's on. */
+.menuCheck {
+  margin-right: 6px;
+  color: var(--accent);
+}

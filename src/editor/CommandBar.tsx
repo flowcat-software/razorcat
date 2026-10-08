@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { commands, type Settings } from "../shared/ipc";
 import { canRedo, canUndo, useDoc } from "./docStore";
 import { exportClip, exportEach, exportTimeline } from "./exports";
 import { Menu, type MenuItems } from "./Menu";
@@ -11,6 +12,8 @@ interface Props {
   notYet: boolean;
   /** An export is under way: another waits for it. */
   exporting: boolean;
+  /** For the menu's Save to default folder. */
+  settings: Settings | null;
   onOpen: () => void;
 }
 
@@ -42,14 +45,15 @@ const TOOLS = [
 ];
 
 /** The editor's top row: the picture's tools on the left, file actions on the right. */
-export function CommandBar({ empty, notYet, exporting, onOpen }: Props) {
+export function CommandBar({ empty, notYet, exporting, settings, onOpen }: Props) {
   const undoable = useDoc(canUndo);
   const redoable = useDoc(canRedo);
   const selected = useDoc((s) => s.selected);
   const clips = useDoc((s) => s.doc.clips.length);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const noExport = empty || exporting;
-  // The Export button's menu (the mockup's; Save to default folder comes in 2.7).
+  const saveToFolder = settings?.export.saveToFolder ?? false;
+  // The Export button's menu (the mockup's).
   const items: MenuItems = [
     { label: "Timeline as MP4", hint: "Ctrl+E", run: () => exportTimeline("mp4") },
     { label: "Timeline as GIF", run: () => exportTimeline("gif") },
@@ -69,6 +73,21 @@ export function CommandBar({ empty, notYet, exporting, onOpen }: Props) {
         },
       ];
     }),
+    "-",
+    {
+      label: "Save to default folder",
+      checked: saveToFolder,
+      title:
+        "No Save dialog: files go to the folder in Settings › Export, named from its templates",
+      run: () => {
+        if (!settings) return;
+        void commands.updateSettings({
+          ...settings,
+          export: { ...settings.export, saveToFolder: !saveToFolder },
+        });
+      },
+    },
+    { label: "Export settings…", run: () => void commands.openSettings("export") },
   ];
   return (
     <div className={styles.commandBar}>

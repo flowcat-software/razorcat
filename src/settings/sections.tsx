@@ -99,8 +99,50 @@ export const sections: Section[] = [
     id: "export",
     title: "Export",
     icon: ExportIcon,
-    description: "How exported files come out.",
+    description: "Where exported files go, what they're called, and how GIFs come out.",
     groups: [
+      {
+        title: "Files",
+        items: [
+          {
+            id: "saveToFolder",
+            kind: "toggle",
+            path: "export.saveToFolder",
+            label: "Save to the default folder",
+            description:
+              "Export without the Save dialog: files go to the folder below, named as below. Also in the Export button's menu.",
+            keywords: ["save", "default", "folder", "dialog", "export", "quick"],
+          },
+          {
+            id: "exportFolder",
+            kind: "folder",
+            path: "export.folder",
+            label: "Default folder",
+            description: "Where exports go with Save to the default folder on.",
+            defaultFolder: commands.defaultExportFolder,
+            keywords: ["folder", "export", "save", "location", "path"],
+          },
+          {
+            id: "timelineName",
+            kind: "text",
+            path: "export.timelineName",
+            label: "Timeline file name",
+            description: "{name} is the video's name. The Save dialog suggests it too.",
+            placeholder: "{name}-edit",
+            keywords: ["name", "file name", "template", "timeline", "export"],
+          },
+          {
+            id: "clipName",
+            kind: "text",
+            path: "export.clipName",
+            label: "Clip file names",
+            description:
+              "{name} is the video's name, {n} the clip's number: {nn} gives 01, 02..., {nnn} 001, 002...",
+            placeholder: "{name}-clip{nn}",
+            keywords: ["name", "file name", "template", "clip", "number", "export"],
+          },
+        ],
+      },
       {
         title: "GIF",
         items: [

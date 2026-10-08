@@ -129,6 +129,8 @@ export function EditorApp() {
   const [showThumbs, setShowThumbs] = useState(true);
   /** Development: the source to check (`--check-frames`, check.rs), once it's open. */
   const [checkFor, setCheckFor] = useState<{ source: string; edit: boolean } | null>(null);
+  /** The settings, as Rust last sent them (the export menu's toggle reads and sets them). */
+  const [settings, setSettings] = useState<Settings | null>(null);
   /** Settings › Timeline › Show waveform. */
   const [showWave, setShowWave] = useState(true);
   /** The waveform once it's made; keyed by the source. */
@@ -239,6 +241,7 @@ export function EditorApp() {
         setShowThumbs(thumbsOn(payload as Settings));
         setShowWave((payload as Settings).timeline.waveform);
         rangeOptions(payload as Settings);
+        setSettings(payload as Settings);
       }),
       // Proxies turned off mid-way: the progress goes.
       events.proxyStopped.listen(({ payload }) =>
@@ -262,6 +265,7 @@ export function EditorApp() {
           setShowThumbs(thumbsOn(s as Settings));
           setShowWave((s as Settings).timeline.waveform);
           rangeOptions(s as Settings);
+          setSettings(s as Settings);
         });
         return commands.editorReady();
       })
@@ -336,7 +340,7 @@ export function EditorApp() {
         openVideo();
       } else if (e.code === "Comma") {
         e.preventDefault();
-        void commands.openSettings();
+        void commands.openSettings(null);
       } else if (zoom !== undefined) {
         // Ctrl+= and Ctrl+− would zoom the page.
         e.preventDefault();
@@ -395,7 +399,13 @@ export function EditorApp() {
   const notYet = true;
   return (
     <div className={styles.app}>
-      <CommandBar empty={empty} notYet={notYet} exporting={exporting !== null} onOpen={openVideo} />
+      <CommandBar
+        empty={empty}
+        notYet={notYet}
+        exporting={exporting !== null}
+        settings={settings}
+        onOpen={openVideo}
+      />
       <div className={styles.optionsBar}>
         {source ? (
           <>

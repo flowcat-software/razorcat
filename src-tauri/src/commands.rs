@@ -48,11 +48,20 @@ pub fn update_settings(app: AppHandle, settings: Settings) -> Result<Settings, S
     settings::update(&app, settings)
 }
 
-/// Open (or focus) the settings window.
+/// Open (or focus) the settings window, at `section` if given (its id, e.g. "export").
 #[tauri::command]
 #[specta::specta]
-pub fn open_settings(app: AppHandle) {
-    settings_window::open(&app);
+pub fn open_settings(app: AppHandle, section: Option<String>) {
+    settings_window::open(&app, section.as_deref());
+}
+
+/// Where exports go when Settings › Export › Folder is empty, as the field shows it.
+#[tauri::command]
+#[specta::specta]
+pub fn default_export_folder(app: AppHandle) -> String {
+    crate::export::default_folder(&app)
+        .map(|p| crate::paths::for_settings(&p.to_string_lossy()))
+        .unwrap_or_default()
 }
 
 /// The bundled ffmpeg's and gifski's versions (Settings › About); runs each once.
@@ -189,8 +198,11 @@ pub fn cancel_export(app: AppHandle) {
 #[tauri::command]
 #[specta::specta]
 pub fn show_in_folder(path: String) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    // Raw: Explorer wants `/select,"C:\a b\c.mp4"`. Quoted as a whole (`.arg` quotes anything
+    // with a space), it can't read the path and opens Documents.
     std::process::Command::new("explorer.exe")
-        .arg(format!("/select,{path}"))
+        .raw_arg(format!("/select,\"{path}\""))
         .spawn()
         .map(drop)
         .map_err(|e| e.to_string())

@@ -55,20 +55,55 @@ pub const GIF_SIZES: [u32; 5] = [320, 480, 640, 800, 0];
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Export {
+    /// The export menu's "Save to default folder": no Save dialog; files go to `folder`, named
+    /// from the templates.
+    pub save_to_folder: bool,
+    /// Where, `%VARS%` allowed; empty: the Videos folder's Driveby folder.
+    pub folder: String,
+    /// The whole timeline's file name, without the extension: `{name}` is the video's name.
+    pub timeline_name: String,
+    /// A clip's file name: `{name}` as above, `{n}` the clip's number (`{nn}` at least two
+    /// digits, `{nnn}` three...).
+    pub clip_name: String,
     /// Frames per second, one of [`GIF_RATES`].
     pub gif_fps: u32,
     /// The longer side in pixels, one of [`GIF_SIZES`] (0: the video's size).
     pub gif_size: u32,
 }
 
+pub const TIMELINE_NAME: &str = "{name}-edit";
+pub const CLIP_NAME: &str = "{name}-clip{nn}";
+
 impl Default for Export {
     fn default() -> Self {
         // Spike 0.3: gifski at 20 fps and 480-640 px kept motion GIFs to a few MB a second.
         Self {
+            save_to_folder: false,
+            folder: String::new(),
+            timeline_name: TIMELINE_NAME.into(),
+            clip_name: CLIP_NAME.into(),
             gif_fps: 20,
             gif_size: 640,
         }
     }
+}
+
+/// A file-name template, trimmed (empty: `default`); an error for characters Windows doesn't
+/// allow in names.
+fn file_template(t: &str, default: &str, what: &str) -> Result<String, String> {
+    let t = t.trim();
+    if t.is_empty() {
+        return Ok(default.into());
+    }
+    if let Some(c) = t
+        .chars()
+        .find(|c| r#"\/:*?"<>|"#.contains(*c) || c.is_control())
+    {
+        return Err(format!(
+            "The {what} can't contain {c}: Windows doesn't allow it in file names."
+        ));
+    }
+    Ok(t.into())
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -190,6 +225,20 @@ pub fn validate(mut s: Settings) -> Result<Settings, String> {
     }
     if !GIF_SIZES.contains(&s.export.gif_size) {
         s.export.gif_size = Export::default().gif_size;
+    }
+    s.export.timeline_name = file_template(
+        &s.export.timeline_name,
+        TIMELINE_NAME,
+        "timeline's file name",
+    )?;
+    s.export.clip_name = file_template(&s.export.clip_name, CLIP_NAME, "clips' file names")?;
+    s.export.folder = s.export.folder.trim().to_string();
+    let folder = &s.export.folder;
+    if !folder.is_empty() && !crate::paths::resolve_dir(folder).is_absolute() {
+        return Err(format!(
+            "\"{folder}\" isn't a full folder path. Pick one with Browse, or type one like \
+             D:\\Exports."
+        ));
     }
     s.proxies.folder = s.proxies.folder.trim().to_string();
     let folder = &s.proxies.folder;
@@ -477,6 +526,18 @@ mod tests {
         assert_eq!(v["timeline"]["deleteRangesWithClip"], true);
         assert_eq!(v["export"]["gifFps"], 20);
         assert_eq!(v["export"]["gifSize"], 640);
+    }
+
+    #[test]
+    fn file_name_templates() {
+        let mut s = Settings::default();
+        s.export.timeline_name = "  ".into();
+        s.export.clip_name = " {name} part {n} ".into();
+        let ok = validate(s.clone()).unwrap();
+        assert_eq!(ok.export.timeline_name, "{name}-edit");
+        assert_eq!(ok.export.clip_name, "{name} part {n}");
+        s.export.clip_name = "{name}/{n}".into();
+        assert!(validate(s).unwrap_err().contains("can't contain /"));
     }
 
     #[test]

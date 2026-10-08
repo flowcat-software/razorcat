@@ -30,6 +30,13 @@ export interface ChoiceItem extends BaseItem {
   options: readonly { value: string; label: string }[];
 }
 
+/** A line of text (a file-name template). */
+export interface TextItem extends BaseItem {
+  kind: "text";
+  path: PathOf<Settings, string>;
+  placeholder?: string;
+}
+
 /** One of a fixed set of numbers, as joined buttons. */
 export interface NumberChoiceItem extends BaseItem {
   kind: "numberChoice";
@@ -71,7 +78,14 @@ export interface AboutItem extends BaseItem {
 }
 
 export type Item =
-  ToggleItem | ChoiceItem | NumberChoiceItem | AccentItem | FolderItem | ProxyLimitItem | AboutItem;
+  | ToggleItem
+  | ChoiceItem
+  | NumberChoiceItem
+  | TextItem
+  | AccentItem
+  | FolderItem
+  | ProxyLimitItem
+  | AboutItem;
 export type ItemKind = Item["kind"];
 
 export interface Group {

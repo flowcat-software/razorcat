@@ -95,7 +95,7 @@ export function StatusBar({ notice, empty }: Props) {
         className={styles.iconButton}
         aria-label="Settings"
         title="Settings (Ctrl+,)"
-        onClick={() => void commands.openSettings()}
+        onClick={() => void commands.openSettings(null)}
       >
         {SETTINGS_ICON}
       </button>

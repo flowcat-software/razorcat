@@ -7,6 +7,7 @@ import { AccentPicker } from "./AccentPicker";
 import { Choice, NumberChoice } from "./Choice";
 import { FolderInput } from "./FolderInput";
 import { ProxyLimit } from "./ProxyLimit";
+import { TextInput } from "./TextInput";
 import { Toggle } from "./Toggle";
 
 export interface ControlProps<I extends Item> {
@@ -31,6 +32,7 @@ export const controls: Registry = {
   toggle: { component: Toggle, layout: "inline" },
   choice: { component: Choice, layout: "inline" },
   numberChoice: { component: NumberChoice, layout: "inline" },
+  text: { component: TextInput, layout: "stacked" },
   accent: { component: AccentPicker, layout: "stacked" },
   folder: { component: FolderInput, layout: "stacked" },
   proxyLimit: { component: ProxyLimit, layout: "inline" },

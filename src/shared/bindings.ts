@@ -63,8 +63,8 @@ export const commands = {
 	getSettings: () => __TAURI_INVOKE<Settings>("get_settings"),
 	/**  Validate, save and apply new settings; returns them as stored (normalized). */
 	updateSettings: (settings: Settings) => typedError<Settings, string>(__TAURI_INVOKE("update_settings", { settings })),
-	/**  Open (or focus) the settings window. */
-	openSettings: () => __TAURI_INVOKE<void>("open_settings"),
+	/**  Open (or focus) the settings window, at `section` if given (its id, e.g. "export"). */
+	openSettings: (section: string | null) => __TAURI_INVOKE<void>("open_settings", { section }),
 	/**  The bundled ffmpeg's and gifski's versions (Settings › About); runs each once. */
 	mediaTools: () => __TAURI_INVOKE<MediaTools>("media_tools"),
 	/**
@@ -79,6 +79,8 @@ export const commands = {
 	openFolder: (path: string) => typedError<null, string>(__TAURI_INVOKE("open_folder", { path })),
 	/**  Where proxies go when Settings › Proxies › Folder is empty, as the field shows it. */
 	defaultProxyFolder: () => __TAURI_INVOKE<string>("default_proxy_folder"),
+	/**  Where exports go when Settings › Export › Folder is empty, as the field shows it. */
+	defaultExportFolder: () => __TAURI_INVOKE<string>("default_export_folder"),
 	/**  The proxy cache's size, and what lowering its limit to `limit_gb` would delete. */
 	proxyCache: (limitGb: number) => __TAURI_INVOKE<CacheReport>("proxy_cache", { limitGb }),
 	/**
@@ -178,6 +180,20 @@ export type ConvertProgress = {
 };
 
 export type Export = {
+	/**
+	 *  The export menu's "Save to default folder": no Save dialog; files go to `folder`, named
+	 *  from the templates.
+	 */
+	saveToFolder?: boolean,
+	/**  Where, `%VARS%` allowed; empty: the Videos folder's Driveby folder. */
+	folder?: string,
+	/**  The whole timeline's file name, without the extension: `{name}` is the video's name. */
+	timelineName?: string,
+	/**
+	 *  A clip's file name: `{name}` as above, `{n}` the clip's number (`{nn}` at least two
+	 *  digits, `{nnn}` three...).
+	 */
+	clipName?: string,
 	/**  Frames per second, one of [`GIF_RATES`]. */
 	gifFps?: number,
 	/**  The longer side in pixels, one of [`GIF_SIZES`] (0: the video's size). */

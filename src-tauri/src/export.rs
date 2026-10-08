@@ -719,13 +719,92 @@ fn stem(app: &AppHandle) -> Option<(String, PathBuf)> {
     ))
 }
 
-/// The file name for the whole timeline, or for clip `n`.
-fn export_name(stem: &str, clip: Option<u32>, format: Format) -> String {
-    let ext = format.extension();
-    match clip {
-        Some(n) => format!("{stem}-clip{n:02}.{ext}"),
-        None => format!("{stem}-edit.{ext}"),
+/// The file name for the whole timeline, or for clip `n`, from Settings › Export's templates:
+/// `{name}` the video's name; `{n}` the clip's number, `{nn}` with at least two digits, `{nnn}`
+/// three... (as Vandal's).
+fn export_name(names: &Names, stem: &str, clip: Option<u32>, format: Format) -> String {
+    let named = match clip {
+        Some(n) => numbered(&names.clip, n),
+        None => names.timeline.clone(),
+    };
+    format!("{}.{}", named.replace("{name}", stem), format.extension())
+}
+
+/// `template` with each `{n}`, `{nn}`, `{nnn}`... as `n`, zero-padded to that many digits.
+/// Anything else in braces stays as it is.
+fn numbered(template: &str, n: u32) -> String {
+    let mut out = String::new();
+    let mut rest = template;
+    while let Some(start) = rest.find("{n") {
+        let digits = rest[start + 1..].bytes().take_while(|&b| b == b'n').count();
+        out.push_str(&rest[..start]);
+        if rest[start + 1 + digits..].starts_with('}') {
+            out.push_str(&format!("{n:0digits$}"));
+            rest = &rest[start + digits + 2..];
+        } else {
+            // "{name}" and the like: plain text here.
+            out.push_str(&rest[start..start + 2]);
+            rest = &rest[start + 2..];
+        }
     }
+    out.push_str(rest);
+    out
+}
+
+/// Settings › Export: how exports are named, and whether (and where) they skip the dialog.
+struct Names {
+    timeline: String,
+    clip: String,
+    /// "Save to default folder": the folder.
+    save_to: Option<PathBuf>,
+}
+
+fn names(app: &AppHandle) -> Names {
+    let e = app
+        .state::<AppState>()
+        .settings
+        .read()
+        .unwrap()
+        .export
+        .clone();
+    Names {
+        timeline: e.timeline_name,
+        clip: e.clip_name,
+        save_to: e.save_to_folder.then(|| export_folder(app, &e.folder)),
+    }
+}
+
+/// The default export folder: Settings › Export › Folder, or the Videos folder's Driveby folder.
+fn export_folder(app: &AppHandle, setting: &str) -> PathBuf {
+    if !setting.is_empty() {
+        return crate::paths::resolve_dir(setting);
+    }
+    default_folder(app).unwrap_or_default()
+}
+
+/// Where exports go when Settings › Export › Folder is empty.
+pub fn default_folder(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .video_dir()
+        .or_else(|_| app.path().home_dir())
+        .ok()
+        .map(|d| d.join("Driveby"))
+}
+
+/// Makes `folder` for a save there.
+fn make_folder(folder: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(folder).map_err(|e| format!("can't make {}: {e}", folder.display()))
+}
+
+/// The export couldn't start: says why (as a failed export does).
+fn refuse(app: &AppHandle, message: String) -> bool {
+    let _ = ExportEnded {
+        files: Vec::new(),
+        bytes: 0.0,
+        message: Some(message),
+    }
+    .emit_to(app, LABEL);
+    false
 }
 
 /// `name` in `folder`, numbered ("name (2).mp4") if it's taken.
@@ -761,6 +840,23 @@ pub fn ask_and_export(
     let Some((stem, source_folder)) = stem(app).filter(|_| !busy(app)) else {
         return false;
     };
+    let names = names(app);
+    let file = export_name(&names, &stem, clip, format);
+    // Save to default folder: no dialog, never over another file.
+    if let Some(folder) = &names.save_to {
+        if let Err(e) = make_folder(folder) {
+            return refuse(app, format!("{file} couldn't be exported ({e})."));
+        }
+        let output = free_name(folder, &file);
+        return start(
+            app,
+            vec![Job {
+                clips,
+                output,
+                format,
+            }],
+        );
+    }
     let (kind, ext) = match format {
         Format::Mp4 => ("MP4 video", "mp4"),
         Format::Gif => ("GIF animation", "gif"),
@@ -774,7 +870,7 @@ pub fn ask_and_export(
             "Export"
         })
         .add_filter(kind, &[ext])
-        .set_file_name(export_name(&stem, clip, format));
+        .set_file_name(file);
     if let Some(start) = crate::folders::export_start(app, &source_folder) {
         dialog = dialog.set_directory(start);
     }
@@ -807,24 +903,33 @@ pub fn ask_and_export_each(app: &AppHandle, clips: Vec<ExportClip>, format: Form
     let Some((stem, source_folder)) = stem(app).filter(|_| !busy(app)) else {
         return false;
     };
-    let mut dialog = app.dialog().file().set_title("Export each clip to");
-    if let Some(start) = crate::folders::export_start(app, &source_folder) {
-        dialog = dialog.set_directory(start);
-    }
-    if let Some(window) = app.get_webview_window(LABEL) {
-        dialog = dialog.set_parent(&window);
-    }
-    let Some(folder) = dialog
-        .blocking_pick_folder()
-        .and_then(|p| p.into_path().ok())
-    else {
-        return false;
+    let names = names(app);
+    let folder = if let Some(folder) = names.save_to.clone() {
+        if let Err(e) = make_folder(&folder) {
+            return refuse(app, format!("The clips couldn't be exported ({e})."));
+        }
+        folder
+    } else {
+        let mut dialog = app.dialog().file().set_title("Export each clip to");
+        if let Some(start) = crate::folders::export_start(app, &source_folder) {
+            dialog = dialog.set_directory(start);
+        }
+        if let Some(window) = app.get_webview_window(LABEL) {
+            dialog = dialog.set_parent(&window);
+        }
+        let Some(folder) = dialog
+            .blocking_pick_folder()
+            .and_then(|p| p.into_path().ok())
+        else {
+            return false;
+        };
+        crate::folders::saved_to(app, &folder);
+        folder
     };
-    crate::folders::saved_to(app, &folder);
     let jobs = clips
         .into_iter()
         .map(|c| Job {
-            output: free_name(&folder, &export_name(&stem, Some(c.id), format)),
+            output: free_name(&folder, &export_name(&names, &stem, Some(c.id), format)),
             clips: vec![c],
             format,
         })
@@ -962,13 +1067,47 @@ mod tests {
     }
 
     #[test]
-    fn names() {
-        assert_eq!(export_name("trip", None, Format::Mp4), "trip-edit.mp4");
-        assert_eq!(export_name("trip", Some(3), Format::Mp4), "trip-clip03.mp4");
+    fn names_come_from_the_templates() {
+        let names = Names {
+            timeline: crate::settings::TIMELINE_NAME.into(),
+            clip: crate::settings::CLIP_NAME.into(),
+            save_to: None,
+        };
         assert_eq!(
-            export_name("trip", Some(12), Format::Gif),
+            export_name(&names, "trip", None, Format::Mp4),
+            "trip-edit.mp4"
+        );
+        assert_eq!(
+            export_name(&names, "trip", Some(3), Format::Mp4),
+            "trip-clip03.mp4"
+        );
+        assert_eq!(
+            export_name(&names, "trip", Some(12), Format::Gif),
             "trip-clip12.gif"
         );
+        let mine = Names {
+            timeline: "final {name}".into(),
+            clip: "{n} of {name}".into(),
+            save_to: None,
+        };
+        assert_eq!(
+            export_name(&mine, "trip", None, Format::Gif),
+            "final trip.gif"
+        );
+        assert_eq!(
+            export_name(&mine, "trip", Some(7), Format::Mp4),
+            "7 of trip.mp4"
+        );
+    }
+
+    #[test]
+    fn more_ns_pad_the_number() {
+        assert_eq!(numbered("{name}-clip{n}", 7), "{name}-clip7");
+        assert_eq!(numbered("clip {nn}", 7), "clip 07");
+        assert_eq!(numbered("clip {nnn}", 7), "clip 007");
+        assert_eq!(numbered("clip {nnnn}", 12345), "clip 12345");
+        assert_eq!(numbered("{n} and {nn}", 3), "3 and 03");
+        assert_eq!(numbered("{nope} {n", 3), "{nope} {n");
     }
 
     #[test]

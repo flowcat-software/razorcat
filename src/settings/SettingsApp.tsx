@@ -22,6 +22,18 @@ export function SettingsApp() {
   // Opened at a page (`settings.html#about`).
   const [activeId, setActiveId] = useState(() => pageFromHash() ?? sections[0].id);
   const [query, setQuery] = useState("");
+  // Opened again at a section (the editor's "Export settings…"): Rust sets the hash.
+  useEffect(() => {
+    const follow = () => {
+      const id = pageFromHash();
+      if (id) {
+        setQuery("");
+        setActiveId(id);
+      }
+    };
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, []);
   const loaded = settings !== null;
   const mainRef = useRef<HTMLElement>(null);
   /** The group scrolled to, for the sidebar's highlight. */

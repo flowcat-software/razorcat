@@ -6,6 +6,10 @@ export interface MenuItem {
   label: string;
   hint?: string;
   disabled?: boolean;
+  /** A toggle: shows a check when on, and picking it leaves the menu open (the mockup's). */
+  checked?: boolean;
+  /** More about it, as a tooltip (a folder's path). */
+  title?: string;
   run: () => void;
 }
 
@@ -62,13 +66,21 @@ export function Menu({ items, x, y, onClose }: Props) {
             type="button"
             role="menuitem"
             disabled={it.disabled}
+            title={it.title}
+            {...(it.checked !== undefined && {
+              role: "menuitemcheckbox",
+              "aria-checked": it.checked,
+            })}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
-              onClose();
+              if (it.checked === undefined) onClose();
               it.run();
             }}
           >
-            <span>{it.label}</span>
+            <span>
+              {it.checked && <span className={styles.menuCheck}>✓</span>}
+              {it.label}
+            </span>
             {it.hint && <small>{it.hint}</small>}
           </button>
         ),
