@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import type { SourceInfo } from "../shared/ipc";
 import type { Player, PlayerState } from "./player";
 import { needsHours, timecode } from "./timecode";
@@ -10,6 +10,9 @@ interface Props {
   player: Player | null;
   /** Editing isn't built yet (Phase 2). */
   noEdits: boolean;
+  /** The readout shows frame numbers (a click switches), as the ruler does. */
+  inFrames: boolean;
+  onToggleFrames: () => void;
 }
 
 const PAUSED: PlayerState = { frame: 0, speed: 0 };
@@ -48,8 +51,17 @@ function BarButton({
 }
 
 /** The readout: the playhead and the length, as timecode or (a click) frame numbers. */
-function Readout({ source, frame }: { source: SourceInfo | null; frame: number }) {
-  const [inFrames, setInFrames] = useState(false);
+function Readout({
+  source,
+  frame,
+  inFrames,
+  onToggle,
+}: {
+  source: SourceInfo | null;
+  frame: number;
+  inFrames: boolean;
+  onToggle: () => void;
+}) {
   let now = "00:00.00";
   let total = "";
   if (source) {
@@ -65,7 +77,7 @@ function Readout({ source, frame }: { source: SourceInfo | null; frame: number }
       title="Click: timecode / frames"
       disabled={!source}
       onMouseDown={keepFocus}
-      onClick={() => setInFrames((f) => !f)}
+      onClick={onToggle}
     >
       {now}
       {total && <small>/ {total}</small>}
@@ -77,7 +89,7 @@ function Readout({ source, frame }: { source: SourceInfo | null; frame: number }
  * The bar under the preview: the time readout, the transport and the timeline's edits (the
  * mockup's; the edits arrive in Phase 2).
  */
-export function TimelineBar({ source, player, noEdits }: Props) {
+export function TimelineBar({ source, player, noEdits, inFrames, onToggleFrames }: Props) {
   const { frame, speed } = useSyncExternalStore(
     player?.subscribe ?? nothing,
     player?.getState ?? paused,
@@ -85,7 +97,7 @@ export function TimelineBar({ source, player, noEdits }: Props) {
   const off = !player;
   return (
     <div className={styles.timelineBar}>
-      <Readout source={source} frame={frame} />
+      <Readout source={source} frame={frame} inFrames={inFrames} onToggle={onToggleFrames} />
       <span className={styles.barDivider} />
       <BarButton label="Start (Home)" disabled={off} onClick={() => player?.seek(0)}>
         <path d="M6 5v14M18 6l-8 6 8 6z" />

@@ -6,7 +6,9 @@ import { formatRate, sourceFacts } from "./format";
 import { Player } from "./player";
 import { Preview } from "./Preview";
 import { StatusBar, type Notice } from "./StatusBar";
+import { Timeline } from "./Timeline";
 import { TimelineBar } from "./TimelineBar";
+import { useTimeline } from "./timelineStore";
 import styles from "./EditorApp.module.css";
 
 const openVideo = () => void commands.openDialog();
@@ -16,11 +18,13 @@ function transportKey(e: KeyboardEvent, player: Player): boolean {
   if (e.ctrlKey || e.altKey || e.metaKey) return false;
   const second = Math.round(player.fps);
   switch (e.code) {
+    // A single frame waits for the full-quality picture; held down, or a second at a time, the
+    // proxy keeps up.
     case "ArrowLeft":
-      player.step(e.shiftKey ? -second : -1);
+      player.step(e.shiftKey ? -second : -1, e.shiftKey || e.repeat);
       return true;
     case "ArrowRight":
-      player.step(e.shiftKey ? second : 1);
+      player.step(e.shiftKey ? second : 1, e.shiftKey || e.repeat);
       return true;
     case "Home":
       player.seek(0);
@@ -57,6 +61,8 @@ function transportKey(e: KeyboardEvent, player: Player): boolean {
 export function EditorApp() {
   const [source, setSource] = useState<SourceInfo | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  /** Time as frame numbers, not timecode: the readout and the ruler (a click on the readout). */
+  const [inFrames, setInFrames] = useState(false);
   /** The source the preview last asked to convert: asked once, however many errors. */
   const convertAsked = useRef<string | null>(null);
   /** A conversion under way (convert.rs): the file and how far along. */
@@ -146,20 +152,48 @@ export function EditorApp() {
     };
   }, []);
 
-  // Ctrl+O opens a video, Ctrl+, opens Settings (as in Vandal).
+  // Ctrl+O opens a video, Ctrl+, opens Settings (as in Vandal); Ctrl+0, Ctrl+= and Ctrl+−
+  // fit and zoom the timeline.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
+      const zoom = {
+        Digit0: 0,
+        Equal: 1.5,
+        NumpadAdd: 1.5,
+        Minus: 1 / 1.5,
+        NumpadSubtract: 1 / 1.5,
+      }[e.code];
       if (e.code === "KeyO") {
         e.preventDefault();
         openVideo();
       } else if (e.code === "Comma") {
         e.preventDefault();
         void commands.openSettings();
+      } else if (zoom !== undefined) {
+        // Ctrl+= and Ctrl+− would zoom the page.
+        e.preventDefault();
+        if (zoom === 0) useTimeline.getState().fit();
+        else useTimeline.getState().zoomBy(zoom);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Alt pressed and let go on its own (Alt+wheel scrolls the timeline) would reach the window
+  // and put it in menu mode, which eats the next input: a Ctrl+wheel zoom did nothing. The page
+  // keeps it. Alt+F4 still closes: only Alt's own events are kept.
+  useEffect(() => {
+    const keep = (e: KeyboardEvent) => {
+      if (e.key === "Alt") e.preventDefault();
+    };
+    window.addEventListener("keydown", keep);
+    window.addEventListener("keyup", keep);
+    return () => {
+      window.removeEventListener("keydown", keep);
+      window.removeEventListener("keyup", keep);
+    };
   }, []);
 
   const empty = source === null;
@@ -183,8 +217,8 @@ export function EditorApp() {
     mine && !proxyUrl
       ? { text: `Preparing fast stepping… ${Math.floor((mine.done ?? 0) * 100)}%` }
       : null;
-  // Controls stay disabled until the increment that makes them work: the timeline's zoom (1.7),
-  // editing and export (Phase 2), the picture's tools (Phases 3-4).
+  // Controls stay disabled until the increment that makes them work: editing, snapping and
+  // export (Phase 2), the picture's tools (Phases 3-4).
   const notYet = true;
   return (
     <div className={styles.app}>
@@ -219,14 +253,22 @@ export function EditorApp() {
           <EmptyEditor onOpen={openVideo} />
         )}
       </div>
-      <TimelineBar source={source} player={player} noEdits={notYet} />
+      <TimelineBar
+        source={source}
+        player={player}
+        noEdits={notYet}
+        inFrames={inFrames}
+        onToggleFrames={() => setInFrames((f) => !f)}
+      />
       <div className={styles.timelineOptions}>
         {source
           ? `${source.frames} frames at ${formatRate(source.rateNum, source.rateDen)}`
           : "Open a video, then split with S, mark ranges with R, and trim by dragging a clip's edge."}
       </div>
-      <div className={styles.timeline} />
-      <StatusBar notice={conversion ?? notice ?? making} empty={empty || notYet} />
+      <div className={styles.timeline}>
+        {source && player && <Timeline source={source} player={player} inFrames={inFrames} />}
+      </div>
+      <StatusBar notice={conversion ?? notice ?? making} empty={empty} noEdits={notYet} />
     </div>
   );
 }

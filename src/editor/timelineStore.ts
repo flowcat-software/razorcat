@@ -1,0 +1,87 @@
+// The timeline's zoom and scroll, shared by the timeline (wheel, Ctrl+0) and the status bar's
+// zoom controls. The geometry is in timelineView.ts.
+import { create } from "zustand";
+import {
+  HEADER,
+  clampScroll,
+  fitted,
+  follow,
+  scrolled,
+  sliderToZoom,
+  zoomAt,
+  zoomToSlider,
+  type View,
+} from "./timelineView";
+
+interface TimelineState {
+  view: View;
+  /** The timeline's width in CSS pixels, and its length in frames. */
+  width: number;
+  frames: number;
+  /** Fitted: it stays fitted as the window resizes. */
+  isFitted: boolean;
+  /** The timeline was measured, or the source changed (a new source starts fitted). */
+  setSize: (width: number, frames: number) => void;
+  fit: () => void;
+  /** Zooms by `factor`, about `anchorX` (default: the middle). */
+  zoomBy: (factor: number, anchorX?: number) => void;
+  /** The slider: 0 to 1. */
+  zoomTo: (t: number) => void;
+  slider: () => number;
+  /** Scrolls by `dx` pixels. */
+  scrollBy: (dx: number) => void;
+  /** Keeps frame `f` in view. */
+  follow: (f: number) => void;
+}
+
+export const useTimeline = create<TimelineState>((set, get) => ({
+  view: { zoom: 1, scroll: 0 },
+  width: 0,
+  frames: 0,
+  isFitted: true,
+
+  setSize: (width, frames) => {
+    const s = get();
+    if (width === s.width && frames === s.frames) return;
+    const refit = s.isFitted || frames !== s.frames;
+    set({
+      width,
+      frames,
+      isFitted: refit,
+      view: refit ? fitted(width, frames) : clampScroll(s.view, width, frames),
+    });
+  },
+
+  fit: () => {
+    const { width, frames } = get();
+    set({ isFitted: true, view: fitted(width, frames) });
+  },
+
+  zoomBy: (factor, anchorX) => {
+    const { view, width, frames } = get();
+    const x = anchorX ?? (HEADER + width) / 2;
+    set({ isFitted: false, view: zoomAt(view, view.zoom * factor, x, width, frames) });
+  },
+
+  zoomTo: (t) => {
+    const { view, width, frames } = get();
+    const zoom = sliderToZoom(t, width, frames);
+    set({ isFitted: false, view: zoomAt(view, zoom, (HEADER + width) / 2, width, frames) });
+  },
+
+  slider: () => {
+    const { view, width, frames } = get();
+    return zoomToSlider(view.zoom, width, frames);
+  },
+
+  scrollBy: (dx) => {
+    const { view, width, frames } = get();
+    set({ isFitted: false, view: scrolled(view, dx, width, frames) });
+  },
+
+  follow: (f) => {
+    const { view, width, frames } = get();
+    const next = follow(view, f, width, frames);
+    if (next !== view) set({ view: next });
+  },
+}));

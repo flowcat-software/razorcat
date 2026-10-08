@@ -7,8 +7,10 @@
 // key never queues up a backlog.
 //
 // Once the proxy is ready (proxy.rs: small, a keyframe every 10 frames, proxy frame k is
-// timeline frame k), stepping seeks both. The proxy shows on top until the original has the same
-// frame on screen, then the original's full-quality picture takes over. Playing uses the
+// timeline frame k), seeking seeks both. The proxy shows on top until the original has the same
+// frame on screen, then the original's full-quality picture takes over. A single step skips the
+// proxy (the original's next frame is quick, and the swap would show as a flicker); a held arrow
+// key, a jump and scrubbing use it. Playing uses the
 // original; playing backward (which `<video>` can't) seeks frame after frame, on the proxy when
 // there is one.
 
@@ -81,6 +83,8 @@ export class Player {
   private original: Seeker | null = null;
   private proxy: Seeker | null = null;
   private backward = 0;
+  /** The last seek skipped the proxy: it stays hidden. */
+  private proxyHeld = false;
   private gone = false;
 
   constructor(
@@ -152,15 +156,21 @@ export class Player {
 
   // --- transport ---
 
-  /** Moves the playhead to frame `n` (clamped) and shows it, pausing first. */
-  seek(n: number) {
+  /**
+   * Moves the playhead to frame `n` (clamped) and shows it, pausing first. `useProxy` false:
+   * the picture waits for the original's frame.
+   */
+  seek(n: number, useProxy = true) {
     this.stop();
     this.set({ frame: this.clamp(n) });
+    this.proxyHeld = !useProxy;
+    if (this.proxyHeld && this.proxy) this.proxy.video.style.visibility = "hidden";
     this.show(this.state.frame);
   }
 
-  step(by: number) {
-    this.seek(this.state.frame + by);
+  /** Steps `by` frames: on the original alone unless `useProxy` (a held key). */
+  step(by: number, useProxy = false) {
+    this.seek(this.state.frame + by, useProxy);
   }
 
   /** Space: play forward from the playhead (from the start if it's at the end), or pause. */
@@ -172,8 +182,8 @@ export class Player {
   pause() {
     if (this.state.speed === 0) return;
     this.stop();
-    // Settle on the frame that was on screen, exactly.
-    this.seek(this.state.frame);
+    // Settle on the frame that was on screen, exactly (it's the original's already).
+    this.seek(this.state.frame, false);
   }
 
   /** L: play forward, faster each time. */
@@ -205,6 +215,7 @@ export class Player {
     }
     if (this.state.frame <= 0) return;
     this.set({ speed });
+    this.proxyHeld = false;
     const from = this.state.frame;
     const t0 = performance.now();
     const tick = (now: number) => {
@@ -266,7 +277,7 @@ export class Player {
     const k = Math.round(p.shownTime * this.fps - 0.5);
     const proxyShowsFrame = !p.busy && k === this.state.frame;
     let on: boolean;
-    if (this.state.speed > 0 || this.originalShowsFrame()) on = false;
+    if (this.state.speed > 0 || this.proxyHeld || this.originalShowsFrame()) on = false;
     else if (proxyShowsFrame) on = true;
     else return;
     p.video.style.visibility = on ? "visible" : "hidden";

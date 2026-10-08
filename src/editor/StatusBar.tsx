@@ -1,5 +1,6 @@
 import { SETTINGS_ICON } from "../shared/icons";
 import { commands } from "../shared/ipc";
+import { useTimeline } from "./timelineStore";
 import styles from "./EditorApp.module.css";
 
 /** A message in the status bar (a file that couldn't open), as Vandal's. */
@@ -15,10 +16,14 @@ interface Props {
   notice: Notice | null;
   /** No video yet: the timeline's view controls don't apply. */
   empty: boolean;
+  /** Editing isn't built yet (Phase 2): snapping waits for it. */
+  noEdits: boolean;
 }
 
 /** The bottom row: messages, snapping, the timeline's zoom, and Settings (Vandal's gear). */
-export function StatusBar({ notice, empty }: Props) {
+export function StatusBar({ notice, empty, noEdits }: Props) {
+  const timeline = useTimeline();
+  const slider = Math.round(timeline.slider() * 1000);
   return (
     <footer className={styles.status}>
       <span className={notice?.error ? styles.noticeError : undefined} role="status">
@@ -34,7 +39,7 @@ export function StatusBar({ notice, empty }: Props) {
         type="button"
         className={styles.textButton}
         title="Snapping (hold Alt: off)"
-        disabled={empty}
+        disabled={empty || noEdits}
       >
         Snap: on
       </button>
@@ -45,17 +50,30 @@ export function StatusBar({ notice, empty }: Props) {
         aria-label="Zoom out (Ctrl+−)"
         title="Zoom out (Ctrl+−)"
         disabled={empty}
+        onClick={() => timeline.zoomBy(1 / 1.5)}
       >
         <svg viewBox="0 0 24 24" aria-hidden>
           <path d="M5 12h14" />
         </svg>
       </button>
+      <input
+        type="range"
+        className={styles.zoomSlider}
+        aria-label="Timeline zoom (Ctrl+wheel)"
+        title="Timeline zoom (Ctrl+wheel)"
+        min={0}
+        max={1000}
+        value={Number.isFinite(slider) ? slider : 0}
+        disabled={empty}
+        onChange={(e) => timeline.zoomTo(Number(e.target.value) / 1000)}
+      />
       <button
         type="button"
         className={styles.iconButton}
         aria-label="Zoom in (Ctrl+=)"
         title="Zoom in (Ctrl+=)"
         disabled={empty}
+        onClick={() => timeline.zoomBy(1.5)}
       >
         <svg viewBox="0 0 24 24" aria-hidden>
           <path d="M5 12h14M12 5v14" />
@@ -66,6 +84,7 @@ export function StatusBar({ notice, empty }: Props) {
         className={styles.textButton}
         title="Fit the timeline (Ctrl+0)"
         disabled={empty}
+        onClick={timeline.fit}
       >
         Fit
       </button>
