@@ -5,6 +5,11 @@ export interface Size {
   height: number;
 }
 
+export interface Point {
+  x: number;
+  y: number;
+}
+
 export interface Rect extends Size {
   x: number;
   y: number;

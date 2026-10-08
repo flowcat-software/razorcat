@@ -1,7 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SourceInfo } from "../shared/ipc";
+import { CropOverlay } from "./CropOverlay";
+import { useDoc } from "./docStore";
 import { fitRect, videoTransform } from "./fit";
 import type { Player } from "./player";
+import { useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
 interface Props {
@@ -20,8 +23,10 @@ interface Props {
 const MARGIN = 16;
 
 /**
- * The picture: the source's `<video>`, fitted into the preview at its shape as shown. The stage
- * (the fitted box) is where crop, grow and markup will sit later (Phases 3-4).
+ * The picture: the source's `<video>`, fitted into the preview at its shape as shown, cropped
+ * (CSS only, so it follows live, also while playing). The crop tool shows the whole picture with
+ * the crop box over it. The stage (the fitted box) is where grow and markup will sit (Phases
+ * 3.4 and 4).
  */
 export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Props) {
   const areaRef = useRef<HTMLDivElement>(null);
@@ -62,9 +67,22 @@ export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Pro
       ? onError(`The preview can't play ${source.name}, even converted.`)
       : onUnplayable();
 
-  const stage = fitRect(area, { width: source.width, height: source.height }, MARGIN);
+  const frame = useDoc((s) => s.doc.frame);
+  const cropping = useTool((s) => s.tool === "crop");
+  const whole = { x: 0, y: 0, width: source.width, height: source.height };
+  // What shows: the crop, or the whole picture to crop it.
+  const shown = cropping ? whole : frame.crop;
+  const stage = fitRect(area, shown, MARGIN);
+  const scale = shown.width > 0 ? stage.width / shown.width : 0;
+  // The whole picture at that scale, placed so the crop fills the stage.
+  const picture = {
+    left: -shown.x * scale,
+    top: -shown.y * scale,
+    width: source.width * scale,
+    height: source.height * scale,
+  };
   const natural = measured?.url === source.url ? measured : null;
-  const transform = natural ? videoTransform(natural, source, stage) : null;
+  const transform = natural ? videoTransform(natural, source, picture) : null;
 
   return (
     <div ref={areaRef} className={styles.previewArea}>
@@ -72,41 +90,52 @@ export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Pro
         className={styles.stage}
         style={{ left: stage.x, top: stage.y, width: stage.width, height: stage.height }}
       >
-        <video
-          key={source.url}
-          ref={videoRef}
-          className={styles.video}
-          src={source.url}
-          // Its pixels readable (the frame check, frameCheck.ts): protocol.rs allows it.
-          crossOrigin="anonymous"
-          preload="auto"
-          style={
-            transform
-              ? { width: transform.width, height: transform.height, transform: transform.css }
-              : { visibility: "hidden" }
-          }
-          onLoadedMetadata={(e) => {
-            const { videoWidth: width, videoHeight: height } = e.currentTarget;
-            // No picture: the video's codec can't be played, though its audio may (no error
-            // is raised then).
-            if (width === 0) unplayable();
-            else setMeasured({ url: source.url, width, height });
-          }}
-          onError={unplayable}
-        />
-        {proxyUrl && (
-          // Already upright and the picture's shape: it fills the stage.
+        <div className={styles.picture} style={picture}>
           <video
-            key={proxyUrl}
-            ref={proxyRef}
-            className={styles.proxy}
-            src={proxyUrl}
+            key={source.url}
+            ref={videoRef}
+            className={styles.video}
+            src={source.url}
+            // Its pixels readable (the frame check, frameCheck.ts): protocol.rs allows it.
             crossOrigin="anonymous"
             preload="auto"
-            muted
+            style={
+              transform
+                ? { width: transform.width, height: transform.height, transform: transform.css }
+                : { visibility: "hidden" }
+            }
+            onLoadedMetadata={(e) => {
+              const { videoWidth: width, videoHeight: height } = e.currentTarget;
+              // No picture: the video's codec can't be played, though its audio may (no error
+              // is raised then).
+              if (width === 0) unplayable();
+              else setMeasured({ url: source.url, width, height });
+            }}
+            onError={unplayable}
           />
-        )}
+          {proxyUrl && (
+            // Already upright and the picture's shape: it fills the picture.
+            <video
+              key={proxyUrl}
+              ref={proxyRef}
+              className={styles.proxy}
+              src={proxyUrl}
+              crossOrigin="anonymous"
+              preload="auto"
+              muted
+            />
+          )}
+        </div>
       </div>
+      {cropping && (
+        // Over the stage, not in it: the handles reach past the picture's edges.
+        <div
+          className={styles.cropArea}
+          style={{ left: stage.x, top: stage.y, width: stage.width, height: stage.height }}
+        >
+          <CropOverlay crop={frame.crop} source={source} scale={scale} />
+        </div>
+      )}
     </div>
   );
 }

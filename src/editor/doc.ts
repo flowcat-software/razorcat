@@ -14,6 +14,11 @@
 // - A range whose video ends up in separate places (a clip moved out of its middle) becomes one
 //   range per place (`separateRanges`).
 // - Editing a range directly re-anchors it to what's under it now.
+//
+// The frame (crop, and the space grown round it; frame.ts) is one for the whole project.
+
+import type { Rect, Size } from "./fit";
+import { fullFrame, keepCrop, type Frame } from "./frame";
 
 export type ClipId = number;
 
@@ -49,17 +54,34 @@ export interface Doc {
   sourceFrames: number;
   ranges: readonly Range[];
   nextRangeId: RangeId;
+  frame: Frame;
 }
 
-/** A source `frames` long, whole: one clip. */
-export function wholeSource(frames: number): Doc {
+/** A source `frames` long and `size` as shown, whole: one clip, the full frame. */
+export function wholeSource(frames: number, size: Size = { width: 0, height: 0 }): Doc {
   return {
     clips: [{ id: 1, in: 0, out: frames }],
     nextId: 2,
     sourceFrames: frames,
     ranges: [],
     nextRangeId: 1,
+    frame: fullFrame(size),
   };
+}
+
+/** Crops to `crop` (kept to the source). The same document if nothing changes. */
+export function setCrop(doc: Doc, crop: Rect): Doc {
+  const kept = keepCrop(crop, doc.frame.source);
+  const now = doc.frame.crop;
+  if (
+    kept.x === now.x &&
+    kept.y === now.y &&
+    kept.width === now.width &&
+    kept.height === now.height
+  ) {
+    return doc;
+  }
+  return { ...doc, frame: { ...doc.frame, crop: kept } };
 }
 
 export const clipLength = (c: Clip) => c.out - c.in;

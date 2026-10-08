@@ -1,7 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "editor",
-  "description": "The editor window: listens for events from Rust (a file to open). No filesystem access: files are opened and read in Rust.",
+  "description": "The editor window: listens for events from Rust (a file to open), and moves the cursor back while a number field is dragged (so the drag never meets the screen's edge). No filesystem access: files are opened and read in Rust.",
   "windows": ["editor"],
-  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-set-cursor-position"
+  ]
 }

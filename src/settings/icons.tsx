@@ -42,6 +42,15 @@ export function TimelineIcon() {
   );
 }
 
+/** A crop's corners: editing the picture. */
+export function EditingIcon() {
+  return (
+    <svg {...props}>
+      <path d="M4.5 1.5v9a1 1 0 0 0 1 1h9M1.5 4.5h9a1 1 0 0 1 1 1v9" />
+    </svg>
+  );
+}
+
 /** An arrow out of a tray: export. */
 export function ExportIcon() {
   return (

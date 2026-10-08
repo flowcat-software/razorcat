@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { commands, events, type Settings, type SourceInfo, type ThumbsInfo } from "../shared/ipc";
 import { CommandBar } from "./CommandBar";
+import { useCropKeys } from "./cropTool";
 import { EmptyEditor } from "./EmptyEditor";
 import { useDoc } from "./docStore";
 import {
@@ -14,7 +15,7 @@ import {
 } from "./edits";
 import { LARGE_GIF, exportTimeline, fileSize } from "./exports";
 import { checkFrames } from "./frameCheck";
-import { sourceFacts } from "./format";
+import { FrameOptions } from "./FrameOptions";
 import { Player } from "./player";
 import { Preview } from "./Preview";
 import { StatusBar, type Notice } from "./StatusBar";
@@ -22,6 +23,7 @@ import { Timeline } from "./Timeline";
 import { TimelineBar } from "./TimelineBar";
 import { TimelineOptions } from "./TimelineOptions";
 import { useTimeline } from "./timelineStore";
+import { useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
 const openVideo = () => void commands.openDialog();
@@ -35,6 +37,12 @@ const rangeOptions = (s: Settings) =>
     follow: s.timeline.rangesFollowVideo,
     deleteWithClip: s.timeline.deleteRangesWithClip,
   });
+
+/** The settings the editor's stores keep (ranges, number fields). */
+const applySettings = (s: Settings) => {
+  rangeOptions(s);
+  useTool.getState().setDragSpeed(s.editing.numberDragSpeed);
+};
 
 /** The transport's and the timeline's keys (mockup's keys table). True if the key was theirs. */
 function transportKey(e: KeyboardEvent, player: Player): boolean {
@@ -152,9 +160,13 @@ export function EditorApp() {
   // play here keeps its edit.)
   const sourceId = source?.id;
   const sourceFrames = source?.frames ?? 0;
+  const sourceWidth = source?.width ?? 0;
+  const sourceHeight = source?.height ?? 0;
   useEffect(() => {
-    if (sourceId) useDoc.getState().load(sourceFrames);
-  }, [sourceId, sourceFrames]);
+    if (!sourceId) return;
+    useDoc.getState().load(sourceFrames, { width: sourceWidth, height: sourceHeight });
+    useTool.getState().setTool("select");
+  }, [sourceId, sourceFrames, sourceWidth, sourceHeight]);
 
   // The player plays the edit (after the load above, so never another source's).
   useEffect(() => {
@@ -240,7 +252,7 @@ export function EditorApp() {
       events.settingsChanged.listen(({ payload }) => {
         setShowThumbs(thumbsOn(payload as Settings));
         setShowWave((payload as Settings).timeline.waveform);
-        rangeOptions(payload as Settings);
+        applySettings(payload as Settings);
         setSettings(payload as Settings);
       }),
       // Proxies turned off mid-way: the progress goes.
@@ -264,7 +276,7 @@ export function EditorApp() {
           if (gone) return;
           setShowThumbs(thumbsOn(s as Settings));
           setShowWave((s as Settings).timeline.waveform);
-          rangeOptions(s as Settings);
+          applySettings(s as Settings);
           setSettings(s as Settings);
         });
         return commands.editorReady();
@@ -352,6 +364,9 @@ export function EditorApp() {
     return () => window.removeEventListener("keydown", onKey);
   }, [player]);
 
+  // C and V pick up the crop and select tools; arrows nudge the crop box.
+  useCropKeys(source !== null);
+
   // Alt pressed and let go on its own (Alt+wheel scrolls the timeline) would reach the window
   // and put it in menu mode, which eats the next input: a Ctrl+wheel zoom did nothing. The page
   // keeps it. Alt+F4 still closes: only Alt's own events are kept.
@@ -394,30 +409,15 @@ export function EditorApp() {
     mine && !proxyUrl
       ? { text: `Preparing fast stepping… ${Math.floor((mine.done ?? 0) * 100)}%` }
       : null;
-  // Controls stay disabled until the increment that makes them work: the picture's tools
-  // (Phases 3-4).
-  const notYet = true;
   return (
     <div className={styles.app}>
       <CommandBar
         empty={empty}
-        notYet={notYet}
         exporting={exporting !== null}
         settings={settings}
         onOpen={openVideo}
       />
-      <div className={styles.optionsBar}>
-        {source ? (
-          <>
-            <b className={styles.sourceName} title={source.path}>
-              {source.name}
-            </b>
-            <span>{sourceFacts(source).join(" · ")}</span>
-          </>
-        ) : (
-          "No video open"
-        )}
-      </div>
+      <FrameOptions source={source} />
       <div className={styles.preview}>
         {source ? (
           <Preview

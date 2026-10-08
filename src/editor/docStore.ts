@@ -20,6 +20,7 @@ import {
   moveClip,
   removeRanges,
   separateRanges,
+  setCrop,
   setRange,
   shownRanges,
   split,
@@ -29,6 +30,7 @@ import {
   type Doc,
   type RangeId,
 } from "./doc";
+import type { Rect, Size } from "./fit";
 
 /** Oldest steps are dropped beyond this. */
 export const HISTORY_LIMIT = 200;
@@ -57,8 +59,8 @@ export interface DocState {
   pendingIn: number | null;
   options: RangeOptions;
 
-  /** Starts editing a new source, `frames` long: one clip, no history. */
-  load: (frames: number) => void;
+  /** Starts editing a new source, `frames` long and `size` as shown: one clip, no history. */
+  load: (frames: number, size?: Size) => void;
   /** Splits the clip under timeline frame `f`. False if there was nothing to split. */
   split: (f: number) => boolean;
   /** Deletes clip `id` (ripple). False if it can't (the last clip). */
@@ -77,6 +79,9 @@ export interface DocState {
   keepRanges: () => boolean;
   removeRanges: () => boolean;
   setPendingIn: (f: number | null) => void;
+
+  /** Crops to `crop` (kept to the source). */
+  crop: (crop: Rect) => boolean;
 
   beginGesture: () => void;
   endGesture: () => void;
@@ -142,9 +147,9 @@ export const useDoc = create<DocState>()((set, get) => {
     pendingIn: null,
     options: { follow: true, deleteWithClip: true },
 
-    load: (frames) =>
+    load: (frames, size) =>
       set({
-        doc: wholeSource(frames),
+        doc: wholeSource(frames, size),
         past: [],
         future: [],
         gestureStart: null,
@@ -169,6 +174,7 @@ export const useDoc = create<DocState>()((set, get) => {
     keepRanges: () => apply(keepRanges),
     removeRanges: () => apply(removeRanges),
     setPendingIn: (f) => set({ pendingIn: f }),
+    crop: (crop) => apply((doc) => setCrop(doc, crop)),
 
     beginGesture: () => {
       if (!get().gestureStart) set({ gestureStart: get().doc });

@@ -179,6 +179,14 @@ export type ConvertProgress = {
 	done: number | null,
 };
 
+/**  How fast a number field's value changes as it's dragged: scales the mouse's speed. */
+export type DragSpeed = "verySlow" | "slow" | "normal" | "fast" | "veryFast";
+
+export type Editing = {
+	/**  Dragging a number field up or down (crop, grow). */
+	numberDragSpeed?: DragSpeed,
+};
+
 export type Export = {
 	/**
 	 *  The export menu's "Save to default folder": no Save dialog; files go to `folder`, named
@@ -284,6 +292,8 @@ export type Settings = {
 	/**  The proxies made for stepping and scrubbing (proxy.rs). */
 	proxies?: Proxies,
 	timeline?: Timeline,
+	/**  Editing on the picture: the options bar's number fields. */
+	editing?: Editing,
 	/**  How exports come out (export.rs). */
 	export?: Export,
 };

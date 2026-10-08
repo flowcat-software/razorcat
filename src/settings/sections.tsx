@@ -1,7 +1,14 @@
 // What the settings window shows (see schema.ts). Driveby's own settings arrive with the
 // features that use them.
 import { commands } from "../shared/ipc";
-import { AboutIcon, ExportIcon, GeneralIcon, ProxiesIcon, TimelineIcon } from "./icons";
+import {
+  AboutIcon,
+  EditingIcon,
+  ExportIcon,
+  GeneralIcon,
+  ProxiesIcon,
+  TimelineIcon,
+} from "./icons";
 import type { Section } from "./schema";
 
 export const sections: Section[] = [
@@ -90,6 +97,35 @@ export const sections: Section[] = [
             label: "Deleting a clip deletes its ranges",
             description: "Off: they're kept, hidden, and come back if the clip does.",
             keywords: ["ranges", "delete", "clip", "remove", "timeline"],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "editing",
+    title: "Editing",
+    icon: EditingIcon,
+    description: "Editing the picture: crop, and the space grown round it.",
+    groups: [
+      {
+        title: "Number fields",
+        items: [
+          {
+            id: "numberDragSpeed",
+            kind: "choice",
+            path: "editing.numberDragSpeed",
+            label: "Number drag speed",
+            description:
+              "How fast a value changes when you drag a number field left or right. Slower gives finer control; hold Shift for 10× faster.",
+            options: [
+              { value: "verySlow", label: "Very slow" },
+              { value: "slow", label: "Slow" },
+              { value: "normal", label: "Normal" },
+              { value: "fast", label: "Fast" },
+              { value: "veryFast", label: "Very fast" },
+            ],
+            keywords: ["drag", "speed", "number", "field", "scrub", "sensitivity", "crop", "grow"],
           },
         ],
       },

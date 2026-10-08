@@ -31,6 +31,8 @@ pub struct Settings {
     /// The proxies made for stepping and scrubbing (proxy.rs).
     pub proxies: Proxies,
     pub timeline: Timeline,
+    /// Editing on the picture: the options bar's number fields.
+    pub editing: Editing,
     /// How exports come out (export.rs).
     pub export: Export,
 }
@@ -42,6 +44,7 @@ impl Default for Settings {
             appearance: Appearance::default(),
             proxies: Proxies::default(),
             timeline: Timeline::default(),
+            editing: Editing::default(),
             export: Export::default(),
         }
     }
@@ -129,6 +132,25 @@ impl Default for Timeline {
             delete_ranges_with_clip: true,
         }
     }
+}
+
+/// How fast a number field's value changes as it's dragged: scales the mouse's speed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum DragSpeed {
+    VerySlow,
+    Slow,
+    #[default]
+    Normal,
+    Fast,
+    VeryFast,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Editing {
+    /// Dragging a number field up or down (crop, grow).
+    pub number_drag_speed: DragSpeed,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -524,6 +546,7 @@ mod tests {
         assert_eq!(v["timeline"]["waveform"], true);
         assert_eq!(v["timeline"]["rangesFollowVideo"], true);
         assert_eq!(v["timeline"]["deleteRangesWithClip"], true);
+        assert_eq!(v["editing"]["numberDragSpeed"], "normal");
         assert_eq!(v["export"]["gifFps"], 20);
         assert_eq!(v["export"]["gifSize"], 640);
     }

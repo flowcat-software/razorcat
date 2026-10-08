@@ -244,8 +244,87 @@
   color: var(--text);
 }
 
-.summary {
+.summary,
+.frameSummary {
   font-size: 12px;
+}
+
+.optionsTitle {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.optionsSep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+}
+
+/* A number that drags up or down to change, or takes typing (NumberField.tsx). */
+.numberField {
+  width: 60px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--control-bg);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.numberField:not(:focus) {
+  cursor: ew-resize;
+}
+
+.numberField:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* While a number field is dragged (on the page's root). */
+.hideCursor,
+.hideCursor * {
+  cursor: none !important;
+}
+
+/* Being dragged (the cursor is hidden): the field itself shows it. */
+.numberField[data-dragging] {
+  outline: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: none;
+}
+
+.chips {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.chip {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 13px;
+  background: var(--button-bg);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.chip:hover:not(:disabled) {
+  background: var(--button-bg-hover);
+}
+
+.chip[aria-checked="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: none;
+}
+
+.chip:disabled {
+  opacity: 0.45;
 }
 
 .sourceName {
@@ -283,6 +362,182 @@
   left: 0;
   top: 0;
   display: block;
+}
+
+/* The whole picture, placed so the crop fills the stage (Preview.tsx). */
+.picture {
+  position: absolute;
+}
+
+/* The crop box's place: over the stage, so its handles reach past the picture. */
+.cropArea {
+  position: absolute;
+}
+
+/* The crop box (Vandal's crop mode). */
+.cropOverlay {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+
+.cropBox {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid #fff;
+  /* Outlines it on light pictures. */
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35);
+  cursor: move;
+}
+
+.cropDim {
+  position: absolute;
+  background: rgb(0 0 0 / 0.5);
+  pointer-events: none;
+}
+
+.cropThirds {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      to right,
+      transparent calc(100% / 3 - 0.5px),
+      rgb(255 255 255 / 0.35) 0,
+      rgb(255 255 255 / 0.35) calc(100% / 3 + 0.5px),
+      transparent 0,
+      transparent calc(200% / 3 - 0.5px),
+      rgb(255 255 255 / 0.35) 0,
+      rgb(255 255 255 / 0.35) calc(200% / 3 + 0.5px),
+      transparent 0
+    ),
+    linear-gradient(
+      to bottom,
+      transparent calc(100% / 3 - 0.5px),
+      rgb(255 255 255 / 0.35) 0,
+      rgb(255 255 255 / 0.35) calc(100% / 3 + 0.5px),
+      transparent 0,
+      transparent calc(200% / 3 - 0.5px),
+      rgb(255 255 255 / 0.35) 0,
+      rgb(255 255 255 / 0.35) calc(200% / 3 + 0.5px),
+      transparent 0
+    );
+}
+
+/* The box's size, in its bottom-right corner. */
+.cropSize {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font: 11px/1.4 var(--mono);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.cropCorner {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  border: 0 solid #fff;
+  pointer-events: none;
+  filter: drop-shadow(0 0 1px rgb(0 0 0 / 0.5));
+}
+
+.corner_nw {
+  left: -4px;
+  top: -4px;
+  border-left-width: 4px;
+  border-top-width: 4px;
+}
+
+.corner_ne {
+  right: -4px;
+  top: -4px;
+  border-right-width: 4px;
+  border-top-width: 4px;
+}
+
+.corner_sw {
+  left: -4px;
+  bottom: -4px;
+  border-left-width: 4px;
+  border-bottom-width: 4px;
+}
+
+.corner_se {
+  right: -4px;
+  bottom: -4px;
+  border-right-width: 4px;
+  border-bottom-width: 4px;
+}
+
+/* Grab zones: 12 px strips along the edges, 20 px squares at the corners. */
+.cropHandle {
+  position: absolute;
+}
+
+.handle_n,
+.handle_s {
+  left: 10px;
+  right: 10px;
+  height: 12px;
+}
+
+.handle_e,
+.handle_w {
+  top: 10px;
+  bottom: 10px;
+  width: 12px;
+}
+
+.handle_n {
+  top: -6px;
+}
+
+.handle_s {
+  bottom: -6px;
+}
+
+.handle_e {
+  right: -6px;
+}
+
+.handle_w {
+  left: -6px;
+}
+
+.handle_nw,
+.handle_ne,
+.handle_sw,
+.handle_se {
+  width: 20px;
+  height: 20px;
+}
+
+.handle_nw {
+  left: -10px;
+  top: -10px;
+}
+
+.handle_ne {
+  right: -10px;
+  top: -10px;
+}
+
+.handle_sw {
+  left: -10px;
+  bottom: -10px;
+}
+
+.handle_se {
+  right: -10px;
+  bottom: -10px;
 }
 
 /* The proxy, over the original while it's nearer the playhead (player.ts). */
