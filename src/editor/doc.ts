@@ -1,0 +1,75 @@
+// The edit document (PLAN §3): what the user makes of the source. One magnetic track of clips,
+// each a stretch of the source's grid frames, butted together: the timeline is the clips in
+// order, with no gaps. The preview and (Phase 2.5) the export both read it. Pure and immutable:
+// every edit returns a new document (unchanged parts shared), which is what undo keeps
+// (docStore.ts). The mockup's model (mockup/main.html), ported.
+
+export type ClipId = number;
+
+export interface Clip {
+  id: ClipId;
+  /** The first source grid frame shown. */
+  in: number;
+  /** The source grid frame after the last one shown (exclusive). */
+  out: number;
+}
+
+export interface Doc {
+  clips: readonly Clip[];
+  /** The next clip's id. */
+  nextId: ClipId;
+}
+
+/** A source `frames` long, whole: one clip. */
+export function wholeSource(frames: number): Doc {
+  return { clips: [{ id: 1, in: 0, out: frames }], nextId: 2 };
+}
+
+export const clipLength = (c: Clip) => c.out - c.in;
+
+/** The timeline's length in frames. */
+export const total = (doc: Doc) => doc.clips.reduce((n, c) => n + clipLength(c), 0);
+
+/** Where each clip starts on the timeline. */
+export function clipStarts(doc: Doc): number[] {
+  let t = 0;
+  return doc.clips.map((c) => {
+    const s = t;
+    t += clipLength(c);
+    return s;
+  });
+}
+
+/** The clip under timeline frame `f`: its index, and where it starts. */
+export function clipAt(doc: Doc, f: number): { index: number; clip: Clip; start: number } | null {
+  let start = 0;
+  for (let index = 0; index < doc.clips.length; index++) {
+    const clip = doc.clips[index];
+    if (f >= start && f < start + clipLength(clip)) return { index, clip, start };
+    start += clipLength(clip);
+  }
+  return null;
+}
+
+/** The frames where something starts or ends (cuts, and the timeline's ends), in order. */
+export function editPoints(doc: Doc): number[] {
+  return [...clipStarts(doc), total(doc)];
+}
+
+/**
+ * Splits the clip under timeline frame `f` there: the second part is a new clip. Nothing to
+ * split at a clip's first frame (it's already a cut) or past the end: the same document.
+ */
+export function split(doc: Doc, f: number): Doc {
+  const at = clipAt(doc, f);
+  if (!at || f === at.start) return doc;
+  const cut = at.clip.in + (f - at.start);
+  const clips = [...doc.clips];
+  clips.splice(
+    at.index,
+    1,
+    { ...at.clip, out: cut },
+    { id: doc.nextId, in: cut, out: at.clip.out },
+  );
+  return { clips, nextId: doc.nextId + 1 };
+}

@@ -1,8 +1,11 @@
+import { canRedo, canUndo, useDoc } from "./docStore";
 import styles from "./EditorApp.module.css";
 
 interface Props {
   /** No video yet: only Open works. */
   empty: boolean;
+  /** The picture's tools and export aren't built yet (Phases 2.5-4). */
+  notYet: boolean;
   onOpen: () => void;
 }
 
@@ -34,7 +37,9 @@ const TOOLS = [
 ];
 
 /** The editor's top row: the picture's tools on the left, file actions on the right. */
-export function CommandBar({ empty, onOpen }: Props) {
+export function CommandBar({ empty, notYet, onOpen }: Props) {
+  const undoable = useDoc(canUndo);
+  const redoable = useDoc(canRedo);
   return (
     <div className={styles.commandBar}>
       <div className={styles.tools}>
@@ -44,9 +49,9 @@ export function CommandBar({ empty, onOpen }: Props) {
             type="button"
             className={styles.tool}
             aria-label={t.label}
-            aria-pressed={!empty && t.id === "select"}
+            aria-pressed={!empty && !notYet && t.id === "select"}
             title={t.label}
-            disabled={empty}
+            disabled={empty || notYet}
           >
             <svg viewBox="0 0 24 24" aria-hidden>
               {t.icon}
@@ -59,7 +64,9 @@ export function CommandBar({ empty, onOpen }: Props) {
           className={styles.tool}
           aria-label="Undo (Ctrl+Z)"
           title="Undo (Ctrl+Z)"
-          disabled
+          disabled={empty || !undoable}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => useDoc.getState().undo()}
         >
           <svg viewBox="0 0 24 24" aria-hidden>
             <path d="M9 14L4 9l5-5" />
@@ -71,7 +78,9 @@ export function CommandBar({ empty, onOpen }: Props) {
           className={styles.tool}
           aria-label="Redo (Ctrl+Y)"
           title="Redo (Ctrl+Y)"
-          disabled
+          disabled={empty || !redoable}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => useDoc.getState().redo()}
         >
           <svg viewBox="0 0 24 24" aria-hidden>
             <path d="M15 14l5-5-5-5" />
@@ -98,7 +107,7 @@ export function CommandBar({ empty, onOpen }: Props) {
           className={styles.splitMain}
           aria-label="Export the timeline (Ctrl+E)"
           title="Export the timeline (Ctrl+E)"
-          disabled={empty}
+          disabled={empty || notYet}
         >
           <svg viewBox="0 0 24 24" aria-hidden>
             <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
@@ -110,7 +119,7 @@ export function CommandBar({ empty, onOpen }: Props) {
           className={styles.splitMore}
           aria-label="Export options"
           title="Export options"
-          disabled={empty}
+          disabled={empty || notYet}
         >
           <svg viewBox="0 0 24 24" aria-hidden>
             <path d="M6 9l6 6 6-6" />

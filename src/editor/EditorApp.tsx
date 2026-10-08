@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { commands, events, type Settings, type SourceInfo, type ThumbsInfo } from "../shared/ipc";
 import { CommandBar } from "./CommandBar";
 import { EmptyEditor } from "./EmptyEditor";
+import { useDoc } from "./docStore";
+import { seekEdit, splitAtPlayhead } from "./edits";
 import { checkFrames } from "./frameCheck";
 import { formatRate, sourceFacts } from "./format";
 import { Player } from "./player";
@@ -17,7 +19,7 @@ const openVideo = () => void commands.openDialog();
 /** Thumbnails are made from proxies: none without them. */
 const thumbsOn = (s: Settings) => s.timeline.thumbnails && s.proxies.enabled;
 
-/** The transport's keys (mockup's keys table). True if the key was the player's. */
+/** The transport's and the timeline's keys (mockup's keys table). True if the key was theirs. */
 function transportKey(e: KeyboardEvent, player: Player): boolean {
   if (e.ctrlKey || e.altKey || e.metaKey) return false;
   const second = Math.round(player.fps);
@@ -30,6 +32,12 @@ function transportKey(e: KeyboardEvent, player: Player): boolean {
     case "ArrowRight":
       player.step(e.shiftKey ? second : 1, e.shiftKey || e.repeat);
       return true;
+    case "ArrowUp":
+      seekEdit(player, -1);
+      return true;
+    case "ArrowDown":
+      seekEdit(player, 1);
+      return true;
     case "Home":
       player.seek(0);
       return true;
@@ -37,9 +45,15 @@ function transportKey(e: KeyboardEvent, player: Player): boolean {
       player.seek(player.frames - 1);
       return true;
   }
-  // Held down, these would flip back and forth.
-  if (e.shiftKey || e.repeat) return ["Space", "KeyJ", "KeyK", "KeyL"].includes(e.code);
+  // Held down, these would flip back and forth (or split again and again).
+  if (e.shiftKey || e.repeat) return ["Space", "KeyJ", "KeyK", "KeyL", "KeyS"].includes(e.code);
   switch (e.code) {
+    case "KeyS":
+      splitAtPlayhead(player);
+      return true;
+    case "Escape":
+      useDoc.getState().select(null);
+      return true;
     case "Space":
       player.toggle();
       return true;
@@ -93,6 +107,14 @@ export function EditorApp() {
     player.open();
     return () => player.close();
   }, [player]);
+
+  // A new source starts a new edit: the whole of it, one clip. (The same source converted to
+  // play here keeps its edit.)
+  const sourceId = source?.id;
+  const sourceFrames = source?.frames ?? 0;
+  useEffect(() => {
+    if (sourceId) useDoc.getState().load(sourceFrames);
+  }, [sourceId, sourceFrames]);
 
   useEffect(() => {
     if (!player) return;
@@ -199,11 +221,17 @@ export function EditorApp() {
     };
   }, [player, source, checkFor]);
 
-  // Ctrl+O opens a video, Ctrl+, opens Settings (as in Vandal); Ctrl+0, Ctrl+= and Ctrl+−
-  // fit and zoom the timeline.
+  // Ctrl+O opens a video, Ctrl+, opens Settings, Ctrl+Z undoes (as in Vandal); Ctrl+0, Ctrl+=
+  // and Ctrl+− fit and zoom the timeline.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
+      if (!e.ctrlKey || e.altKey || e.metaKey) return;
+      if (e.shiftKey && e.code === "KeyZ") {
+        e.preventDefault();
+        useDoc.getState().redo();
+        return;
+      }
+      if (e.shiftKey) return;
       const zoom = {
         Digit0: 0,
         Equal: 1.5,
@@ -211,7 +239,13 @@ export function EditorApp() {
         Minus: 1 / 1.5,
         NumpadSubtract: 1 / 1.5,
       }[e.code];
-      if (e.code === "KeyO") {
+      if (e.code === "KeyZ" || e.code === "KeyY") {
+        // Ctrl+Z undoes; Ctrl+Shift+Z and Ctrl+Y redo (as Vandal).
+        e.preventDefault();
+        const doc = useDoc.getState();
+        if (e.code === "KeyY") doc.redo();
+        else doc.undo();
+      } else if (e.code === "KeyO") {
         e.preventDefault();
         openVideo();
       } else if (e.code === "Comma") {
@@ -271,7 +305,7 @@ export function EditorApp() {
   const notYet = true;
   return (
     <div className={styles.app}>
-      <CommandBar empty={empty || notYet} onOpen={openVideo} />
+      <CommandBar empty={empty} notYet={notYet} onOpen={openVideo} />
       <div className={styles.optionsBar}>
         {source ? (
           <>
@@ -305,7 +339,7 @@ export function EditorApp() {
       <TimelineBar
         source={source}
         player={player}
-        noEdits={notYet}
+        noRanges={notYet}
         inFrames={inFrames}
         onToggleFrames={() => setInFrames((f) => !f)}
       />

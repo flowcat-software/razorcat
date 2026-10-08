@@ -4,6 +4,8 @@ import type { Player } from "./player";
 import { ThumbStrip } from "./thumbs";
 import { Peaks, waveHeight } from "./wave";
 import { timecode, needsHours } from "./timecode";
+import { clipAt, clipLength, clipStarts, total } from "./doc";
+import { useDoc } from "./docStore";
 import { useTimeline } from "./timelineStore";
 import { FRAME_TICKS, HEADER, fOf, ticks, xOf, zoomAnchor, type View } from "./timelineView";
 import styles from "./EditorApp.module.css";
@@ -74,10 +76,17 @@ function useColours(onChange: () => void): () => Record<string, string> {
   return read;
 }
 
+/** A clip as drawn: where it starts on the timeline, and the source frames it shows. */
+interface Span {
+  start: number;
+  in: number;
+  out: number;
+}
+
 /**
- * The clip's thumbnails, a continuous strip (those not made yet leave the clip's colour). Never a
- * picture from later than where it's drawn: a thumbnail stands for the frames from its own up to
- * the next one's.
+ * A clip's thumbnails, a continuous strip from its start (those not made yet leave the clip's
+ * colour). Never a picture from later than where it's drawn: a thumbnail stands for the frames
+ * from its own up to the next one's.
  *
  * Zoomed out, a thumbnail is wider than the frames between thumbnails: each place along the strip
  * shows the last thumbnail at or before its frame. Zoomed in, the frames between thumbnails are
@@ -88,17 +97,20 @@ function drawThumbs(
   g: CanvasRenderingContext2D,
   s: ThumbStrip,
   view: View,
+  clip: Span,
   right: number,
-  frames: number,
 ) {
   const first = s.bitmaps[0];
   if (!first) return;
   const tw = (THUMB_H * first.width) / first.height;
-  const x0 = xOf(view, 0);
+  const x0 = xOf(view, clip.start);
+  /** Timeline x of source frame `f` in this clip. */
+  const at = (f: number) => xOf(view, clip.start + f - clip.in);
   const span = s.step * view.zoom;
   if (span <= tw) {
     for (let i = Math.max(0, Math.floor((HEADER - x0) / tw)); x0 + i * tw < right; i++) {
-      const f = Math.floor((i * tw) / view.zoom);
+      const f = clip.in + Math.floor((i * tw) / view.zoom);
+      if (f >= clip.out) break;
       const bitmap = s.bitmaps[Math.floor(f / s.step)];
       if (!bitmap) continue;
       const l = Math.round(x0 + i * tw);
@@ -107,10 +119,12 @@ function drawThumbs(
     return;
   }
   const w = Math.round(tw);
-  for (let k = Math.max(0, Math.floor((HEADER - x0) / span)); k < s.bitmaps.length; k++) {
-    const l = Math.round(xOf(view, k * s.step));
+  const leftmost = clip.in + Math.max(0, (HEADER - x0) / view.zoom);
+  const last = Math.min(s.bitmaps.length, Math.ceil(clip.out / s.step));
+  for (let k = Math.floor(leftmost / s.step); k < last; k++) {
+    const l = Math.round(at(Math.max(k * s.step, clip.in)));
     if (l >= right) break;
-    const r = Math.round(xOf(view, Math.min((k + 1) * s.step, frames)));
+    const r = Math.round(at(Math.min((k + 1) * s.step, clip.out)));
     g.save();
     g.beginPath();
     g.rect(l, THUMB_TOP, r - l, THUMB_H);
@@ -123,40 +137,40 @@ function drawThumbs(
 }
 
 /**
- * The clip's waveform, in its band at the bottom: a bar per pixel, as tall as the loudest audio in
+ * A clip's waveform, in its band at the bottom: a bar per pixel, as tall as the loudest audio in
  * the frames under it (on a dB scale), centred.
  */
 function drawWave(
   g: CanvasRenderingContext2D,
   peaks: Peaks,
   view: View,
-  x0: number,
+  clip: Span,
   right: number,
-  frames: number,
 ) {
   const half = WAVE_H / 2 - 1;
+  /** Source frame at timeline x, in this clip. */
+  const at = (x: number) => clip.in + fOf(view, x) - clip.start;
+  const end = Math.min(right, xOf(view, clip.start + clip.out - clip.in));
   g.fillStyle = "rgb(255 255 255 / 0.55)";
   g.beginPath();
-  for (let x = Math.floor(Math.max(x0, HEADER)); x < right; x++) {
-    const f0 = Math.max(0, fOf(view, x));
-    const f1 = Math.min(frames, fOf(view, x + 1));
-    const a = waveHeight(peaks.max(f0, f1)) * half;
+  for (let x = Math.floor(Math.max(xOf(view, clip.start), HEADER)); x < end; x++) {
+    const a = waveHeight(peaks.max(Math.max(clip.in, at(x)), Math.min(clip.out, at(x + 1)))) * half;
     if (a > 0) g.rect(x, WAVE_MID - a, 1, Math.max(1, 2 * a));
   }
   g.fill();
 }
 
 /**
- * The timeline (the mockup's, so far without edits): the ruler, the clip (the whole source) with
- * its thumbnails and waveform, frame ticks once there's room, and the playhead. Click or drag to move the playhead; the wheel
- * scrolls, Ctrl+wheel zooms at the pointer.
+ * The timeline (the mockup's): the ruler, the document's clips with their thumbnails and
+ * waveform, frame ticks once there's room, and the playhead. Click or drag to move the playhead
+ * (on a clip, it's selected too); the wheel scrolls, Ctrl+wheel zooms at the pointer.
  */
 export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const draw = useRef<() => void>(() => {});
   const [redraw] = useState(() => () => draw.current());
   const colours = useColours(redraw);
-  const frames = source.frames;
+  const frames = useDoc((s) => total(s.doc));
 
   // The thumbnails: a strip per source, loaded as Rust makes them.
   const strip = useRef<ThumbStrip | null>(null);
@@ -270,39 +284,63 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         g.stroke();
       }
 
-      // The clip: the whole source, for now (Phase 2 splits it).
-      const x0 = xOf(view, 0);
-      const x1 = xOf(view, frames);
-      if (x1 > HEADER && x0 < W) {
+      // The clips, each inset by half a pixel so a cut shows as a 1 px gap, with 8 px corners
+      // notching it top and bottom.
+      const { doc, selected } = useDoc.getState();
+      const starts = clipStarts(doc);
+      g.save();
+      g.beginPath();
+      g.rect(HEADER, 0, W - HEADER, H);
+      g.clip();
+      doc.clips.forEach((clip, i) => {
+        const span = { start: starts[i], in: clip.in, out: clip.out };
+        const len = clipLength(clip);
+        const x0 = xOf(view, span.start);
+        const x1 = xOf(view, span.start + len);
+        if (x1 <= HEADER || x0 >= W) return;
         g.save();
-        g.beginPath();
-        g.rect(HEADER, 0, W - HEADER, H);
-        g.clip();
         g.beginPath();
         g.roundRect(x0 + CLIP_GAP, CLIP_TOP, x1 - x0 - 2 * CLIP_GAP, CLIP_H, CLIP_RADIUS);
         g.clip();
         g.fillStyle = c["clip"];
         g.fillRect(x0, CLIP_TOP, x1 - x0, CLIP_H);
-        if (strip.current) drawThumbs(g, strip.current, view, Math.min(x1, W), frames);
-        if (peaks.current) drawWave(g, peaks.current, view, x0, Math.min(x1, W), frames);
+        if (strip.current) drawThumbs(g, strip.current, view, span, Math.min(x1, W));
+        if (peaks.current) drawWave(g, peaks.current, view, span, Math.min(x1, W));
+        // Its name and length, kept in view as the timeline scrolls.
         const lx = Math.max(x0, HEADER) + 9;
+        const name = `Clip ${i + 1}`;
         if (x1 - lx > 50) {
           g.fillStyle = "#fff";
           g.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
-          g.fillText("Clip 1", lx, CLIP_TOP + 10);
-          const w = g.measureText("Clip 1 ").width;
+          g.fillText(name, lx, CLIP_TOP + 10);
+          const w = g.measureText(`${name} `).width;
           g.font = "11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
           g.fillStyle = "rgb(255 255 255 / 0.8)";
           if (x1 - lx > w + 90) {
             g.fillText(
-              inFrames ? `${frames} frames` : timecode(frames, num, den, hours),
+              inFrames ? `${len} frames` : timecode(len, num, den, hours),
               lx + w + 4,
               CLIP_TOP + 10,
             );
           }
         }
         g.restore();
-      }
+        if (clip.id === selected) {
+          g.strokeStyle = c["accent"];
+          g.lineWidth = 2;
+          g.beginPath();
+          g.roundRect(
+            x0 + CLIP_GAP + 1,
+            CLIP_TOP + 1,
+            x1 - x0 - 2 * CLIP_GAP - 2,
+            CLIP_H - 2,
+            CLIP_RADIUS - 1,
+          );
+          g.stroke();
+          g.lineWidth = 1;
+        }
+      });
+      g.restore();
 
       // Track header.
       g.fillStyle = c["tl-bg"];
@@ -345,6 +383,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     };
     draw.current();
     const stopView = useTimeline.subscribe(draw.current);
+    const stopDoc = useDoc.subscribe(draw.current);
     const stopPlayer = player.subscribe(() => {
       // Playing: the view follows the playhead.
       const { frame, speed } = player.getState();
@@ -354,6 +393,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     return () => {
       cancelAnimationFrame(queued);
       stopView();
+      stopDoc();
       stopPlayer();
     };
   }, [colours, source, player, frames, inFrames]);
@@ -404,6 +444,14 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         e.currentTarget.setPointerCapture(e.pointerId);
+        // On the clip track, the clip under the pointer is selected (none on the empty track).
+        const r = e.currentTarget.getBoundingClientRect();
+        const x = e.clientX - r.left;
+        const y = e.clientY - r.top;
+        if (y >= CLIP_TOP && x >= HEADER) {
+          const { doc, select } = useDoc.getState();
+          select(clipAt(doc, Math.floor(fOf(useTimeline.getState().view, x)))?.clip.id ?? null);
+        }
         scrubTo(e);
       }}
       onPointerMove={(e) => {

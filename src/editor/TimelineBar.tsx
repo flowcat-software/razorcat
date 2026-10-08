@@ -1,5 +1,6 @@
 import { useSyncExternalStore, type ReactNode } from "react";
 import type { SourceInfo } from "../shared/ipc";
+import { seekEdit, splitAtPlayhead } from "./edits";
 import type { Player, PlayerState } from "./player";
 import { needsHours, timecode } from "./timecode";
 import styles from "./EditorApp.module.css";
@@ -8,8 +9,8 @@ interface Props {
   /** The open video and its player; null before one is open. */
   source: SourceInfo | null;
   player: Player | null;
-  /** Editing isn't built yet (Phase 2). */
-  noEdits: boolean;
+  /** Ranges aren't built yet (Phase 2.4). */
+  noRanges: boolean;
   /** The readout shows frame numbers (a click switches), as the ruler does. */
   inFrames: boolean;
   onToggleFrames: () => void;
@@ -87,9 +88,9 @@ function Readout({
 
 /**
  * The bar under the preview: the time readout, the transport and the timeline's edits (the
- * mockup's; the edits arrive in Phase 2).
+ * mockup's).
  */
-export function TimelineBar({ source, player, noEdits, inFrames, onToggleFrames }: Props) {
+export function TimelineBar({ source, player, noRanges, inFrames, onToggleFrames }: Props) {
   const { frame, speed } = useSyncExternalStore(
     player?.subscribe ?? nothing,
     player?.getState ?? paused,
@@ -102,7 +103,11 @@ export function TimelineBar({ source, player, noEdits, inFrames, onToggleFrames 
       <BarButton label="Start (Home)" disabled={off} onClick={() => player?.seek(0)}>
         <path d="M6 5v14M18 6l-8 6 8 6z" />
       </BarButton>
-      <BarButton label="Previous edit (↑)" disabled={off || noEdits}>
+      <BarButton
+        label="Previous edit (↑)"
+        disabled={off}
+        onClick={() => player && seekEdit(player, -1)}
+      >
         <path d="M11 6l-6 6 6 6M19 6l-6 6 6 6" />
       </BarButton>
       <BarButton label="Back one frame (←)" disabled={off} onClick={() => player?.step(-1)}>
@@ -120,7 +125,7 @@ export function TimelineBar({ source, player, noEdits, inFrames, onToggleFrames 
       <BarButton label="Forward one frame (→)" disabled={off} onClick={() => player?.step(1)}>
         <path d="M9 6l6 6-6 6" />
       </BarButton>
-      <BarButton label="Next edit (↓)" disabled={off || noEdits}>
+      <BarButton label="Next edit (↓)" disabled={off} onClick={() => player && seekEdit(player, 1)}>
         <path d="M13 6l6 6-6 6M5 6l6 6-6 6" />
       </BarButton>
       <BarButton label="End (End)" disabled={off} onClick={() => player?.seek(player.frames - 1)}>
@@ -134,7 +139,9 @@ export function TimelineBar({ source, player, noEdits, inFrames, onToggleFrames 
         type="button"
         className={`${styles.barButton} ${styles.withText}`}
         title="Split at the playhead (S)"
-        disabled={off || noEdits}
+        disabled={off}
+        onMouseDown={keepFocus}
+        onClick={() => player && splitAtPlayhead(player)}
       >
         <svg viewBox="0 0 24 24" aria-hidden>
           <path d="M12 3v18M8 7l-4 5 4 5M16 7l4 5-4 5" />
@@ -145,7 +152,7 @@ export function TimelineBar({ source, player, noEdits, inFrames, onToggleFrames 
         type="button"
         className={`${styles.barButton} ${styles.withText}`}
         title="Add a range at the playhead (R)"
-        disabled={off || noEdits}
+        disabled={off || noRanges}
       >
         <svg viewBox="0 0 24 24" aria-hidden>
           <path d="M4 6v12M20 6v12M4 12h16" />
