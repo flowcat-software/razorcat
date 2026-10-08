@@ -77,6 +77,8 @@ export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Pro
           ref={videoRef}
           className={styles.video}
           src={source.url}
+          // Its pixels readable (the frame check, frameCheck.ts): protocol.rs allows it.
+          crossOrigin="anonymous"
           preload="auto"
           style={
             transform
@@ -99,6 +101,7 @@ export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Pro
             ref={proxyRef}
             className={styles.proxy}
             src={proxyUrl}
+            crossOrigin="anonymous"
             preload="auto"
             muted
           />

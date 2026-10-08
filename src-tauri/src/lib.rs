@@ -1,4 +1,5 @@
 mod appearance;
+mod check;
 mod cli;
 mod commands;
 mod convert;
@@ -39,6 +40,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::open_folder,
             commands::default_proxy_folder,
             commands::proxy_cache,
+            commands::frame_check_expected,
+            commands::frame_check_report,
             commands::convert_for_preview,
             commands::cancel_conversion,
         ])
@@ -54,6 +57,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             proxy::ProxyFailed,
             thumbs::ThumbsUpdate,
             wave::WaveReady,
+            check::CheckFrames,
             appearance::WindowsAccentChanged,
             settings::SettingsChanged,
         ])
@@ -92,6 +96,7 @@ pub(crate) fn product_name(app: &AppHandle) -> String {
 
 /// Opens the file a launch was given. The MVP edits one source: of several, the first wins.
 fn open_from_args(app: &AppHandle, args: &[String], cwd: &Path) {
+    check::requested(args);
     let mut files = cli::file_paths(args, cwd).into_iter();
     if let Some(file) = files.next() {
         editor::request_open(app, file);

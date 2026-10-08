@@ -82,6 +82,13 @@ export const commands = {
 	/**  The proxy cache's size, and what lowering its limit to `limit_gb` would delete. */
 	proxyCache: (limitGb: number) => __TAURI_INVOKE<CacheReport>("proxy_cache", { limitGb }),
 	/**
+	 *  Development: the source frame export would show at each grid frame of the open source, by
+	 *  its barcode (the preview = export check, check.rs).
+	 */
+	frameCheckExpected: () => typedError<number[], string>(__TAURI_INVOKE("frame_check_expected")),
+	/**  Development: keeps the check's report (JSON) and logs `summary`; returns the report's path. */
+	frameCheckReport: (summary: string, report: string) => typedError<string, string>(__TAURI_INVOKE("frame_check_report", { summary, report })),
+	/**
 	 *  The preview can't play the open source at `url` (its codec): converts it, then sends
 	 *  [`editor::SourceConverted`] (or `ConvertEnded` with why not).
 	 */
@@ -92,6 +99,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	checkFrames: makeEvent<CheckFrames>("check-frames"),
 	convertEnded: makeEvent<ConvertEnded>("convert-ended"),
 	convertProgress: makeEvent<ConvertProgress>("convert-progress"),
 	openFailed: makeEvent<OpenFailed>("open-failed"),
@@ -122,6 +130,12 @@ export type CacheReport = {
 	/**  What `limit_gb` would delete: how many proxies, and their bytes. */
 	dropping: number,
 	droppingBytes: number | null,
+};
+
+/**  Rust → editor: check the source just opened. */
+export type CheckFrames = {
+	/**  The source (its `SourceInfo::id`). */
+	source: string,
 };
 
 /**

@@ -143,3 +143,24 @@ pub fn convert_for_preview(app: AppHandle, url: String) {
 pub fn cancel_conversion(app: AppHandle) {
     crate::convert::cancel(&app);
 }
+
+/// Development: the source frame export would show at each grid frame of the open source, by
+/// its barcode (the preview = export check, check.rs).
+#[tauri::command]
+#[specta::specta]
+pub async fn frame_check_expected(app: AppHandle) -> Result<Vec<u32>, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::check::expected(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Development: keeps the check's report (JSON) and logs `summary`; returns the report's path.
+#[tauri::command]
+#[specta::specta]
+pub fn frame_check_report(
+    app: AppHandle,
+    summary: String,
+    report: String,
+) -> Result<String, String> {
+    crate::check::report(&app, &summary, &report)
+}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { commands, events, type Settings, type SourceInfo, type ThumbsInfo } from "../shared/ipc";
 import { CommandBar } from "./CommandBar";
 import { EmptyEditor } from "./EmptyEditor";
+import { checkFrames } from "./frameCheck";
 import { formatRate, sourceFacts } from "./format";
 import { Player } from "./player";
 import { Preview } from "./Preview";
@@ -74,6 +75,8 @@ export function EditorApp() {
   const [proxy, setProxy] = useState<{ source: string; url?: string; done?: number } | null>(null);
   /** Settings › General › Show thumbnails (made from proxies, so not without them). */
   const [showThumbs, setShowThumbs] = useState(true);
+  /** Development: the source to check (`--check-frames`, check.rs), once it's open. */
+  const [checkFor, setCheckFor] = useState<string | null>(null);
   /** Settings › Timeline › Show waveform. */
   const [showWave, setShowWave] = useState(true);
   /** The waveform once it's made; keyed by the source. */
@@ -137,6 +140,7 @@ export function EditorApp() {
       events.proxyReady.listen(({ payload }) => setProxy(payload)),
       events.thumbsUpdate.listen(({ payload }) => setThumbs(payload)),
       events.waveReady.listen(({ payload }) => setWave(payload)),
+      events.checkFrames.listen(({ payload }) => setCheckFor(payload.source)),
       events.settingsChanged.listen(({ payload }) => {
         setShowThumbs(thumbsOn(payload as Settings));
         setShowWave((payload as Settings).timeline.waveform);
@@ -173,6 +177,27 @@ export function EditorApp() {
       stops.forEach((stop) => stop());
     };
   }, []);
+
+  // Development: the preview = export check, on the source it was asked for.
+  const checked = useRef<string | null>(null);
+  useEffect(() => {
+    if (!player || !source || checkFor !== source.id || checked.current === checkFor) return;
+    checked.current = checkFor;
+    let gone = false;
+    checkFrames(
+      player,
+      source,
+      (text) => !gone && setNotice({ text }),
+      () => gone,
+    )
+      .then((summary) => setNotice({ text: `Frame check: ${summary}` }))
+      .catch((e: unknown) => {
+        if (!gone) setNotice({ text: `Frame check failed: ${String(e)}`, error: true });
+      });
+    return () => {
+      gone = true;
+    };
+  }, [player, source, checkFor]);
 
   // Ctrl+O opens a video, Ctrl+, opens Settings (as in Vandal); Ctrl+0, Ctrl+= and Ctrl+−
   // fit and zoom the timeline.

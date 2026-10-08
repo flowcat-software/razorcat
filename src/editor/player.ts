@@ -13,6 +13,12 @@
 // key, a jump and scrubbing use it. Playing uses the
 // original; playing backward (which `<video>` can't) seeks frame after frame, on the proxy when
 // there is one.
+//
+// Some frames the original can't show by seeking: in open-GOP video (x265's default), the few
+// frames before a keyframe are decoded after it, and WebView2's decoder, seeking there, starts at
+// the keyframe and shows that instead (the frame check, frameCheck.ts, found them). When the
+// original settles on another picture than the playhead's, the proxy, which has every frame,
+// shows instead.
 
 import { frameAt, parseFrameTimes, type FrameTimes } from "./frameTimes";
 
@@ -25,6 +31,8 @@ export interface PlayerState {
 
 /** The speeds J and L step through. */
 const FASTEST = 8;
+/** How long the original may stay on another picture after a seek before the proxy covers it. */
+const SETTLE_MS = 150;
 
 /** One `<video>` and its seeks, coalesced; and the time of the picture it has on screen. */
 class Seeker {
@@ -32,6 +40,8 @@ class Seeker {
   private queued: number | null = null;
   /** The media time of the picture on screen; NaN before the first. */
   shownTime = NaN;
+  /** When the last seek finished (`performance.now()`). */
+  settledAt = 0;
   private gone = false;
 
   constructor(
@@ -67,7 +77,10 @@ class Seeker {
     const t = this.queued;
     this.queued = null;
     if (t !== null) this.seek(t);
-    else this.changed();
+    else {
+      this.settledAt = performance.now();
+      this.changed();
+    }
   };
 
   detach() {
@@ -256,11 +269,18 @@ export class Player {
     const p = this.proxy;
     if (!p) return;
     // The proxy can end a frame short of the grid.
-    const last = Number.isFinite(p.video.duration)
-      ? Math.floor(p.video.duration * this.fps - 0.5)
-      : n;
+    const last = Number.isFinite(p.video.duration) ? this.proxyFrame(p.video.duration) - 1 : n;
     p.seek((Math.min(n, last) + 0.5) / this.fps);
     this.paint();
+  }
+
+  /**
+   * The proxy frame starting at time `t` (proxy frame k starts at k / fps). Rounded to the
+   * nearest: the video reports times to the microsecond, so frame 1 at 30 fps is 0.033333 s,
+   * a hair before 1 / 30.
+   */
+  private proxyFrame(t: number) {
+    return Math.round(t * this.fps);
   }
 
   /** Whether the original has the playhead's picture on screen. */
@@ -270,15 +290,25 @@ export class Player {
     return Math.abs(o.shownTime - this.times.start[this.state.frame]) < 1e-3;
   }
 
-  /** Puts the proxy on top while it's nearer the playhead than the original. */
+  /** The original has finished seeking a while ago, and shows another picture than the playhead's. */
+  private originalMissed() {
+    const o = this.original;
+    if (!o || !this.times || o.busy) return false;
+    return performance.now() - o.settledAt >= SETTLE_MS && !this.originalShowsFrame();
+  }
+
+  /**
+   * Puts the proxy on top while it's nearer the playhead than the original; after a single step
+   * (held), only if the original can't show the frame.
+   */
   private paint = () => {
     const p = this.proxy;
     if (!p) return;
-    const k = Math.round(p.shownTime * this.fps - 0.5);
-    const proxyShowsFrame = !p.busy && k === this.state.frame;
+    const proxyShowsFrame = !p.busy && this.proxyFrame(p.shownTime) === this.state.frame;
     let on: boolean;
-    if (this.state.speed > 0 || this.proxyHeld || this.originalShowsFrame()) on = false;
-    else if (proxyShowsFrame) on = true;
+    if (this.state.speed > 0 || this.originalShowsFrame()) on = false;
+    else if (proxyShowsFrame && (!this.proxyHeld || this.originalMissed())) on = true;
+    else if (this.proxyHeld) on = false;
     else return;
     p.video.style.visibility = on ? "visible" : "hidden";
   };
@@ -291,8 +321,40 @@ export class Player {
         this.check(meta);
       }
     }
+    // A seek finished: if the original is still on another picture once it's settled, the proxy
+    // covers it.
+    if (!meta) setTimeout(() => !this.gone && this.paint(), SETTLE_MS);
     this.paint();
   };
+
+  // --- development: the preview = export check (frameCheck.ts) ---
+
+  /** Which video is on top with the playhead's frame, if either is yet. */
+  onScreen(): "original" | "proxy" | null {
+    if (this.originalShowsFrame()) return "original";
+    const p = this.proxy;
+    return p?.video.style.visibility === "visible" && this.shows("proxy") ? "proxy" : null;
+  }
+
+  /** Whether `which` video has the playhead's frame on screen, its seeks done. */
+  shows(which: "original" | "proxy") {
+    if (which === "original") return this.originalShowsFrame();
+    const p = this.proxy;
+    return !!p && !p.busy && this.proxyFrame(p.shownTime) === this.state.frame;
+  }
+
+  video(which: "original" | "proxy") {
+    return (which === "original" ? this.original : this.proxy)?.video;
+  }
+
+  /** The original: the time of the picture on screen, the one wanted, and whether it's seeking. */
+  originalTimes() {
+    return {
+      shown: this.original?.shownTime,
+      want: this.times?.start[this.state.frame],
+      seeking: this.original?.busy,
+    };
+  }
 
   private onEnded = () => {
     this.stop();

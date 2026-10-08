@@ -1,0 +1,130 @@
+//! Development: the preview = export check (PLAN 1.8). `driveby --check-frames <file>` opens a
+//! barcoded test clip (`spikes/make-test-media.mjs`) and the page steps and seeks the preview
+//! over it, reading the barcode of the frame on screen. Here: the frames export would pick (the
+//! `fps` filter over the original, as export reads it), and the report. Release builds do none
+//! of it.
+
+use std::ffi::OsString;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use serde::Serialize;
+use specta::Type;
+use tauri::{AppHandle, Manager};
+use tauri_specta::Event;
+
+use crate::editor::LABEL;
+use crate::ffmpeg::{self, Outcome};
+use crate::state::AppState;
+
+/// The barcode: 16 cells along the bottom sixteenth of the picture, least significant bit on
+/// the left, white = 1.
+const BITS: usize = 16;
+
+/// The next file opened is to be checked.
+static PENDING: AtomicBool = AtomicBool::new(false);
+
+/// Rust → editor: check the source just opened.
+#[derive(Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckFrames {
+    /// The source (its `SourceInfo::id`).
+    pub source: String,
+}
+
+/// A launch's arguments ask for a check (development builds only).
+pub fn requested(args: &[String]) {
+    if cfg!(debug_assertions) && args.iter().any(|a| a == "--check-frames") {
+        PENDING.store(true, Ordering::Relaxed);
+    }
+}
+
+/// A source was opened: the page checks it, if that was asked for.
+pub fn opened(app: &AppHandle, id: String) {
+    if PENDING.swap(false, Ordering::Relaxed) {
+        let _ = CheckFrames { source: id }.emit_to(app, LABEL);
+    }
+}
+
+/// The source frame (by barcode) export would show at each grid frame of the open source.
+pub fn expected(app: &AppHandle) -> Result<Vec<u32>, String> {
+    if !cfg!(debug_assertions) {
+        return Err("development only".into());
+    }
+    let (path, rate, frames, generation) = {
+        let state = app.state::<AppState>();
+        let open = state.source.lock().unwrap();
+        let s = open.as_ref().ok_or("nothing open")?;
+        (s.path.clone(), s.grid.rate, s.grid.frames, s.generation)
+    };
+    let out = std::env::temp_dir().join(format!("driveby-check-{generation}.gray"));
+    let mut args: Vec<OsString> = vec!["-i".into(), path.into()];
+    args.extend(["-map", "0:v:0", "-an", "-sn", "-dn", "-vf"].map(OsString::from));
+    // Export's grid (as the proxy's), then the barcode strip, a pixel per cell.
+    args.push(
+        format!(
+            "fps={}/{},crop=iw:ih/16:0:ih-ih/16,scale={BITS}:1:flags=area,format=gray",
+            rate.num, rate.den
+        )
+        .into(),
+    );
+    args.extend(["-frames:v".into(), frames.to_string().into()]);
+    args.extend(["-fps_mode", "passthrough", "-f", "rawvideo"].map(OsString::from));
+    match ffmpeg::run(&args, &out, Some(u64::from(frames)), |_| {}, || false)? {
+        Outcome::Finished => {}
+        Outcome::Stopped => return Err("stopped".into()),
+    }
+    let bytes = fs::read(&out).map_err(|e| e.to_string());
+    let _ = fs::remove_file(&out);
+    Ok(barcodes(&bytes?))
+}
+
+/// The numbers in `BITS`-byte rows of grey cells.
+fn barcodes(bytes: &[u8]) -> Vec<u32> {
+    bytes
+        .chunks_exact(BITS)
+        .map(|cells| {
+            cells
+                .iter()
+                .enumerate()
+                .filter(|(_, &c)| c >= 128)
+                .fold(0, |n, (k, _)| n | 1 << k)
+        })
+        .collect()
+}
+
+/// Keeps the page's report (JSON) in the temp folder; returns where.
+pub fn report(app: &AppHandle, summary: &str, report: &str) -> Result<String, String> {
+    if !cfg!(debug_assertions) {
+        return Err("development only".into());
+    }
+    let name = {
+        let state = app.state::<AppState>();
+        let open = state.source.lock().unwrap();
+        open.as_ref().map(|s| crate::source::file_name(&s.path))
+    }
+    .unwrap_or_default();
+    let file: PathBuf = std::env::temp_dir().join(format!("driveby-check-{name}.json"));
+    fs::write(&file, report).map_err(|e| e.to_string())?;
+    eprintln!("[check] {name}: {summary} ({})", file.display());
+    Ok(file.display().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_barcodes() {
+        let mut row = [0u8; 32];
+        // 5 = cells 0 and 2; then 32768 = cell 15, a little blurred.
+        row[0] = 250;
+        row[2] = 200;
+        row[1] = 90;
+        row[16 + 15] = 180;
+        assert_eq!(barcodes(&row), [5, 32768]);
+        // A part row is ignored.
+        assert_eq!(barcodes(&row[..20]), [5]);
+    }
+}

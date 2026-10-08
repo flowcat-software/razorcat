@@ -234,9 +234,12 @@ fn serve(path: &PathBuf, range: Option<(u64, Option<u64>)>) -> std::io::Result<R
     let mut buf = vec![0u8; (end - start + 1) as usize];
     f.seek(SeekFrom::Start(start))?;
     f.read_exact(&mut buf)?;
-    // Always partial: the page gets the file in pieces, never whole.
+    // Always partial: the page gets the file in pieces, never whole. CORS lets the page read the
+    // video's pixels (the frame check draws them to a canvas); only Driveby's pages can reach
+    // this scheme at all.
     Ok(Response::builder()
         .status(StatusCode::PARTIAL_CONTENT)
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .header(header::CONTENT_TYPE, "video/mp4")
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::CONTENT_LENGTH, buf.len().to_string())
