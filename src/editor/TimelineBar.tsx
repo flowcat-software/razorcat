@@ -1,6 +1,8 @@
 import { useSyncExternalStore, type ReactNode } from "react";
 import type { SourceInfo } from "../shared/ipc";
-import { seekEdit, splitAtPlayhead } from "./edits";
+import { total as docTotal } from "./doc";
+import { useDoc } from "./docStore";
+import { deleteSelected, seekEdit, splitAtPlayhead } from "./edits";
 import type { Player, PlayerState } from "./player";
 import { needsHours, timecode } from "./timecode";
 import styles from "./EditorApp.module.css";
@@ -63,10 +65,12 @@ function Readout({
   inFrames: boolean;
   onToggle: () => void;
 }) {
+  // The edit's length.
+  const frames = useDoc((s) => docTotal(s.doc));
   let now = "00:00.00";
   let total = "";
   if (source) {
-    const { frames, rateNum: num, rateDen: den } = source;
+    const { rateNum: num, rateDen: den } = source;
     const hours = needsHours(frames, num, den);
     now = inFrames ? String(frame) : timecode(frame, num, den, hours);
     total = inFrames ? String(frames - 1) : timecode(frames, num, den, hours);
@@ -96,6 +100,8 @@ export function TimelineBar({ source, player, noRanges, inFrames, onToggleFrames
     player?.getState ?? paused,
   );
   const off = !player;
+  const selected = useDoc((s) => s.selected !== null);
+  const deletable = useDoc((s) => s.doc.clips.length > 1);
   return (
     <div className={styles.timelineBar}>
       <Readout source={source} frame={frame} inFrames={inFrames} onToggle={onToggleFrames} />
@@ -159,6 +165,21 @@ export function TimelineBar({ source, player, noRanges, inFrames, onToggleFrames
         </svg>
         Range <span className={styles.kbd}>R</span>
       </button>
+      {selected && (
+        <button
+          type="button"
+          className={`${styles.barButton} ${styles.withText}`}
+          title={deletable ? "Delete the clip (Delete)" : "The last clip can't be deleted"}
+          disabled={!deletable}
+          onMouseDown={keepFocus}
+          onClick={deleteSelected}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden>
+            <path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" />
+          </svg>
+          Delete <span className={styles.kbd}>Del</span>
+        </button>
+      )}
     </div>
   );
 }

@@ -7,7 +7,7 @@
 // intermediate updates become a single step; edits that change nothing add nothing to history.
 
 import { create } from "zustand";
-import { split, wholeSource, type ClipId, type Doc } from "./doc";
+import { deleteClip, moveClip, split, wholeSource, type ClipId, type Doc } from "./doc";
 
 /** Oldest steps are dropped beyond this. */
 export const HISTORY_LIMIT = 200;
@@ -25,6 +25,10 @@ export interface DocState {
   load: (frames: number) => void;
   /** Splits the clip under timeline frame `f`. False if there was nothing to split. */
   split: (f: number) => boolean;
+  /** Deletes clip `id` (ripple). False if it can't (the last clip). */
+  remove: (id: ClipId) => boolean;
+  /** Moves clip `id` to position `to`. */
+  move: (id: ClipId, to: number) => boolean;
 
   beginGesture: () => void;
   endGesture: () => void;
@@ -73,6 +77,12 @@ export const useDoc = create<DocState>()((set, get) => {
       set({ doc: wholeSource(frames), past: [], future: [], gestureStart: null, selected: null }),
 
     split: (f) => apply((doc) => split(doc, f)),
+    remove: (id) => {
+      const done = apply((doc) => deleteClip(doc, id));
+      pruneSelection();
+      return done;
+    },
+    move: (id, to) => apply((doc) => moveClip(doc, id, to)),
 
     beginGesture: () => {
       if (!get().gestureStart) set({ gestureStart: get().doc });

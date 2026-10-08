@@ -7,6 +7,7 @@
 export type ClipId = number;
 
 export interface Clip {
+  /** Its number, for good: the timeline names it "Clip {id}". A split's left part keeps it. */
   id: ClipId;
   /** The first source grid frame shown. */
   in: number;
@@ -72,4 +73,24 @@ export function split(doc: Doc, f: number): Doc {
     { id: doc.nextId, in: cut, out: at.clip.out },
   );
   return { clips, nextId: doc.nextId + 1 };
+}
+
+/**
+ * Deletes clip `id`; the clips after it close up (ripple). The last clip can't go: the same
+ * document.
+ */
+export function deleteClip(doc: Doc, id: ClipId): Doc {
+  if (doc.clips.length < 2 || !doc.clips.some((c) => c.id === id)) return doc;
+  return { ...doc, clips: doc.clips.filter((c) => c.id !== id) };
+}
+
+/** Moves clip `id` to position `to` (clamped); the others close up around it. */
+export function moveClip(doc: Doc, id: ClipId, to: number): Doc {
+  const from = doc.clips.findIndex((c) => c.id === id);
+  const at = Math.max(0, Math.min(doc.clips.length - 1, to));
+  if (from < 0 || at === from) return doc;
+  const clips = [...doc.clips];
+  const [clip] = clips.splice(from, 1);
+  clips.splice(at, 0, clip);
+  return { ...doc, clips };
 }

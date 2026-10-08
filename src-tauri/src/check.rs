@@ -1,6 +1,7 @@
 //! Development: the preview = export check (PLAN 1.8). `driveby --check-frames <file>` opens a
 //! barcoded test clip (`spikes/make-test-media.mjs`) and the page steps and seeks the preview
-//! over it, reading the barcode of the frame on screen. Here: the frames export would pick (the
+//! over it, reading the barcode of the frame on screen; `--check-edit` does it on an edited
+//! timeline (clips cut out and moved), and plays across the cuts. Here: the frames export would pick (the
 //! `fps` filter over the original, as export reads it), and the report. Release builds do none
 //! of it.
 
@@ -24,6 +25,8 @@ const BITS: usize = 16;
 
 /// The next file opened is to be checked.
 static PENDING: AtomicBool = AtomicBool::new(false);
+/// ...on an edited timeline.
+static EDITED: AtomicBool = AtomicBool::new(false);
 
 /// Rust → editor: check the source just opened.
 #[derive(Clone, Serialize, Type, Event)]
@@ -31,19 +34,27 @@ static PENDING: AtomicBool = AtomicBool::new(false);
 pub struct CheckFrames {
     /// The source (its `SourceInfo::id`).
     pub source: String,
+    /// Edit the timeline first, and play across the cuts.
+    pub edit: bool,
 }
 
 /// A launch's arguments ask for a check (development builds only).
 pub fn requested(args: &[String]) {
-    if cfg!(debug_assertions) && args.iter().any(|a| a == "--check-frames") {
+    if !cfg!(debug_assertions) {
+        return;
+    }
+    let edit = args.iter().any(|a| a == "--check-edit");
+    if edit || args.iter().any(|a| a == "--check-frames") {
         PENDING.store(true, Ordering::Relaxed);
+        EDITED.store(edit, Ordering::Relaxed);
     }
 }
 
 /// A source was opened: the page checks it, if that was asked for.
 pub fn opened(app: &AppHandle, id: String) {
     if PENDING.swap(false, Ordering::Relaxed) {
-        let _ = CheckFrames { source: id }.emit_to(app, LABEL);
+        let edit = EDITED.load(Ordering::Relaxed);
+        let _ = CheckFrames { source: id, edit }.emit_to(app, LABEL);
     }
 }
 

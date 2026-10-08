@@ -4,7 +4,14 @@
 // export picks at that grid frame (ffmpeg's `fps` filter, read by Rust). The proxy, which shows
 // while stepping fast and scrubbing (and which the thumbnails come from), is checked the same
 // way if it's ready by then.
+//
+// Edited (`--check-edit`), the timeline is cut up first (split four times, a piece deleted,
+// another moved to the front), the steps and seeks cross the cuts, and a last pass plays across
+// them, reading every picture presented: none may come from anywhere but the next frames of the
+// edit (nothing cut out, nothing out of order).
 import { commands } from "../shared/ipc";
+import { clipStarts, total } from "./doc";
+import { useDoc } from "./docStore";
 import type { Player } from "./player";
 
 /** The barcode: cells along the bottom sixteenth of the picture, least significant on the left. */
@@ -15,6 +22,8 @@ const STEPS = 1500;
 const SEEKS = 150;
 /** The longest a frame may take to show (ms). */
 const PATIENCE = 5000;
+/** Playing, how many frames may be dropped between two presented (a slow moment). */
+const DROPS = 12;
 
 /** The number in a row of RGBA pixels across the barcode: each cell's middle, white = 1. */
 export function readBarcode(row: Uint8ClampedArray, width: number): number {
@@ -71,12 +80,25 @@ export async function checkFrames(
   progress: (text: string) => void,
   /** Another file was opened (or the page is going): stop. */
   stopped: () => boolean,
+  /** Cut the timeline up first, and play across the cuts. */
+  edited: boolean,
 ) {
   const t0 = performance.now();
+  if (edited) {
+    // Five clips; the second deleted, the fourth moved to the front.
+    const doc = useDoc.getState();
+    const n = total(doc.doc);
+    for (const at of [0.2, 0.35, 0.6, 0.8]) doc.split(Math.round(n * at));
+    const clips = useDoc.getState().doc.clips;
+    doc.remove(clips[1].id);
+    doc.move(clips[3].id, 0);
+  }
   progress("Checking frames: reading what export picks…");
   const got = await commands.frameCheckExpected();
   if (got.status === "error") throw new Error(got.error);
-  const expected = got.data;
+  const bySource = got.data;
+  /** What export shows at timeline frame `k`. */
+  const want = (k: number) => bySource[player.sourceFrame(k)];
   const canvas = document.createElement("canvas");
   const g = canvas.getContext("2d", { willReadFrequently: true })!;
   // Upright, as the preview shows it: the preview turns the original with CSS (the proxy is
@@ -119,12 +141,13 @@ export async function checkFrames(
       if (!onProxy && on === "proxy") covered++;
       const shown = read(player.video(on)!);
       checked++;
-      if (k < expected.length && (late || shown !== expected[k])) {
+      const expected = want(k);
+      if (expected !== undefined && (late || shown !== expected)) {
         missed++;
         misses.push({
           pass: name,
           frame: k,
-          expected: expected[k],
+          expected,
           shown,
           ...(late && { late, times: player.originalTimes() }),
         });
@@ -145,9 +168,55 @@ export async function checkFrames(
     await pass("proxy seek", seeks, (k) => player.seek(k));
   }
 
-  const total = misses.length;
+  // Playing across the cuts: from a second before each of the first three to a second after,
+  // every picture presented, in order; and the longest pause between two, at a cut.
+  let gap = 0;
+  if (edited) {
+    const video = player.video("original")!;
+    const second = Math.round(player.fps);
+    const cuts = clipStarts(useDoc.getState().doc).slice(1, 4);
+    let played = 0;
+    let wrong = 0;
+    for (const cut of cuts) {
+      progress(`Checking frames: playing across the cut at frame ${cut}…`);
+      const from = Math.max(0, cut - second);
+      const last = Math.min(n - 1, cut + second);
+      player.seek(from, false);
+      await until(() => player.onScreen() !== null);
+      const seen: { shown: number; at: number }[] = [];
+      let recording = true;
+      const onFrame = (now: number) => {
+        if (!recording) return;
+        seen.push({ shown: read(video), at: now });
+        video.requestVideoFrameCallback(onFrame);
+      };
+      video.requestVideoFrameCallback(onFrame);
+      player.toggle();
+      await until(() => player.getState().frame >= last || player.getState().speed === 0, 30_000);
+      recording = false;
+      player.pause();
+      // Each picture must be the edit's frame at the playhead's place or a little after it.
+      let t = from;
+      for (let i = 0; i < seen.length; i++) {
+        const upTo = Math.min(last, t + DROPS);
+        let j = t;
+        while (j <= upTo && want(j) !== seen[i].shown) j++;
+        if (j > upTo) {
+          wrong++;
+          misses.push({ pass: "play", frame: t, expected: want(t), shown: seen[i].shown });
+          continue;
+        }
+        t = j;
+        if (i > 0) gap = Math.max(gap, seen[i].at - seen[i - 1].at);
+      }
+      played += seen.length;
+    }
+    passes.push({ pass: "play", checked: played, misses: wrong, covered: 0 });
+  }
+
+  const wrongs = misses.length;
   const summary =
-    `${n} frames (export has ${expected.length}): ` +
+    `${bySource.length} frames${edited ? `, edited to ${n}` : ""}: ` +
     passes
       .map(
         (p) =>
@@ -156,9 +225,10 @@ export async function checkFrames(
       )
       .join(", ") +
     (player.video("proxy") ? "" : ", no proxy to check") +
-    (total ? `; ${total} wrong` : "; all match") +
+    (gap ? `, longest pause playing ${gap.toFixed(0)} ms` : "") +
+    (wrongs ? `; ${wrongs} wrong` : "; all match") +
     ` in ${((performance.now() - t0) / 1000).toFixed(0)} s`;
-  const report = JSON.stringify({ frames: n, exported: expected.length, passes, misses }, null, 1);
+  const report = JSON.stringify({ frames: n, edited, passes, misses }, null, 1);
   await commands.frameCheckReport(summary, report);
   return summary;
 }

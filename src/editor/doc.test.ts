@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { clipAt, clipStarts, editPoints, split, total, wholeSource } from "./doc";
+import {
+  clipAt,
+  clipStarts,
+  deleteClip,
+  editPoints,
+  moveClip,
+  split,
+  total,
+  wholeSource,
+} from "./doc";
 
 describe("the document", () => {
   it("starts as the whole source, one clip", () => {
@@ -51,5 +60,34 @@ describe("split", () => {
     const doc = wholeSource(100);
     split(doc, 50);
     expect(doc.clips).toHaveLength(1);
+  });
+});
+
+describe("delete and move", () => {
+  // Three clips: 0-40, 40-70, 70-100.
+  const three = split(split(wholeSource(100), 40), 70);
+
+  it("deletes a clip and closes the gap", () => {
+    const doc = deleteClip(three, 2);
+    expect(doc.clips.map((c) => [c.in, c.out])).toEqual([
+      [0, 40],
+      [70, 100],
+    ]);
+    expect(total(doc)).toBe(70);
+    expect(clipStarts(doc)).toEqual([0, 40]);
+  });
+
+  it("keeps the last clip", () => {
+    const one = wholeSource(100);
+    expect(deleteClip(one, 1)).toBe(one);
+    expect(deleteClip(three, 99)).toBe(three);
+  });
+
+  it("moves a clip, the others sliding aside", () => {
+    const doc = moveClip(three, 3, 0);
+    expect(doc.clips.map((c) => c.id)).toEqual([3, 1, 2]);
+    expect(clipStarts(doc)).toEqual([0, 30, 70]);
+    expect(moveClip(three, 1, 5).clips.map((c) => c.id)).toEqual([2, 3, 1]);
+    expect(moveClip(three, 2, 1)).toBe(three);
   });
 });

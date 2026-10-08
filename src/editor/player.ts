@@ -1,8 +1,12 @@
 // The player: the open source's `<video>`, driven in timeline frames, with its proxy.
 //
-// The playhead is a timeline frame. Showing frame n seeks the original to the middle of n's
-// picture (`FrameTimes.seek`), so it lands on exactly that picture; while playing, each picture
-// the original presents (`requestVideoFrameCallback`) moves the playhead to the frame showing it.
+// The playhead is a timeline frame. The edit (`setEdit`: the document's clips) maps it to a
+// source grid frame: frame t in a clip starting at `start` is source frame `in + t - start`.
+// Showing frame t seeks the original to the middle of that source frame's picture
+// (`FrameTimes.seek`), so it lands on exactly that picture; while playing, each picture the
+// original presents (`requestVideoFrameCallback`) moves the playhead to the frame showing it. At a
+// clip's last frame, playing pauses, seeks to the next clip's first and plays on, so nothing cut
+// out ever shows.
 // Seeks are coalesced: while one is under way, only the latest target waits, so holding an arrow
 // key never queues up a backlog.
 //
@@ -27,6 +31,13 @@ export interface PlayerState {
   frame: number;
   /** Playing speed: 0 paused, 1 forward, 2/4/8 faster (L again), negative backward (J). */
   speed: number;
+}
+
+/** A clip as played: where it starts on the timeline, and the source frames it shows. */
+interface Span {
+  start: number;
+  in: number;
+  out: number;
 }
 
 /** The speeds J and L step through. */
@@ -99,13 +110,61 @@ export class Player {
   /** The last seek skipped the proxy: it stays hidden. */
   private proxyHeld = false;
   private gone = false;
+  /** The edit: the clips in timeline order. */
+  private spans: Span[];
+  private length: number;
+  /** Playing forward: the clip playing. */
+  private playing = 0;
+  /** Playing forward, at a cut: the seek to the next clip is under way; play on once it's done. */
+  private crossing = false;
 
   constructor(
-    readonly frames: number,
+    /** The source's grid frames. */
+    sourceFrames: number,
     /** Frames per second. */
     readonly fps: number,
     private readonly framesUrl: string,
-  ) {}
+  ) {
+    this.spans = [{ start: 0, in: 0, out: sourceFrames }];
+    this.length = sourceFrames;
+  }
+
+  /** The timeline's length, in frames. */
+  get frames() {
+    return this.length;
+  }
+
+  /** The edit changed: plays its clips from now on (pausing, and keeping the playhead in it). */
+  setEdit(clips: readonly { in: number; out: number }[]) {
+    let start = 0;
+    this.spans = clips.map((c) => {
+      const span = { start, in: c.in, out: c.out };
+      start += c.out - c.in;
+      return span;
+    });
+    this.length = start;
+    this.stop();
+    this.set({ frame: this.clamp(this.state.frame) });
+    this.listeners.forEach((fn) => fn());
+    this.show(this.state.frame);
+  }
+
+  /** The clip under timeline frame `t` (clamped to the timeline). */
+  private spanIndex(t: number) {
+    let i = 0;
+    while (
+      i < this.spans.length - 1 &&
+      t >= this.spans[i].start + this.spans[i].out - this.spans[i].in
+    )
+      i++;
+    return i;
+  }
+
+  /** The source grid frame at timeline frame `t`. */
+  sourceFrame(t: number) {
+    const span = this.spans[this.spanIndex(t)];
+    return Math.min(span.out - 1, span.in + Math.max(0, t - span.start));
+  }
 
   /** Starts (or, after `close`, restarts: StrictMode mounts twice): reads the frame times. */
   open() {
@@ -217,6 +276,7 @@ export class Player {
     this.stop();
     if (speed > 0) {
       if (this.state.frame >= this.frames - 1) this.seek(0);
+      this.playing = this.spanIndex(this.state.frame);
       v.playbackRate = speed;
       this.set({ speed });
       this.paint();
@@ -247,6 +307,7 @@ export class Player {
   private stop() {
     cancelAnimationFrame(this.backward);
     this.backward = 0;
+    this.crossing = false;
     const v = this.original?.video;
     if (v && !v.paused) v.pause();
     this.set({ speed: 0 });
@@ -261,7 +322,7 @@ export class Player {
   /** Seeks the original, and the proxy if there is one, to frame `n`. */
   private show(n: number) {
     if (!this.times) return;
-    this.original?.seek(this.times.seek[n]);
+    this.original?.seek(this.times.seek[this.sourceFrame(n)]);
     this.showProxy(n);
   }
 
@@ -269,8 +330,9 @@ export class Player {
     const p = this.proxy;
     if (!p) return;
     // The proxy can end a frame short of the grid.
-    const last = Number.isFinite(p.video.duration) ? this.proxyFrame(p.video.duration) - 1 : n;
-    p.seek((Math.min(n, last) + 0.5) / this.fps);
+    const f = this.sourceFrame(n);
+    const last = Number.isFinite(p.video.duration) ? this.proxyFrame(p.video.duration) - 1 : f;
+    p.seek((Math.min(f, last) + 0.5) / this.fps);
     this.paint();
   }
 
@@ -287,7 +349,7 @@ export class Player {
   private originalShowsFrame() {
     const o = this.original;
     if (!o || !this.times || o.busy) return false;
-    return Math.abs(o.shownTime - this.times.start[this.state.frame]) < 1e-3;
+    return Math.abs(o.shownTime - this.times.start[this.sourceFrame(this.state.frame)]) < 1e-3;
   }
 
   /** The original has finished seeking a while ago, and shows another picture than the playhead's. */
@@ -304,7 +366,8 @@ export class Player {
   private paint = () => {
     const p = this.proxy;
     if (!p) return;
-    const proxyShowsFrame = !p.busy && this.proxyFrame(p.shownTime) === this.state.frame;
+    const proxyShowsFrame =
+      !p.busy && this.proxyFrame(p.shownTime) === this.sourceFrame(this.state.frame);
     let on: boolean;
     if (this.state.speed > 0 || this.originalShowsFrame()) on = false;
     else if (proxyShowsFrame && (!this.proxyHeld || this.originalMissed())) on = true;
@@ -315,17 +378,53 @@ export class Player {
 
   private onOriginal = (meta?: VideoFrameCallbackMetadata) => {
     if (meta && this.times) {
-      const n = frameAt(this.times.start, meta.mediaTime);
-      if (this.state.speed > 0) this.set({ frame: n });
+      if (this.state.speed > 0) this.played(meta.mediaTime);
       else if (import.meta.env.DEV && !this.original?.busy && this.state.speed === 0) {
         this.check(meta);
       }
+    }
+    if (!meta && this.crossing && this.state.speed > 0) {
+      // At a cut: the next clip's first picture is ready; play on.
+      this.crossing = false;
+      void this.original?.video.play().catch((e: unknown) => {
+        console.error("[player] play:", e);
+        this.stop();
+      });
     }
     // A seek finished: if the original is still on another picture once it's settled, the proxy
     // covers it.
     if (!meta) setTimeout(() => !this.gone && this.paint(), SETTLE_MS);
     this.paint();
   };
+
+  /**
+   * Playing forward, the original presented the picture at `time`: the playhead follows it, and
+   * at the clip's last frame (or past it, playing fast), playing moves to the next clip.
+   */
+  private played(time: number) {
+    if (this.crossing || !this.times) return;
+    const span = this.spans[this.playing];
+    const s = frameAt(this.times.start, time);
+    if (s >= span.in && s < span.out) this.set({ frame: span.start + s - span.in });
+    // The picture covers the clip's last frame (a picture can cover several, VFR).
+    if (time >= this.times.start[span.out - 1] - 1e-3) this.cut();
+  }
+
+  /** Playing reached the end of a clip: on to the next one, or stop at the timeline's end. */
+  private cut() {
+    const o = this.original;
+    const next = this.spans[this.playing + 1];
+    if (!o || !this.times) return;
+    o.video.pause();
+    if (!next) {
+      this.stop();
+      this.set({ frame: this.frames - 1 });
+      return;
+    }
+    this.playing++;
+    this.crossing = true;
+    o.seek(this.times.seek[next.in]);
+  }
 
   // --- development: the preview = export check (frameCheck.ts) ---
 
@@ -340,7 +439,7 @@ export class Player {
   shows(which: "original" | "proxy") {
     if (which === "original") return this.originalShowsFrame();
     const p = this.proxy;
-    return !!p && !p.busy && this.proxyFrame(p.shownTime) === this.state.frame;
+    return !!p && !p.busy && this.proxyFrame(p.shownTime) === this.sourceFrame(this.state.frame);
   }
 
   video(which: "original" | "proxy") {
@@ -351,20 +450,20 @@ export class Player {
   originalTimes() {
     return {
       shown: this.original?.shownTime,
-      want: this.times?.start[this.state.frame],
+      want: this.times?.start[this.sourceFrame(this.state.frame)],
       seeking: this.original?.busy,
     };
   }
 
+  /** The source ran out while playing (a clip that ends where the source does). */
   private onEnded = () => {
-    this.stop();
-    this.set({ frame: this.frames - 1 });
+    if (this.state.speed > 0 && !this.crossing) this.cut();
     this.paint();
   };
 
   /** Development: paused, the original's picture must be the playhead's. */
   private check(meta: VideoFrameCallbackMetadata) {
-    const want = this.times!.start[this.state.frame];
+    const want = this.times!.start[this.sourceFrame(this.state.frame)];
     if (Math.abs(meta.mediaTime - want) > 1e-3) {
       console.warn(
         `[player] frame ${this.state.frame} wants the picture at ${want.toFixed(6)} s; ` +

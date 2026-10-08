@@ -3,7 +3,7 @@ import { commands, events, type Settings, type SourceInfo, type ThumbsInfo } fro
 import { CommandBar } from "./CommandBar";
 import { EmptyEditor } from "./EmptyEditor";
 import { useDoc } from "./docStore";
-import { seekEdit, splitAtPlayhead } from "./edits";
+import { deleteSelected, moveSelected, seekEdit, splitAtPlayhead } from "./edits";
 import { checkFrames } from "./frameCheck";
 import { formatRate, sourceFacts } from "./format";
 import { Player } from "./player";
@@ -51,6 +51,10 @@ function transportKey(e: KeyboardEvent, player: Player): boolean {
     case "KeyS":
       splitAtPlayhead(player);
       return true;
+    case "Delete":
+    case "Backspace":
+      deleteSelected();
+      return true;
     case "Escape":
       useDoc.getState().select(null);
       return true;
@@ -90,7 +94,7 @@ export function EditorApp() {
   /** Settings › General › Show thumbnails (made from proxies, so not without them). */
   const [showThumbs, setShowThumbs] = useState(true);
   /** Development: the source to check (`--check-frames`, check.rs), once it's open. */
-  const [checkFor, setCheckFor] = useState<string | null>(null);
+  const [checkFor, setCheckFor] = useState<{ source: string; edit: boolean } | null>(null);
   /** Settings › Timeline › Show waveform. */
   const [showWave, setShowWave] = useState(true);
   /** The waveform once it's made; keyed by the source. */
@@ -115,6 +119,15 @@ export function EditorApp() {
   useEffect(() => {
     if (sourceId) useDoc.getState().load(sourceFrames);
   }, [sourceId, sourceFrames]);
+
+  // The player plays the edit (after the load above, so never another source's).
+  useEffect(() => {
+    if (!player) return;
+    player.setEdit(useDoc.getState().doc.clips);
+    return useDoc.subscribe((s, before) => {
+      if (s.doc !== before.doc) player.setEdit(s.doc.clips);
+    });
+  }, [player]);
 
   useEffect(() => {
     if (!player) return;
@@ -162,7 +175,7 @@ export function EditorApp() {
       events.proxyReady.listen(({ payload }) => setProxy(payload)),
       events.thumbsUpdate.listen(({ payload }) => setThumbs(payload)),
       events.waveReady.listen(({ payload }) => setWave(payload)),
-      events.checkFrames.listen(({ payload }) => setCheckFor(payload.source)),
+      events.checkFrames.listen(({ payload }) => setCheckFor(payload)),
       events.settingsChanged.listen(({ payload }) => {
         setShowThumbs(thumbsOn(payload as Settings));
         setShowWave((payload as Settings).timeline.waveform);
@@ -201,9 +214,10 @@ export function EditorApp() {
   }, []);
 
   // Development: the preview = export check, on the source it was asked for.
-  const checked = useRef<string | null>(null);
+  const checked = useRef<typeof checkFor>(null);
   useEffect(() => {
-    if (!player || !source || checkFor !== source.id || checked.current === checkFor) return;
+    if (!player || !source || checkFor?.source !== source.id || checked.current === checkFor)
+      return;
     checked.current = checkFor;
     let gone = false;
     checkFrames(
@@ -211,6 +225,7 @@ export function EditorApp() {
       source,
       (text) => !gone && setNotice({ text }),
       () => gone,
+      checkFor.edit,
     )
       .then((summary) => setNotice({ text: `Frame check: ${summary}` }))
       .catch((e: unknown) => {
@@ -229,6 +244,13 @@ export function EditorApp() {
       if (e.shiftKey && e.code === "KeyZ") {
         e.preventDefault();
         useDoc.getState().redo();
+        return;
+      }
+      // Ctrl+[ / ]: the selected clip one place earlier or later; with Shift, to the start or end.
+      if ((e.code === "BracketLeft" || e.code === "BracketRight") && player) {
+        e.preventDefault();
+        const earlier = e.code === "BracketLeft";
+        moveSelected(player, e.shiftKey ? (earlier ? "first" : "last") : earlier ? -1 : 1);
         return;
       }
       if (e.shiftKey) return;
@@ -260,7 +282,7 @@ export function EditorApp() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [player]);
 
   // Alt pressed and let go on its own (Alt+wheel scrolls the timeline) would reach the window
   // and put it in menu mode, which eats the next input: a Ctrl+wheel zoom did nothing. The page

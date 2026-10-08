@@ -306,9 +306,10 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         g.fillRect(x0, CLIP_TOP, x1 - x0, CLIP_H);
         if (strip.current) drawThumbs(g, strip.current, view, span, Math.min(x1, W));
         if (peaks.current) drawWave(g, peaks.current, view, span, Math.min(x1, W));
-        // Its name and length, kept in view as the timeline scrolls.
+        // Its name and length, kept in view as the timeline scrolls. The name is the clip's
+        // id, so it stays with the clip as clips move: a reorder or a delete shows.
         const lx = Math.max(x0, HEADER) + 9;
-        const name = `Clip ${i + 1}`;
+        const name = `Clip ${clip.id}`;
         if (x1 - lx > 50) {
           g.fillStyle = "#fff";
           g.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
@@ -398,6 +399,9 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     };
   }, [colours, source, player, frames, inFrames]);
 
+  // A new source starts fitted.
+  useEffect(() => useTimeline.getState().fit(), [source.id]);
+
   // Size: the store keeps the view fitted (or in range) as the timeline resizes.
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -430,11 +434,23 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     return () => canvas.removeEventListener("wheel", onWheel);
   }, [player]);
 
-  // Click or drag: the playhead follows the pointer (scrubbing; the proxy keeps up).
+  // Click or drag: the playhead follows the pointer (scrubbing; the proxy keeps up). On the
+  // clip track the clip under the pointer is selected; by its title bar it's dragged to another
+  // place, the others sliding aside (one undo step).
+  const moving = useRef<number | null>(null);
+  const at = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top, view: useTimeline.getState().view };
+  };
   const scrubTo = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-    const { view } = useTimeline.getState();
+    const { x, view } = at(e);
     player.seek(Math.floor(fOf(view, Math.max(HEADER, x))));
+  };
+  /** The clip whose title bar is under the pointer. */
+  const titleBar = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const { x, y, view } = at(e);
+    if (x < HEADER || y < CLIP_TOP || y >= CLIP_TOP + LABEL_H) return null;
+    return clipAt(useDoc.getState().doc, Math.floor(fOf(view, x)))?.clip ?? null;
   };
 
   return (
@@ -444,18 +460,46 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         e.currentTarget.setPointerCapture(e.pointerId);
-        // On the clip track, the clip under the pointer is selected (none on the empty track).
-        const r = e.currentTarget.getBoundingClientRect();
-        const x = e.clientX - r.left;
-        const y = e.clientY - r.top;
+        const docState = useDoc.getState();
+        const title = titleBar(e);
+        if (title) {
+          docState.select(title.id);
+          docState.beginGesture();
+          moving.current = title.id;
+          e.currentTarget.style.cursor = "grabbing";
+          return;
+        }
+        const { x, y, view } = at(e);
         if (y >= CLIP_TOP && x >= HEADER) {
-          const { doc, select } = useDoc.getState();
-          select(clipAt(doc, Math.floor(fOf(useTimeline.getState().view, x)))?.clip.id ?? null);
+          docState.select(clipAt(docState.doc, Math.floor(fOf(view, x)))?.clip.id ?? null);
         }
         scrubTo(e);
       }}
       onPointerMove={(e) => {
-        if (e.currentTarget.hasPointerCapture(e.pointerId)) scrubTo(e);
+        const canvas = e.currentTarget;
+        if (moving.current !== null) {
+          // The slot: past how many of the other clips' middles the pointer is.
+          const { x, view } = at(e);
+          const f = fOf(view, x);
+          const { doc, move } = useDoc.getState();
+          let t = 0;
+          let slot = 0;
+          for (const c of doc.clips) {
+            if (c.id === moving.current) continue;
+            if (f > t + clipLength(c) / 2) slot++;
+            t += clipLength(c);
+          }
+          move(moving.current, slot);
+          return;
+        }
+        if (canvas.hasPointerCapture(e.pointerId)) scrubTo(e);
+        else canvas.style.cursor = titleBar(e) ? "grab" : "";
+      }}
+      onPointerUp={(e) => {
+        if (moving.current === null) return;
+        moving.current = null;
+        useDoc.getState().endGesture();
+        e.currentTarget.style.cursor = titleBar(e) ? "grab" : "";
       }}
     />
   );

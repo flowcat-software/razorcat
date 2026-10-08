@@ -136,6 +136,8 @@ export type CacheReport = {
 export type CheckFrames = {
 	/**  The source (its `SourceInfo::id`). */
 	source: string,
+	/**  Edit the timeline first, and play across the cuts. */
+	edit: boolean,
 };
 
 /**

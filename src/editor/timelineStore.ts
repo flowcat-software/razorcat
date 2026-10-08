@@ -20,7 +20,7 @@ interface TimelineState {
   frames: number;
   /** Fitted: it stays fitted as the window resizes. */
   isFitted: boolean;
-  /** The timeline was measured, or the source changed (a new source starts fitted). */
+  /** The timeline was measured, or its length changed (an edit): fitted stays fitted. */
   setSize: (width: number, frames: number) => void;
   fit: () => void;
   /** Zooms by `factor`, about `anchorX` (default: the middle). */
@@ -43,12 +43,10 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   setSize: (width, frames) => {
     const s = get();
     if (width === s.width && frames === s.frames) return;
-    const refit = s.isFitted || frames !== s.frames;
     set({
       width,
       frames,
-      isFitted: refit,
-      view: refit ? fitted(width, frames) : clampScroll(s.view, width, frames),
+      view: s.isFitted ? fitted(width, frames) : clampScroll(s.view, width, frames),
     });
   },
 
