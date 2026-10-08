@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SourceInfo, ThumbsInfo } from "../shared/ipc";
 import type { Player } from "./player";
 import { ThumbStrip } from "./thumbs";
+import { Peaks, waveHeight } from "./wave";
 import { timecode, needsHours } from "./timecode";
 import { useTimeline } from "./timelineStore";
 import { FRAME_TICKS, HEADER, fOf, ticks, xOf, zoomAnchor, type View } from "./timelineView";
@@ -14,6 +15,8 @@ interface Props {
   inFrames: boolean;
   /** The clip's thumbnails, once they're being made. */
   thumbs: ThumbsInfo | null;
+  /** Where its waveform is, once it's made. */
+  waveUrl: string | null;
 }
 
 // The mockup's geometry (mockup/main.html). Markup lanes go between the ruler and the clip track
@@ -27,6 +30,7 @@ const LABEL_H = 18;
 const WAVE_H = 20;
 const THUMB_TOP = CLIP_TOP + LABEL_H;
 const THUMB_H = CLIP_H - LABEL_H - WAVE_H;
+const WAVE_MID = CLIP_TOP + CLIP_H - WAVE_H / 2;
 const CLIP_GAP = 0.5;
 const CLIP_RADIUS = 8;
 
@@ -119,11 +123,35 @@ function drawThumbs(
 }
 
 /**
+ * The clip's waveform, in its band at the bottom: a bar per pixel, as tall as the loudest audio in
+ * the frames under it (on a dB scale), centred.
+ */
+function drawWave(
+  g: CanvasRenderingContext2D,
+  peaks: Peaks,
+  view: View,
+  x0: number,
+  right: number,
+  frames: number,
+) {
+  const half = WAVE_H / 2 - 1;
+  g.fillStyle = "rgb(255 255 255 / 0.55)";
+  g.beginPath();
+  for (let x = Math.floor(Math.max(x0, HEADER)); x < right; x++) {
+    const f0 = Math.max(0, fOf(view, x));
+    const f1 = Math.min(frames, fOf(view, x + 1));
+    const a = waveHeight(peaks.max(f0, f1)) * half;
+    if (a > 0) g.rect(x, WAVE_MID - a, 1, Math.max(1, 2 * a));
+  }
+  g.fill();
+}
+
+/**
  * The timeline (the mockup's, so far without edits): the ruler, the clip (the whole source),
  * frame ticks once there's room, and the playhead. Click or drag to move the playhead; the wheel
  * scrolls, Ctrl+wheel zooms at the pointer.
  */
-export function Timeline({ source, player, inFrames, thumbs }: Props) {
+export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const draw = useRef<() => void>(() => {});
   const [redraw] = useState(() => () => draw.current());
@@ -149,6 +177,26 @@ export function Timeline({ source, player, inFrames, thumbs }: Props) {
     },
     [],
   );
+
+  // The waveform: read once it's made.
+  const peaks = useRef<Peaks | null>(null);
+  useEffect(() => {
+    peaks.current = null;
+    redraw();
+    if (!waveUrl) return;
+    let gone = false;
+    fetch(waveUrl)
+      .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(res.statusText))))
+      .then((bytes) => {
+        if (gone) return;
+        peaks.current = new Peaks(new Uint8Array(bytes));
+        redraw();
+      })
+      .catch((e: unknown) => console.warn("waveform:", e));
+    return () => {
+      gone = true;
+    };
+  }, [waveUrl, redraw]);
 
   // Drawing: on the next animation frame after anything changes.
   useEffect(() => {
@@ -237,6 +285,7 @@ export function Timeline({ source, player, inFrames, thumbs }: Props) {
         g.fillStyle = c["clip"];
         g.fillRect(x0, CLIP_TOP, x1 - x0, CLIP_H);
         if (strip.current) drawThumbs(g, strip.current, view, Math.min(x1, W), frames);
+        if (peaks.current) drawWave(g, peaks.current, view, x0, Math.min(x1, W), frames);
         const lx = Math.max(x0, HEADER) + 9;
         if (x1 - lx > 50) {
           g.fillStyle = "#fff";
@@ -262,7 +311,9 @@ export function Timeline({ source, player, inFrames, thumbs }: Props) {
       g.fillStyle = c["text-2"];
       g.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
       g.textAlign = "center";
-      g.fillText("▶", HEADER / 2, CLIP_TOP + CLIP_H / 2);
+      // The clip track's picture and sound (as the mockup).
+      g.fillText("▶", HEADER / 2, THUMB_TOP + THUMB_H / 2);
+      if (source.audioTracks > 0) g.fillText("♪", HEADER / 2, WAVE_MID);
       g.textAlign = "left";
 
       // Playhead: a line from the ruler down, a marker on the ruler, and the frame it covers

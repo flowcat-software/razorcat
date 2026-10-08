@@ -16,6 +16,7 @@ mod sidecar;
 mod source;
 mod state;
 mod thumbs;
+mod wave;
 
 use std::path::Path;
 
@@ -52,6 +53,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             proxy::ProxyStopped,
             proxy::ProxyFailed,
             thumbs::ThumbsUpdate,
+            wave::WaveReady,
             appearance::WindowsAccentChanged,
             settings::SettingsChanged,
         ])

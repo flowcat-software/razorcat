@@ -46,6 +46,8 @@ export const commands = {
 	converted: boolean,
 	/**  Its thumbnails, if they're made or being made (else `ThumbsUpdate` says when they are). */
 	thumbs: ThumbsInfo | null,
+	/**  Where the page reads its waveform, if it's ready (else `WaveReady` says when it is). */
+	waveUrl: string | null,
 } | null>("editor_ready"),
 	/**
 	 *  Show the Open dialog and open the picked file ([`editor::SourceOpened`] or
@@ -101,6 +103,7 @@ export const events = {
 	sourceConverted: makeEvent<SourceConverted>("source-converted"),
 	sourceOpened: makeEvent<SourceOpened>("source-opened"),
 	thumbsUpdate: makeEvent<ThumbsUpdate>("thumbs-update"),
+	waveReady: makeEvent<WaveReady>("wave-ready"),
 	windowsAccentChanged: makeEvent<WindowsAccentChanged>("windows-accent-changed"),
 };
 
@@ -239,6 +242,8 @@ export type SourceInfo = {
 	converted: boolean,
 	/**  Its thumbnails, if they're made or being made (else `ThumbsUpdate` says when they are). */
 	thumbs: ThumbsInfo | null,
+	/**  Where the page reads its waveform, if it's ready (else `WaveReady` says when it is). */
+	waveUrl: string | null,
 };
 
 /**  Rust → editor: a file was opened (it replaces the one before). */
@@ -269,6 +274,16 @@ export type ThumbsUpdate = {
 export type Timeline = {
 	/**  Thumbnails along the clip (thumbs.rs): on by default. Off, they aren't made either. */
 	thumbnails?: boolean,
+	/**  The waveform along the clip (wave.rs): the same. */
+	waveform?: boolean,
+};
+
+/**  Rust → editor: a source's waveform is ready. */
+export type WaveReady = {
+	/**  The source it's for (its `SourceInfo::id`). */
+	source: string,
+	/**  Where the page reads it: `BINS` bytes per grid frame. */
+	url: string,
 };
 
 /**

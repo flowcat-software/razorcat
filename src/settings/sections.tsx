@@ -1,7 +1,7 @@
 // What the settings window shows (see schema.ts). Driveby's own settings arrive with the
 // features that use them.
 import { commands } from "../shared/ipc";
-import { AboutIcon, GeneralIcon, ProxiesIcon } from "./icons";
+import { AboutIcon, GeneralIcon, ProxiesIcon, TimelineIcon } from "./icons";
 import type { Section } from "./schema";
 
 export const sections: Section[] = [
@@ -37,8 +37,16 @@ export const sections: Section[] = [
           },
         ],
       },
+    ],
+  },
+  {
+    id: "timeline",
+    title: "Timeline",
+    icon: TimelineIcon,
+    description: "What the timeline shows.",
+    groups: [
       {
-        title: "Timeline",
+        title: "Clips",
         items: [
           {
             id: "thumbnails",
@@ -52,6 +60,14 @@ export const sections: Section[] = [
                 ? undefined
                 : "Thumbnails are made from proxies: turn on Proxies › Use proxies to show them.",
             keywords: ["thumbnails", "pictures", "frames", "filmstrip", "clip", "timeline"],
+          },
+          {
+            id: "waveform",
+            kind: "toggle",
+            path: "timeline.waveform",
+            label: "Show waveform",
+            description: "How loud the audio is along each clip, all its tracks together.",
+            keywords: ["waveform", "audio", "sound", "volume", "loud", "clip", "timeline"],
           },
         ],
       },

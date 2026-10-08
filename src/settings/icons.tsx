@@ -32,6 +32,16 @@ export function ProxiesIcon() {
   );
 }
 
+/** A track with a playhead across it: the timeline. */
+export function TimelineIcon() {
+  return (
+    <svg {...props}>
+      <rect x="2" y="6" width="12" height="5.5" rx="1" />
+      <path d="M6.5 2.5v11" />
+    </svg>
+  );
+}
+
 export function AboutIcon() {
   return (
     <svg {...props}>

@@ -49,6 +49,7 @@ describe("sourceFacts", () => {
     variable: true,
     converted: false,
     thumbs: null,
+    waveUrl: null,
   };
 
   it("lists size, rate, length, codec and file size", () => {

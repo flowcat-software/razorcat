@@ -10,6 +10,7 @@ use specta::Type;
 use crate::media::grid::{self, Grid};
 use crate::media::mp4::{self, Mp4Error, Mp4Info};
 use crate::thumbs::{Thumbs, ThumbsInfo};
+use crate::wave::Wave;
 
 /// An opened source: what Rust keeps (the index, for the protocol, proxies and export later).
 pub struct Source {
@@ -26,6 +27,8 @@ pub struct Source {
     pub playable: Option<PathBuf>,
     /// Its thumbnails, once made or being made (thumbs.rs).
     pub thumbs: Option<Thumbs>,
+    /// Its waveform, once made or being made (wave.rs).
+    pub wave: Option<Wave>,
 }
 
 /// What the page shows about the open source.
@@ -65,6 +68,8 @@ pub struct SourceInfo {
     pub converted: bool,
     /// Its thumbnails, if they're made or being made (else `ThumbsUpdate` says when they are).
     pub thumbs: Option<ThumbsInfo>,
+    /// Where the page reads its waveform, if it's ready (else `WaveReady` says when it is).
+    pub wave_url: Option<String>,
 }
 
 impl Source {
@@ -108,6 +113,11 @@ impl Source {
             variable: self.grid.variable,
             converted: self.playable.is_some(),
             thumbs: self.thumbs.as_ref().map(|t| t.info(self.generation)),
+            wave_url: self
+                .wave
+                .as_ref()
+                .filter(|w| w.ready)
+                .map(|_| crate::protocol::wave_url(self.generation)),
         }
     }
 }
@@ -175,6 +185,7 @@ pub fn open(path: &Path, playable: Option<PathBuf>) -> Result<Source, OpenError>
         proxy: None,
         playable,
         thumbs: None,
+        wave: None,
     })
 }
 

@@ -170,10 +170,12 @@ pub fn in_use(app: &AppHandle) -> Vec<PathBuf> {
     open.as_ref()
         .map(|s| {
             let thumbs = s.thumbs.as_ref().filter(|t| t.ready).map(|t| &t.file);
+            let wave = s.wave.as_ref().filter(|w| w.ready).map(|w| &w.file);
             s.proxy
                 .iter()
                 .chain(&s.playable)
                 .chain(thumbs)
+                .chain(wave)
                 .cloned()
                 .collect()
         })
@@ -213,7 +215,10 @@ fn move_cache(app: &AppHandle, from: &Path, to: &Path) {
                 s.proxy = Some(new.clone());
             }
             if let Some(t) = s.thumbs.as_mut().filter(|t| t.file == old) {
-                t.file = new;
+                t.file = new.clone();
+            }
+            if let Some(w) = s.wave.as_mut().filter(|w| w.file == old) {
+                w.file = new;
             }
         }
     }
@@ -235,6 +240,8 @@ fn is_proxy(path: &Path) -> bool {
     };
     name.strip_suffix(".mp4")
         .or_else(|| name.strip_suffix(".thumbs"))
+        .or_else(|| name.strip_suffix(".wave"))
+        .or_else(|| name.strip_suffix(".pcm"))
         .or_else(|| name.strip_suffix(".part"))
         .is_some_and(|stem| stem.len() == 16 && stem.chars().all(|c| c.is_ascii_hexdigit()))
 }
@@ -242,9 +249,9 @@ fn is_proxy(path: &Path) -> bool {
 /// A finished cached file (not a `.part`).
 fn is_finished(path: &Path) -> bool {
     is_proxy(path)
-        && path
-            .extension()
-            .is_some_and(|x| x == "mp4" || x == crate::thumbs::EXTENSION)
+        && path.extension().is_some_and(|x| {
+            x == "mp4" || x == crate::thumbs::EXTENSION || x == crate::wave::EXTENSION
+        })
 }
 
 /// The cached file made from `source` by `recipe`: named by a hash of what identifies the
@@ -312,7 +319,8 @@ pub fn sweep(app: &AppHandle) {
         return;
     };
     for e in entries.flatten() {
-        if is_proxy(&e.path()) && e.path().extension().is_some_and(|x| x == "part") {
+        let path = e.path();
+        if is_proxy(&path) && !is_finished(&path) {
             let _ = fs::remove_file(e.path());
         }
     }

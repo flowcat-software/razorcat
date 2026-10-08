@@ -208,6 +208,7 @@ fn show(app: &AppHandle, path: PathBuf, mut opened: Source) {
     if let Err(e) = SourceOpened(info).emit_to(app, LABEL) {
         eprintln!("[editor] couldn't tell the page: {e}");
     }
+    crate::wave::start(app, generation);
     // The thumbnails come from the proxy, so they wait for one being made.
     if let Some((generation, input, rate, frames)) = make {
         crate::proxy::make(app, generation, path, input, rate, frames);

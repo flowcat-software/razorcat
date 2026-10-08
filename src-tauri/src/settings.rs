@@ -49,11 +49,16 @@ impl Default for Settings {
 pub struct Timeline {
     /// Thumbnails along the clip (thumbs.rs): on by default. Off, they aren't made either.
     pub thumbnails: bool,
+    /// The waveform along the clip (wave.rs): the same.
+    pub waveform: bool,
 }
 
 impl Default for Timeline {
     fn default() -> Self {
-        Self { thumbnails: true }
+        Self {
+            thumbnails: true,
+            waveform: true,
+        }
     }
 }
 
@@ -178,6 +183,9 @@ pub fn update(app: &AppHandle<Wry>, new: Settings) -> Result<Settings, String> {
     }
     if new.timeline.thumbnails && !old.timeline.thumbnails {
         crate::thumbs::turned_on(app);
+    }
+    if new.timeline.waveform && !old.timeline.waveform {
+        crate::wave::turned_on(app);
     }
 
     let _ = SettingsChanged(new.clone()).emit(app);
@@ -424,5 +432,6 @@ mod tests {
         assert_eq!(v["appearance"]["theme"], "system");
         assert_eq!(v["appearance"]["accent"], "windows");
         assert_eq!(v["timeline"]["thumbnails"], true);
+        assert_eq!(v["timeline"]["waveform"], true);
     }
 }

@@ -7,7 +7,8 @@
 //! `/proxy/{generation}` is its proxy (proxy.rs), once made. `/frames/{generation}` is the
 //! source's frame times (`grid::times`), for the player: two little-endian f64s per grid frame
 //! (when its picture starts showing, and the middle of it). `/thumbs/{generation}/{from}` is its
-//! thumbnails from `from` on (thumbs.rs), as many as are made.
+//! thumbnails from `from` on (thumbs.rs), as many as are made. `/wave/{generation}` is its
+//! waveform's peaks (wave.rs), once made.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -51,6 +52,11 @@ pub fn thumbs_url(generation: u64) -> String {
     format!("http://{SCHEME}.localhost/thumbs/{generation}")
 }
 
+/// Where the page reads the waveform of the source opened as `generation`.
+pub fn wave_url(generation: u64) -> String {
+    format!("http://{SCHEME}.localhost/wave/{generation}")
+}
+
 /// Thumbnails per response: the page asks again for more.
 const THUMBS_MAX: u64 = 100;
 
@@ -63,6 +69,7 @@ enum Route {
     Frames(u64),
     /// The generation, and the first thumbnail.
     Thumbs(u64, u64),
+    Wave(u64),
 }
 
 pub fn handle<R: Runtime>(
@@ -131,6 +138,21 @@ pub fn handle<R: Runtime>(
                     None => reply(StatusCode::NOT_FOUND, vec![]),
                 }
             }
+            Some(Route::Wave(asked)) => {
+                let file = {
+                    let source = state.source.lock().unwrap();
+                    source
+                        .as_ref()
+                        .filter(|s| s.generation == asked)
+                        .and_then(|s| s.wave.as_ref())
+                        .filter(|w| w.ready)
+                        .map(|w| w.file.clone())
+                };
+                match file.map(std::fs::read) {
+                    Some(Ok(bytes)) => bytes_for_page(bytes),
+                    _ => reply(StatusCode::NOT_FOUND, vec![]),
+                }
+            }
             None => reply(StatusCode::NOT_FOUND, vec![]),
         };
         responder.respond(resp);
@@ -151,6 +173,7 @@ fn route(path: &str) -> Option<Route> {
         "playable" => Some(Route::Playable(generation)),
         "proxy" => Some(Route::Proxy(generation)),
         "frames" => Some(Route::Frames(generation)),
+        "wave" => Some(Route::Wave(generation)),
         _ => None,
     }
 }
@@ -237,6 +260,7 @@ mod tests {
         assert_eq!(route("/proxy/4"), Some(Route::Proxy(4)));
         assert_eq!(route("/playable/5"), Some(Route::Playable(5)));
         assert_eq!(route("/thumbs/6/120"), Some(Route::Thumbs(6, 120)));
+        assert_eq!(route("/wave/7"), Some(Route::Wave(7)));
         assert_eq!(route("/thumbs/6"), None);
         assert_eq!(route("/thumbs/6/x"), None);
         assert_eq!(route("/source/x"), None);

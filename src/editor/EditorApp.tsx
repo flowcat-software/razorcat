@@ -74,6 +74,10 @@ export function EditorApp() {
   const [proxy, setProxy] = useState<{ source: string; url?: string; done?: number } | null>(null);
   /** Settings › General › Show thumbnails (made from proxies, so not without them). */
   const [showThumbs, setShowThumbs] = useState(true);
+  /** Settings › Timeline › Show waveform. */
+  const [showWave, setShowWave] = useState(true);
+  /** The waveform once it's made; keyed by the source. */
+  const [wave, setWave] = useState<{ source: string; url: string } | null>(null);
   /** The thumbnails as they're made; keyed by the source. */
   const [thumbs, setThumbs] = useState<{ source: string; thumbs: ThumbsInfo } | null>(null);
   const player = useMemo(
@@ -132,7 +136,11 @@ export function EditorApp() {
       }),
       events.proxyReady.listen(({ payload }) => setProxy(payload)),
       events.thumbsUpdate.listen(({ payload }) => setThumbs(payload)),
-      events.settingsChanged.listen(({ payload }) => setShowThumbs(thumbsOn(payload as Settings))),
+      events.waveReady.listen(({ payload }) => setWave(payload)),
+      events.settingsChanged.listen(({ payload }) => {
+        setShowThumbs(thumbsOn(payload as Settings));
+        setShowWave((payload as Settings).timeline.waveform);
+      }),
       // Proxies turned off mid-way: the progress goes.
       events.proxyStopped.listen(({ payload }) =>
         setProxy((p) => (p?.source === payload.source && !p.url ? null : p)),
@@ -150,7 +158,11 @@ export function EditorApp() {
           return null;
         }
         stops.push(...unlisten);
-        void commands.getSettings().then((s) => !gone && setShowThumbs(thumbsOn(s as Settings)));
+        void commands.getSettings().then((s) => {
+          if (gone) return;
+          setShowThumbs(thumbsOn(s as Settings));
+          setShowWave((s as Settings).timeline.waveform);
+        });
         return commands.editorReady();
       })
       .then((open) => {
@@ -209,6 +221,7 @@ export function EditorApp() {
   const empty = source === null;
   const mine = source && proxy?.source === source.id ? proxy : null;
   const sourceThumbs = (source && thumbs?.source === source.id && thumbs.thumbs) || source?.thumbs;
+  const sourceWave = source?.waveUrl ?? (wave && wave.source === source?.id ? wave.url : null);
   const proxyUrl = source?.proxyUrl ?? mine?.url ?? null;
   // A conversion's progress, with Cancel, comes first; then the proxy's until it's ready, unless
   // there's something to say.
@@ -283,6 +296,7 @@ export function EditorApp() {
             player={player}
             inFrames={inFrames}
             thumbs={(showThumbs && sourceThumbs) || null}
+            waveUrl={(showWave && sourceWave) || null}
           />
         )}
       </div>
