@@ -30,6 +30,13 @@ export interface ChoiceItem extends BaseItem {
   options: readonly { value: string; label: string }[];
 }
 
+/** One of a fixed set of numbers, as joined buttons. */
+export interface NumberChoiceItem extends BaseItem {
+  kind: "numberChoice";
+  path: PathOf<Settings, number>;
+  options: readonly { value: number; label: string }[];
+}
+
 /** The accent color: the Windows accent or a preset. */
 export interface AccentItem extends BaseItem {
   kind: "accent";
@@ -63,7 +70,8 @@ export interface AboutItem extends BaseItem {
   kind: "about";
 }
 
-export type Item = ToggleItem | ChoiceItem | AccentItem | FolderItem | ProxyLimitItem | AboutItem;
+export type Item =
+  ToggleItem | ChoiceItem | NumberChoiceItem | AccentItem | FolderItem | ProxyLimitItem | AboutItem;
 export type ItemKind = Item["kind"];
 
 export interface Group {

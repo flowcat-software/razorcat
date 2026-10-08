@@ -144,29 +144,38 @@ pub fn cancel_conversion(app: AppHandle) {
     crate::convert::cancel(&app);
 }
 
-/// Exports the timeline (`clip` None) or one clip (`clip`, its number) as MP4: the Save
+/// Exports the timeline (`clip` None) or one clip (`clip`, its number) as MP4 or GIF: the Save
 /// dialog, then the export on a thread ([`crate::export::ExportProgress`], then
 /// [`crate::export::ExportEnded`]). False if it didn't start (the dialog cancelled, or an export
 /// under way).
 #[tauri::command]
 #[specta::specta]
-pub async fn export_mp4(
+pub async fn export(
     app: AppHandle,
     clips: Vec<crate::export::ExportClip>,
     clip: Option<u32>,
+    format: crate::export::Format,
 ) -> bool {
-    tauri::async_runtime::spawn_blocking(move || crate::export::ask_and_export(&app, clips, clip))
-        .await
-        .unwrap_or(false)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::export::ask_and_export(&app, clips, clip, format)
+    })
+    .await
+    .unwrap_or(false)
 }
 
-/// Exports each clip as its own MP4, into a folder the user picks.
+/// Exports each clip as its own file, into a folder the user picks.
 #[tauri::command]
 #[specta::specta]
-pub async fn export_each_mp4(app: AppHandle, clips: Vec<crate::export::ExportClip>) -> bool {
-    tauri::async_runtime::spawn_blocking(move || crate::export::ask_and_export_each(&app, clips))
-        .await
-        .unwrap_or(false)
+pub async fn export_each(
+    app: AppHandle,
+    clips: Vec<crate::export::ExportClip>,
+    format: crate::export::Format,
+) -> bool {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::export::ask_and_export_each(&app, clips, format)
+    })
+    .await
+    .unwrap_or(false)
 }
 
 /// The status bar's Cancel: stops the export under way.

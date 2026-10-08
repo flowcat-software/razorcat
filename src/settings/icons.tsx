@@ -42,6 +42,15 @@ export function TimelineIcon() {
   );
 }
 
+/** An arrow out of a tray: export. */
+export function ExportIcon() {
+  return (
+    <svg {...props}>
+      <path d="M8 2.5v7.5M5 5.5l3-3 3 3M2.5 9.5v3a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-3" />
+    </svg>
+  );
+}
+
 export function AboutIcon() {
   return (
     <svg {...props}>

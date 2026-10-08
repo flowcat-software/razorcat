@@ -49,20 +49,26 @@ export function CommandBar({ empty, notYet, exporting, onOpen }: Props) {
   const clips = useDoc((s) => s.doc.clips.length);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const noExport = empty || exporting;
-  // The Export button's menu (the mockup's; GIF and Save to default folder come in 2.6-2.7).
+  // The Export button's menu (the mockup's; Save to default folder comes in 2.7).
   const items: MenuItems = [
-    { label: "Timeline as MP4", hint: "Ctrl+E", run: exportTimeline },
-    "-",
-    {
-      label: "Each clip as its own file",
-      disabled: clips < 2,
-      run: exportEach,
-    },
-    {
-      label: "Selected clip",
-      disabled: selected === null,
-      run: () => selected !== null && exportClip(selected),
-    },
+    { label: "Timeline as MP4", hint: "Ctrl+E", run: () => exportTimeline("mp4") },
+    { label: "Timeline as GIF", run: () => exportTimeline("gif") },
+    ...(["mp4", "gif"] as const).flatMap((format): MenuItems => {
+      const as = format.toUpperCase();
+      return [
+        "-",
+        {
+          label: `Each clip as ${as}`,
+          disabled: clips < 2,
+          run: () => exportEach(format),
+        },
+        {
+          label: `Selected clip as ${as}`,
+          disabled: selected === null,
+          run: () => selected !== null && exportClip(selected, format),
+        },
+      ];
+    }),
   ];
   return (
     <div className={styles.commandBar}>
@@ -133,7 +139,7 @@ export function CommandBar({ empty, notYet, exporting, onOpen }: Props) {
           title={exporting ? "An export is under way" : "Export the timeline (Ctrl+E)"}
           disabled={noExport}
           onMouseDown={(e) => e.preventDefault()}
-          onClick={exportTimeline}
+          onClick={() => exportTimeline("mp4")}
         >
           <svg viewBox="0 0 24 24" aria-hidden>
             <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />

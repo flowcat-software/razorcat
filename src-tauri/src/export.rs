@@ -53,6 +53,8 @@ pub struct ExportProgress {
 #[serde(rename_all = "camelCase")]
 pub struct ExportEnded {
     pub files: Vec<String>,
+    /// Their size together.
+    pub bytes: f64,
     pub message: Option<String>,
 }
 
@@ -169,6 +171,64 @@ fn args(
     encoder: Encoder,
     bitrate: u64,
 ) -> Vec<OsString> {
+    // Even dimensions, as 4:2:0 needs.
+    let last = format!(
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,format={}",
+        encoder.pixels()
+    );
+    let mut a = graph(path, cuts, rate, origin, audio_tracks, &last);
+    if audio_tracks > 0 {
+        a.extend(["-c:a", "aac", "-b:a", "192k"].map(OsString::from));
+    }
+    a.extend(encoder.args(bitrate).into_iter().map(OsString::from));
+    a.extend(
+        [
+            "-fps_mode",
+            "passthrough",
+            "-movflags",
+            "+faststart",
+            "-f",
+            "mp4",
+        ]
+        .map(OsString::from),
+    );
+    a
+}
+
+/// The ffmpeg arguments for a GIF of `cuts`: the picture alone at `gif_fps`, its longer side at
+/// most `size` (0: as it is), as raw frames (YUV4MPEG) on stdout for gifski.
+fn gif_args(
+    path: &Path,
+    cuts: &[Cut],
+    rate: Rate,
+    origin: f64,
+    gif_fps: u32,
+    size: u32,
+) -> Vec<OsString> {
+    let scale = if size == 0 {
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos".to_string()
+    } else {
+        // Never larger than the video; the other side in proportion, even.
+        format!(
+            "scale='if(gte(iw,ih),min({size},iw),-2)':'if(gte(iw,ih),-2,min({size},ih))':flags=lanczos"
+        )
+    };
+    let last = format!("fps={gif_fps},{scale},setsar=1,format=yuv420p");
+    let mut a = graph(path, cuts, rate, origin, 0, &last);
+    a.extend(["-f", "yuv4mpegpipe", "-"].map(OsString::from));
+    a
+}
+
+/// The inputs and the graph for `cuts`, mapped: the joined picture through `last` (a filter
+/// chain) as `[vout]`, and the joined sound as `[ac]` if there are `audio_tracks`.
+fn graph(
+    path: &Path,
+    cuts: &[Cut],
+    rate: Rate,
+    origin: f64,
+    audio_tracks: u32,
+    last: &str,
+) -> Vec<OsString> {
     let fps = rate.fps();
     let mut a: Vec<OsString> = Vec::new();
     for c in cuts {
@@ -219,28 +279,12 @@ fn args(
         u8::from(audio),
         if audio { "[ac]" } else { "" }
     ));
-    // Even dimensions, as 4:2:0 needs.
-    f.push(format!(
-        "[vc]scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,format={}[vout]",
-        encoder.pixels()
-    ));
+    f.push(format!("[vc]{last}[vout]"));
     a.extend(["-filter_complex".into(), f.join(";").into()]);
     a.extend(["-map", "[vout]"].map(OsString::from));
     if audio {
-        a.extend(["-map", "[ac]", "-c:a", "aac", "-b:a", "192k"].map(OsString::from));
+        a.extend(["-map", "[ac]"].map(OsString::from));
     }
-    a.extend(encoder.args(bitrate).into_iter().map(OsString::from));
-    a.extend(
-        [
-            "-fps_mode",
-            "passthrough",
-            "-movflags",
-            "+faststart",
-            "-f",
-            "mp4",
-        ]
-        .map(OsString::from),
-    );
     a
 }
 
@@ -333,15 +377,29 @@ fn input(app: &AppHandle) -> Result<Input, String> {
     })
 }
 
-/// Renders `clips` of the open source to `output`, blocking: the best encoder, then the next
-/// if one fails. `progress` gets 0 to 1.
-pub fn render(
+/// What an export makes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum Format {
+    Mp4,
+    Gif,
+}
+
+impl Format {
+    fn extension(self) -> &'static str {
+        match self {
+            Format::Mp4 => "mp4",
+            Format::Gif => "gif",
+        }
+    }
+}
+
+/// The open source and the cuts for `clips`, checked: the clips fit it, and `output` isn't it.
+fn prepare(
     app: &AppHandle,
     clips: &[ExportClip],
     output: &Path,
-    mut progress: impl FnMut(f64),
-    stop: &AtomicBool,
-) -> Result<Outcome, String> {
+) -> Result<(Input, Vec<Cut>), String> {
     let input = input(app)?;
     if clips.is_empty() {
         return Err("There's nothing to export.".into());
@@ -355,8 +413,45 @@ pub fn render(
     if output == input.path {
         return Err("The export can't replace the video it's made from.".into());
     }
-    let frames: u64 = clips.iter().map(|c| u64::from(c.out - c.from)).sum();
     let cuts = cuts(&input.starts, clips);
+    Ok((input, cuts))
+}
+
+/// Renders `clips` of the open source to `output` as `format`, blocking. `progress` gets 0
+/// to 1.
+pub fn render(
+    app: &AppHandle,
+    clips: &[ExportClip],
+    output: &Path,
+    format: Format,
+    progress: impl FnMut(f64),
+    stop: &AtomicBool,
+) -> Result<Outcome, String> {
+    let started = Instant::now();
+    let done = match format {
+        Format::Mp4 => render_mp4(app, clips, output, progress, stop),
+        Format::Gif => render_gif(app, clips, output, progress, stop),
+    }?;
+    if matches!(done, Outcome::Finished) {
+        eprintln!(
+            "[export] {} in {:.1} s",
+            output.display(),
+            started.elapsed().as_secs_f64()
+        );
+    }
+    Ok(done)
+}
+
+/// An MP4: the best encoder, then the next if one fails.
+fn render_mp4(
+    app: &AppHandle,
+    clips: &[ExportClip],
+    output: &Path,
+    mut progress: impl FnMut(f64),
+    stop: &AtomicBool,
+) -> Result<Outcome, String> {
+    let (input, cuts) = prepare(app, clips, output)?;
+    let frames: u64 = clips.iter().map(|c| u64::from(c.out - c.from)).sum();
     let rate = bitrate(input.width, input.height, input.rate.fps());
     let mut last = String::new();
     for encoder in encoders(app) {
@@ -369,19 +464,11 @@ pub fn render(
             encoder,
             rate,
         );
-        let started = Instant::now();
         match ffmpeg::run_now(&a, output, Some(frames), &mut progress, || {
             stop.load(Ordering::Relaxed)
         }) {
             Ok(done) => {
-                if matches!(done, Outcome::Finished) {
-                    eprintln!(
-                        "[export] {} with {} in {:.1} s",
-                        output.display(),
-                        encoder.codec(),
-                        started.elapsed().as_secs_f64()
-                    );
-                }
+                eprintln!("[export] encoded with {}", encoder.codec());
                 return Ok(done);
             }
             Err(e) => {
@@ -393,10 +480,162 @@ pub fn render(
     Err(last)
 }
 
-/// A file to write: its clips and where.
+/// A GIF: ffmpeg's frames piped into gifski (spike 0.3: better and faster than ffmpeg's own
+/// palette). The frames are counted on their way through, for progress.
+fn render_gif(
+    app: &AppHandle,
+    clips: &[ExportClip],
+    output: &Path,
+    mut progress: impl FnMut(f64),
+    stop: &AtomicBool,
+) -> Result<Outcome, String> {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::process::Stdio;
+
+    let (input, cuts) = prepare(app, clips, output)?;
+    let (gif_fps, size) = {
+        let state = app.state::<AppState>();
+        let settings = state.settings.read().unwrap();
+        (settings.export.gif_fps, settings.export.gif_size)
+    };
+    let grid: u64 = clips.iter().map(|c| u64::from(c.out - c.from)).sum();
+    let frames = ((grid as f64) * f64::from(gif_fps) / input.rate.fps())
+        .ceil()
+        .max(1.0);
+    let part = output.with_extension("part");
+
+    let mut ffmpeg = sidecar::command(Tool::Ffmpeg)?;
+    ffmpeg
+        .args(["-hide_banner", "-nostdin", "-loglevel", "error"])
+        .args(gif_args(
+            &input.path,
+            &cuts,
+            input.rate,
+            input.starts[0],
+            gif_fps,
+            size,
+        ))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut ffmpeg =
+        sidecar::spawn(&mut ffmpeg).map_err(|e| format!("ffmpeg didn't start: {e}"))?;
+    let ffmpeg_log = drain(ffmpeg.stderr.take());
+    let mut frames_in = BufReader::new(ffmpeg.stdout.take().ok_or("no frames from ffmpeg")?);
+
+    // The stream's header says the frame size: "YUV4MPEG2 W480 H270 F20:1 ... C420jpeg".
+    let mut header = String::new();
+    frames_in
+        .read_line(&mut header)
+        .map_err(|e| e.to_string())?;
+    let Some((width, height)) = y4m_size(&header) else {
+        let _ = ffmpeg.kill();
+        let _ = ffmpeg.wait();
+        let log = ffmpeg_log.join().unwrap_or_default();
+        return Err(log.unwrap_or_else(|| "ffmpeg made no frames".into()));
+    };
+    let frame_bytes = width * height + 2 * width.div_ceil(2) * height.div_ceil(2);
+
+    let mut gifski = sidecar::command(Tool::Gifski)?;
+    gifski
+        .args(["--quiet", "--quality", "90", "--fps"])
+        .arg(gif_fps.to_string())
+        // gifski shrinks to about 800x600 unless told the size.
+        .args(["--width", &width.to_string(), "--output"])
+        .arg(&part)
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let mut gifski =
+        sidecar::spawn(&mut gifski).map_err(|e| format!("gifski didn't start: {e}"))?;
+    let gifski_log = drain(gifski.stderr.take());
+    let mut frames_out = gifski.stdin.take().ok_or("gifski takes no frames")?;
+
+    let stopped = |ffmpeg: &mut std::process::Child, gifski: &mut std::process::Child| {
+        let _ = ffmpeg.kill();
+        let _ = gifski.kill();
+        let _ = ffmpeg.wait();
+        let _ = gifski.wait();
+        let _ = std::fs::remove_file(&part);
+    };
+    let copied = (|| -> std::io::Result<()> {
+        frames_out.write_all(header.as_bytes())?;
+        let mut frame = vec![0u8; frame_bytes];
+        let mut line = String::new();
+        let mut n = 0.0;
+        loop {
+            if stop.load(Ordering::Relaxed) {
+                return Ok(());
+            }
+            // Each frame: a "FRAME" line, then its planes.
+            line.clear();
+            if frames_in.read_line(&mut line)? == 0 {
+                return Ok(());
+            }
+            frames_in.read_exact(&mut frame)?;
+            frames_out.write_all(line.as_bytes())?;
+            frames_out.write_all(&frame)?;
+            n += 1.0;
+            progress((n / frames).min(1.0));
+        }
+    })();
+    drop(frames_out);
+    if stop.load(Ordering::Relaxed) {
+        stopped(&mut ffmpeg, &mut gifski);
+        return Ok(Outcome::Stopped);
+    }
+    let ffmpeg_ok = ffmpeg.wait().is_ok_and(|s| s.success());
+    let gifski_ok = gifski.wait().is_ok_and(|s| s.success());
+    let ffmpeg_log = ffmpeg_log.join().unwrap_or_default();
+    let gifski_log = gifski_log.join().unwrap_or_default();
+    if !ffmpeg_ok || !gifski_ok {
+        if let Err(e) = &copied {
+            eprintln!("[export] passing frames to gifski: {e}");
+        }
+        let _ = std::fs::remove_file(&part);
+        let why = if ffmpeg_ok { gifski_log } else { ffmpeg_log };
+        return Err(why.unwrap_or_else(|| "the GIF couldn't be made".into()));
+    }
+    std::fs::rename(&part, output).map_err(|e| format!("can't keep {}: {e}", output.display()))?;
+    Ok(Outcome::Finished)
+}
+
+/// Reads a child's stderr on a thread (a full pipe would stall it); its last line, at the end.
+fn drain(stderr: Option<std::process::ChildStderr>) -> std::thread::JoinHandle<Option<String>> {
+    use std::io::{BufRead, BufReader};
+    std::thread::spawn(move || {
+        let mut last = None;
+        for line in BufReader::new(stderr?).lines().map_while(Result::ok) {
+            if !line.trim().is_empty() {
+                last = Some(line.trim().to_string());
+            }
+        }
+        last
+    })
+}
+
+/// The frame size in a YUV4MPEG2 stream's header line.
+fn y4m_size(header: &str) -> Option<(usize, usize)> {
+    let mut words = header.split_whitespace();
+    if words.next()? != "YUV4MPEG2" {
+        return None;
+    }
+    let (mut w, mut h) = (None, None);
+    for word in words {
+        if let Some(v) = word.strip_prefix('W') {
+            w = v.parse().ok();
+        } else if let Some(v) = word.strip_prefix('H') {
+            h = v.parse().ok();
+        }
+    }
+    Some((w?, h?))
+}
+
+/// A file to write: its clips, where, and as what.
 pub struct Job {
     pub clips: Vec<ExportClip>,
     pub output: PathBuf,
+    pub format: Format,
 }
 
 /// Exports `jobs` one after another on a thread, with progress events, then `ExportEnded`. One
@@ -415,6 +654,7 @@ pub fn start(app: &AppHandle, jobs: Vec<Job>) -> bool {
     std::thread::spawn(move || {
         let n = jobs.len() as f64;
         let mut files = Vec::new();
+        let mut bytes = 0.0;
         let mut message = None;
         for (k, job) in jobs.iter().enumerate() {
             let name = file_name(&job.output);
@@ -426,8 +666,11 @@ pub fn start(app: &AppHandle, jobs: Vec<Job>) -> bool {
                 .emit_to(&app, LABEL);
             };
             progress(0.0);
-            match render(&app, &job.clips, &job.output, progress, &stop) {
-                Ok(Outcome::Finished) => files.push(job.output.display().to_string()),
+            match render(&app, &job.clips, &job.output, job.format, progress, &stop) {
+                Ok(Outcome::Finished) => {
+                    bytes += std::fs::metadata(&job.output).map_or(0.0, |m| m.len() as f64);
+                    files.push(job.output.display().to_string());
+                }
                 Ok(Outcome::Stopped) => break,
                 Err(e) => {
                     message = Some(format!("{name} couldn't be exported ({e})."));
@@ -436,7 +679,12 @@ pub fn start(app: &AppHandle, jobs: Vec<Job>) -> bool {
             }
         }
         *app.state::<AppState>().exporting.lock().unwrap() = None;
-        let _ = ExportEnded { files, message }.emit_to(&app, LABEL);
+        let _ = ExportEnded {
+            files,
+            bytes,
+            message,
+        }
+        .emit_to(&app, LABEL);
     });
     true
 }
@@ -472,10 +720,11 @@ fn stem(app: &AppHandle) -> Option<(String, PathBuf)> {
 }
 
 /// The file name for the whole timeline, or for clip `n`.
-fn export_name(stem: &str, clip: Option<u32>) -> String {
+fn export_name(stem: &str, clip: Option<u32>, format: Format) -> String {
+    let ext = format.extension();
     match clip {
-        Some(n) => format!("{stem}-clip{n:02}.mp4"),
-        None => format!("{stem}-edit.mp4"),
+        Some(n) => format!("{stem}-clip{n:02}.{ext}"),
+        None => format!("{stem}-edit.{ext}"),
     }
 }
 
@@ -502,10 +751,19 @@ fn free_name(folder: &Path, name: &str) -> PathBuf {
 
 /// Asks where to save the timeline (`clip` None) or one clip, with the Save dialog, starting in
 /// the folder last saved to; then exports. False if it didn't start (cancelled, or busy).
-pub fn ask_and_export(app: &AppHandle, clips: Vec<ExportClip>, clip: Option<u32>) -> bool {
+pub fn ask_and_export(
+    app: &AppHandle,
+    clips: Vec<ExportClip>,
+    clip: Option<u32>,
+    format: Format,
+) -> bool {
     use tauri_plugin_dialog::DialogExt;
     let Some((stem, source_folder)) = stem(app).filter(|_| !busy(app)) else {
         return false;
+    };
+    let (kind, ext) = match format {
+        Format::Mp4 => ("MP4 video", "mp4"),
+        Format::Gif => ("GIF animation", "gif"),
     };
     let mut dialog = app
         .dialog()
@@ -515,8 +773,8 @@ pub fn ask_and_export(app: &AppHandle, clips: Vec<ExportClip>, clip: Option<u32>
         } else {
             "Export"
         })
-        .add_filter("MP4 video", &["mp4"])
-        .set_file_name(export_name(&stem, clip));
+        .add_filter(kind, &[ext])
+        .set_file_name(export_name(&stem, clip, format));
     if let Some(start) = crate::folders::export_start(app, &source_folder) {
         dialog = dialog.set_directory(start);
     }
@@ -527,17 +785,24 @@ pub fn ask_and_export(app: &AppHandle, clips: Vec<ExportClip>, clip: Option<u32>
         return false;
     };
     if output.extension().is_none() {
-        output.set_extension("mp4");
+        output.set_extension(ext);
     }
     if let Some(folder) = output.parent() {
         crate::folders::saved_to(app, folder);
     }
-    start(app, vec![Job { clips, output }])
+    start(
+        app,
+        vec![Job {
+            clips,
+            output,
+            format,
+        }],
+    )
 }
 
 /// Asks for a folder, then exports each clip as its own file there (named by its number; a
 /// name already taken gets one of its own).
-pub fn ask_and_export_each(app: &AppHandle, clips: Vec<ExportClip>) -> bool {
+pub fn ask_and_export_each(app: &AppHandle, clips: Vec<ExportClip>, format: Format) -> bool {
     use tauri_plugin_dialog::DialogExt;
     let Some((stem, source_folder)) = stem(app).filter(|_| !busy(app)) else {
         return false;
@@ -559,8 +824,9 @@ pub fn ask_and_export_each(app: &AppHandle, clips: Vec<ExportClip>) -> bool {
     let jobs = clips
         .into_iter()
         .map(|c| Job {
-            output: free_name(&folder, &export_name(&stem, Some(c.id))),
+            output: free_name(&folder, &export_name(&stem, Some(c.id), format)),
             clips: vec![c],
+            format,
         })
         .collect();
     start(app, jobs)
@@ -697,8 +963,41 @@ mod tests {
 
     #[test]
     fn names() {
-        assert_eq!(export_name("trip", None), "trip-edit.mp4");
-        assert_eq!(export_name("trip", Some(3)), "trip-clip03.mp4");
-        assert_eq!(export_name("trip", Some(12)), "trip-clip12.mp4");
+        assert_eq!(export_name("trip", None, Format::Mp4), "trip-edit.mp4");
+        assert_eq!(export_name("trip", Some(3), Format::Mp4), "trip-clip03.mp4");
+        assert_eq!(
+            export_name("trip", Some(12), Format::Gif),
+            "trip-clip12.gif"
+        );
+    }
+
+    #[test]
+    fn a_gif_is_the_picture_alone_resampled_and_scaled() {
+        let c = [Cut {
+            seek: 0.0,
+            from: 0,
+            out: 30,
+        }];
+        let rate = Rate { num: 30, den: 1 };
+        let a = joined(&gif_args(Path::new("in.mp4"), &c, rate, 0.0, 20, 640));
+        assert!(a.contains(
+            "[v0]concat=n=1:v=1:a=0[vc];[vc]fps=20,scale='if(gte(iw,ih),min(640,iw),-2)'"
+        ));
+        assert!(a.ends_with("-map [vout] -f yuv4mpegpipe -"));
+        let whole = joined(&gif_args(Path::new("in.mp4"), &c, rate, 0.0, 25, 0));
+        assert!(whole.contains("fps=25,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos"));
+    }
+
+    #[test]
+    fn reads_the_frame_size_of_a_y4m_stream() {
+        assert_eq!(
+            y4m_size(
+                "YUV4MPEG2 W480 H270 F20:1 Ip A1:1 C420jpeg XYSCSS=420JPEG
+"
+            ),
+            Some((480, 270))
+        );
+        assert_eq!(y4m_size("RIFF W480 H270"), None);
+        assert_eq!(y4m_size("YUV4MPEG2 W480"), None);
     }
 }

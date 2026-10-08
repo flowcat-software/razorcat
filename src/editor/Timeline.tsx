@@ -1009,7 +1009,8 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
             x: e.clientX,
             y: e.clientY,
             items: [
-              { label: "Export clip as MP4…", run: () => exportClip(clip.id) },
+              { label: "Export clip as MP4…", run: () => exportClip(clip.id, "mp4") },
+              { label: "Export clip as GIF…", run: () => exportClip(clip.id, "gif") },
               "-",
               { label: "Split at the playhead", hint: "S", run: () => splitAtPlayhead(player) },
               {

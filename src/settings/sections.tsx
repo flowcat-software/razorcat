@@ -1,7 +1,7 @@
 // What the settings window shows (see schema.ts). Driveby's own settings arrive with the
 // features that use them.
 import { commands } from "../shared/ipc";
-import { AboutIcon, GeneralIcon, ProxiesIcon, TimelineIcon } from "./icons";
+import { AboutIcon, ExportIcon, GeneralIcon, ProxiesIcon, TimelineIcon } from "./icons";
 import type { Section } from "./schema";
 
 export const sections: Section[] = [
@@ -90,6 +90,50 @@ export const sections: Section[] = [
             label: "Deleting a clip deletes its ranges",
             description: "Off: they're kept, hidden, and come back if the clip does.",
             keywords: ["ranges", "delete", "clip", "remove", "timeline"],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "export",
+    title: "Export",
+    icon: ExportIcon,
+    description: "How exported files come out.",
+    groups: [
+      {
+        title: "GIF",
+        items: [
+          {
+            id: "gifFps",
+            kind: "numberChoice",
+            path: "export.gifFps",
+            label: "Frame rate",
+            description:
+              "GIF frames last whole hundredths of a second, so these rates play exactly. Lower is smaller.",
+            options: [
+              { value: 10, label: "10" },
+              { value: 20, label: "20" },
+              { value: 25, label: "25" },
+              { value: 50, label: "50" },
+            ],
+            keywords: ["gif", "fps", "frame rate", "speed", "smooth", "export"],
+          },
+          {
+            id: "gifSize",
+            kind: "numberChoice",
+            path: "export.gifSize",
+            label: "Size",
+            description:
+              "The longer side, in pixels; never larger than the video. GIFs of motion get big fast: smaller is much smaller.",
+            options: [
+              { value: 320, label: "320" },
+              { value: 480, label: "480" },
+              { value: 640, label: "640" },
+              { value: 800, label: "800" },
+              { value: 0, label: "Original" },
+            ],
+            keywords: ["gif", "size", "width", "height", "resolution", "pixels", "export"],
           },
         ],
       },

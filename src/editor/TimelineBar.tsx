@@ -1,9 +1,10 @@
-import { useSyncExternalStore, type ReactNode } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 import type { SourceInfo } from "../shared/ipc";
 import { shownRanges, total as docTotal } from "./doc";
 import { useDoc } from "./docStore";
 import { addRangeAtPlayhead, deleteSelected, seekEdit, splitAtPlayhead } from "./edits";
 import { exportClip } from "./exports";
+import { Menu } from "./Menu";
 import type { Player, PlayerState } from "./player";
 import { needsHours, timecode } from "./timecode";
 import styles from "./EditorApp.module.css";
@@ -105,6 +106,8 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
   const deletable = useDoc((s) => s.selectedRange !== null || s.doc.clips.length > 1);
   const ranges = useDoc((s) => shownRanges(s.doc).length);
   const clipId = useDoc((s) => s.selected);
+  /** The Export clip button's menu (MP4 or GIF), where it opens. */
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   return (
     <div className={styles.timelineBar}>
       <Readout source={source} frame={frame} inFrames={inFrames} onToggle={onToggleFrames} />
@@ -195,15 +198,31 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
         <button
           type="button"
           className={`${styles.barButton} ${styles.withText}`}
-          title="Export this clip as MP4"
+          title="Export this clip (MP4 or GIF)"
+          aria-expanded={menu !== null}
           onMouseDown={keepFocus}
-          onClick={() => exportClip(clipId)}
+          onClick={(e) => {
+            if (menu) return setMenu(null);
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenu({ x: r.left, y: r.bottom + 4 });
+          }}
         >
           <svg viewBox="0 0 24 24" aria-hidden>
             <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
           </svg>
           Export clip…
         </button>
+      )}
+      {menu && clipId !== null && (
+        <Menu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            { label: "As MP4…", run: () => exportClip(clipId, "mp4") },
+            { label: "As GIF…", run: () => exportClip(clipId, "gif") },
+          ]}
+        />
       )}
       {ranges > 0 && (
         <>

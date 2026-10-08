@@ -31,6 +31,8 @@ pub struct Settings {
     /// The proxies made for stepping and scrubbing (proxy.rs).
     pub proxies: Proxies,
     pub timeline: Timeline,
+    /// How exports come out (export.rs).
+    pub export: Export,
 }
 
 impl Default for Settings {
@@ -40,6 +42,31 @@ impl Default for Settings {
             appearance: Appearance::default(),
             proxies: Proxies::default(),
             timeline: Timeline::default(),
+            export: Export::default(),
+        }
+    }
+}
+
+/// The GIF frame rates: GIF frames last whole hundredths of a second, so these play exactly.
+pub const GIF_RATES: [u32; 4] = [10, 20, 25, 50];
+/// The GIF sizes, as the longer side in pixels; 0 keeps the video's.
+pub const GIF_SIZES: [u32; 5] = [320, 480, 640, 800, 0];
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Export {
+    /// Frames per second, one of [`GIF_RATES`].
+    pub gif_fps: u32,
+    /// The longer side in pixels, one of [`GIF_SIZES`] (0: the video's size).
+    pub gif_size: u32,
+}
+
+impl Default for Export {
+    fn default() -> Self {
+        // Spike 0.3: gifski at 20 fps and 480-640 px kept motion GIFs to a few MB a second.
+        Self {
+            gif_fps: 20,
+            gif_size: 640,
         }
     }
 }
@@ -158,6 +185,12 @@ pub fn validate(mut s: Settings) -> Result<Settings, String> {
         .proxies
         .limit_gb
         .clamp(*PROXY_LIMIT_RANGE.start(), *PROXY_LIMIT_RANGE.end());
+    if !GIF_RATES.contains(&s.export.gif_fps) {
+        s.export.gif_fps = Export::default().gif_fps;
+    }
+    if !GIF_SIZES.contains(&s.export.gif_size) {
+        s.export.gif_size = Export::default().gif_size;
+    }
     s.proxies.folder = s.proxies.folder.trim().to_string();
     let folder = &s.proxies.folder;
     if !folder.is_empty() && !crate::paths::resolve_dir(folder).is_absolute() {
@@ -442,5 +475,16 @@ mod tests {
         assert_eq!(v["timeline"]["waveform"], true);
         assert_eq!(v["timeline"]["rangesFollowVideo"], true);
         assert_eq!(v["timeline"]["deleteRangesWithClip"], true);
+        assert_eq!(v["export"]["gifFps"], 20);
+        assert_eq!(v["export"]["gifSize"], 640);
+    }
+
+    #[test]
+    fn gif_options_are_kept_to_what_plays_exactly() {
+        let mut s = Settings::default();
+        s.export.gif_fps = 30;
+        s.export.gif_size = 777;
+        let s = validate(s).unwrap();
+        assert_eq!((s.export.gif_fps, s.export.gif_size), (20, 640));
     }
 }

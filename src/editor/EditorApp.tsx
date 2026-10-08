@@ -12,7 +12,7 @@ import {
   seekEdit,
   splitAtPlayhead,
 } from "./edits";
-import { exportTimeline } from "./exports";
+import { LARGE_GIF, exportTimeline, fileSize } from "./exports";
 import { checkFrames } from "./frameCheck";
 import { sourceFacts } from "./format";
 import { Player } from "./player";
@@ -208,11 +208,17 @@ export function EditorApp() {
         if (payload.message) setNotice({ text: payload.message, error: true });
         else if (!first) setNotice({ text: "Export cancelled." });
         else {
+          const size = fileSize(payload.bytes ?? 0);
+          const gif = payload.files.some((f) => f.toLowerCase().endsWith(".gif"));
+          const large =
+            gif && (payload.bytes ?? 0) > LARGE_GIF
+              ? " That's large for a GIF: a lower rate or size in Settings › Export makes it smaller."
+              : "";
           setNotice({
             text:
-              payload.files.length > 1
-                ? `Exported ${payload.files.length} files.`
-                : `Exported ${name(first)}.`,
+              (payload.files.length > 1
+                ? `Exported ${payload.files.length} files (${size}).`
+                : `Exported ${name(first)} (${size}).`) + large,
             action: { label: "Show in folder", run: () => void commands.showInFolder(first) },
           });
         }
@@ -324,7 +330,7 @@ export function EditorApp() {
         else doc.undo();
       } else if (e.code === "KeyE") {
         e.preventDefault();
-        if (useDoc.getState().doc.sourceFrames > 0) exportTimeline();
+        if (useDoc.getState().doc.sourceFrames > 0) exportTimeline("mp4");
       } else if (e.code === "KeyO") {
         e.preventDefault();
         openVideo();

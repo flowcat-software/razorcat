@@ -101,7 +101,7 @@ pub fn exported(app: &AppHandle, clips: &[ExportClip]) -> Result<Vec<u32>, Strin
     let dir = std::env::temp_dir();
     let file = dir.join("driveby-check-export.mp4");
     let stop = AtomicBool::new(false);
-    match crate::export::render(app, clips, &file, |_| {}, &stop)? {
+    match crate::export::render(app, clips, &file, crate::export::Format::Mp4, |_| {}, &stop)? {
         Outcome::Finished => {}
         Outcome::Stopped => return Err("stopped".into()),
     }

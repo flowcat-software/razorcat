@@ -96,14 +96,14 @@ export const commands = {
 	/**  The status bar's Cancel: stops the conversion under way. */
 	cancelConversion: () => __TAURI_INVOKE<void>("cancel_conversion"),
 	/**
-	 *  Exports the timeline (`clip` None) or one clip (`clip`, its number) as MP4: the Save
+	 *  Exports the timeline (`clip` None) or one clip (`clip`, its number) as MP4 or GIF: the Save
 	 *  dialog, then the export on a thread ([`crate::export::ExportProgress`], then
 	 *  [`crate::export::ExportEnded`]). False if it didn't start (the dialog cancelled, or an export
 	 *  under way).
 	 */
-	exportMp4: (clips: ExportClip[], clip: number | null) => __TAURI_INVOKE<boolean>("export_mp4", { clips, clip }),
-	/**  Exports each clip as its own MP4, into a folder the user picks. */
-	exportEachMp4: (clips: ExportClip[]) => __TAURI_INVOKE<boolean>("export_each_mp4", { clips }),
+	export: (clips: ExportClip[], clip: number | null, format: Format) => __TAURI_INVOKE<boolean>("export", { clips, clip, format }),
+	/**  Exports each clip as its own file, into a folder the user picks. */
+	exportEach: (clips: ExportClip[], format: Format) => __TAURI_INVOKE<boolean>("export_each", { clips, format }),
 	/**  The status bar's Cancel: stops the export under way. */
 	cancelExport: () => __TAURI_INVOKE<void>("cancel_export"),
 	/**  Shows a file in Explorer, selected (after an export). */
@@ -177,6 +177,13 @@ export type ConvertProgress = {
 	done: number | null,
 };
 
+export type Export = {
+	/**  Frames per second, one of [`GIF_RATES`]. */
+	gifFps?: number,
+	/**  The longer side in pixels, one of [`GIF_SIZES`] (0: the video's size). */
+	gifSize?: number,
+};
+
 /**  A clip of the edit, as the page sends it: its number, and its source grid frames. */
 export type ExportClip = {
 	id: number,
@@ -190,6 +197,8 @@ export type ExportClip = {
  */
 export type ExportEnded = {
 	files: string[],
+	/**  Their size together. */
+	bytes: number | null,
 	message: string | null,
 };
 
@@ -200,6 +209,9 @@ export type ExportProgress = {
 	/**  0 to 1, over all the files. */
 	done: number | null,
 };
+
+/**  What an export makes. */
+export type Format = "mp4" | "gif";
 
 /**  The bundled tools' versions, for Settings › About. `None` when one is missing or broken. */
 export type MediaTools = {
@@ -256,6 +268,8 @@ export type Settings = {
 	/**  The proxies made for stepping and scrubbing (proxy.rs). */
 	proxies?: Proxies,
 	timeline?: Timeline,
+	/**  How exports come out (export.rs). */
+	export?: Export,
 };
 
 /**  Rust → all windows: settings changed (from any source), here's the new state. */
