@@ -5,6 +5,9 @@ import type { Item, ItemKind } from "../schema";
 import { AboutCard } from "./AboutCard";
 import { AccentPicker } from "./AccentPicker";
 import { Choice } from "./Choice";
+import { FolderInput } from "./FolderInput";
+import { ProxyLimit } from "./ProxyLimit";
+import { Toggle } from "./Toggle";
 
 export interface ControlProps<I extends Item> {
   item: I;
@@ -25,7 +28,10 @@ interface ControlDef<I extends Item> {
 type Registry = { [K in ItemKind]: ControlDef<Extract<Item, { kind: K }>> };
 
 export const controls: Registry = {
+  toggle: { component: Toggle, layout: "inline" },
   choice: { component: Choice, layout: "inline" },
   accent: { component: AccentPicker, layout: "stacked" },
+  folder: { component: FolderInput, layout: "stacked" },
+  proxyLimit: { component: ProxyLimit, layout: "inline" },
   about: { component: AboutCard, layout: "bare" },
 };

@@ -28,6 +28,8 @@ pub struct Settings {
     pub version: u32,
     /// How the app looks.
     pub appearance: Appearance,
+    /// The proxies made for stepping and scrubbing (proxy.rs).
+    pub proxies: Proxies,
 }
 
 impl Default for Settings {
@@ -35,6 +37,32 @@ impl Default for Settings {
         Self {
             version: CURRENT_VERSION,
             appearance: Appearance::default(),
+            proxies: Proxies::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Proxies {
+    /// Make and use them (on by default).
+    pub enabled: bool,
+    /// Where they're kept, with `%VARS%` (paths.rs); empty for the default, in local app data.
+    pub folder: String,
+    /// The most they may take up, in GB; past it, the least recently used are deleted.
+    pub limit_gb: u32,
+}
+
+/// The proxy cache's limit, in GB: the default and the range.
+pub const PROXY_LIMIT_GB: u32 = 5;
+pub const PROXY_LIMIT_RANGE: std::ops::RangeInclusive<u32> = 1..=50;
+
+impl Default for Proxies {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            folder: String::new(),
+            limit_gb: PROXY_LIMIT_GB,
         }
     }
 }
@@ -99,6 +127,18 @@ pub fn validate(mut s: Settings) -> Result<Settings, String> {
     s.version = CURRENT_VERSION;
     s.appearance.accent =
         normalize_color(&s.appearance.accent).unwrap_or_else(|| WINDOWS_ACCENT.into());
+    s.proxies.limit_gb = s
+        .proxies
+        .limit_gb
+        .clamp(*PROXY_LIMIT_RANGE.start(), *PROXY_LIMIT_RANGE.end());
+    s.proxies.folder = s.proxies.folder.trim().to_string();
+    let folder = &s.proxies.folder;
+    if !folder.is_empty() && !crate::paths::resolve_dir(folder).is_absolute() {
+        return Err(format!(
+            "\"{folder}\" isn't a full folder path. Pick one with Browse, or type one like \
+             D:\\Proxies."
+        ));
+    }
     Ok(s)
 }
 
@@ -118,6 +158,9 @@ pub fn update(app: &AppHandle<Wry>, new: Settings) -> Result<Settings, String> {
     if old.appearance.theme != new.appearance.theme {
         crate::appearance::apply(app, new.appearance.theme);
     }
+    if old.proxies != new.proxies {
+        crate::proxy::settings_changed(app, &old.proxies, &new.proxies);
+    }
 
     let _ = SettingsChanged(new.clone()).emit(app);
     Ok(new)
@@ -134,8 +177,15 @@ pub fn migrate(stored: Option<Value>) -> (Settings, bool) {
     let version = value.get("version").and_then(Value::as_u64).unwrap_or(0);
     match serde_json::from_value::<Settings>(value) {
         Ok(settings) => {
-            // Hand edits can leave values that can't work.
-            let mut checked = validate(settings.clone()).unwrap_or_default();
+            // Hand edits can leave values that can't work: repaired, or (a folder) reset.
+            let mut checked = validate(settings.clone())
+                .or_else(|_| {
+                    validate(Settings {
+                        proxies: Proxies::default(),
+                        ..settings.clone()
+                    })
+                })
+                .unwrap_or_default();
             let changed = version != u64::from(CURRENT_VERSION) || checked != settings;
             checked.version = CURRENT_VERSION;
             (checked, changed)
@@ -292,6 +342,32 @@ mod tests {
         ));
         assert!(changed);
         assert_eq!(s.appearance.accent, "#aabbcc");
+    }
+
+    #[test]
+    fn proxy_settings_are_checked() {
+        let mut s = Settings::default();
+        s.proxies.limit_gb = 0;
+        s.proxies.folder = r" D:\Proxies ".into();
+        let s = validate(s).unwrap();
+        assert_eq!(s.proxies.limit_gb, 1);
+        assert_eq!(s.proxies.folder, r"D:\Proxies");
+
+        let mut s = Settings::default();
+        s.proxies.folder = "proxies".into();
+        assert!(validate(s).is_err());
+    }
+
+    #[test]
+    fn a_hand_edited_bad_folder_goes_back_to_the_default() {
+        let (s, changed) = migrate(Some(json!({
+            "version": 1,
+            "appearance": { "theme": "dark" },
+            "proxies": { "folder": "relative", "limitGb": 9 },
+        })));
+        assert!(changed);
+        assert_eq!(s.appearance.theme, ThemeMode::Dark);
+        assert_eq!(s.proxies, Proxies::default());
     }
 
     #[test]

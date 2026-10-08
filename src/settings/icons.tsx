@@ -22,6 +22,16 @@ export function GeneralIcon() {
   );
 }
 
+/** A film frame over a smaller copy: the proxies. */
+export function ProxiesIcon() {
+  return (
+    <svg {...props}>
+      <rect x="2" y="3" width="9" height="7" rx="1" />
+      <rect x="6.5" y="7.5" width="7.5" height="5.5" rx="1" fill="var(--bg-nav)" />
+    </svg>
+  );
+}
+
 export function AboutIcon() {
   return (
     <svg {...props}>

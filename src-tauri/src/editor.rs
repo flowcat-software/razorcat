@@ -128,8 +128,11 @@ pub fn request_open(app: &AppHandle, path: PathBuf) {
     let app = app.clone();
     std::thread::spawn(move || match source::open(&path) {
         Ok(mut opened) => {
-            opened.proxy = crate::proxy::cached(&app, &path);
-            let make = opened.proxy.is_none().then_some((
+            let use_proxies = crate::proxy::enabled(&app);
+            if use_proxies {
+                opened.proxy = crate::proxy::cached(&app, &path);
+            }
+            let make = (use_proxies && opened.proxy.is_none()).then_some((
                 opened.generation,
                 opened.grid.rate,
                 opened.grid.frames,

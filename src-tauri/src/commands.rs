@@ -66,3 +66,65 @@ pub async fn media_tools() -> MediaTools {
             gifski: None,
         })
 }
+
+/// A folder picker, modal to the calling window, starting at `current` (a folder setting, may
+/// contain `%VARS%`). Paths under the user profile come back as `%USERPROFILE%\...`.
+#[tauri::command]
+#[specta::specta]
+pub async fn pick_folder(window: WebviewWindow, current: String) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let start = crate::paths::resolve_dir(&current);
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        let mut dialog = window
+            .dialog()
+            .file()
+            .set_title("Choose a folder")
+            .set_parent(&window);
+        if start.is_dir() {
+            dialog = dialog.set_directory(&start);
+        }
+        dialog.blocking_pick_folder()
+    })
+    .await
+    .ok()
+    .flatten()?;
+    let path = picked.into_path().ok()?;
+    Some(crate::paths::for_settings(&path.to_string_lossy()))
+}
+
+/// Opens a folder setting's folder (may contain `%VARS%`) in Explorer, making it first so the
+/// button always does something.
+#[tauri::command]
+#[specta::specta]
+pub fn open_folder(path: String) -> Result<(), String> {
+    let dir = crate::paths::resolve_dir(&path);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    std::process::Command::new("explorer.exe")
+        .arg(&dir)
+        .spawn()
+        .map(drop)
+        .map_err(|e| e.to_string())
+}
+
+/// Where proxies go when Settings › Proxies › Folder is empty, as the field shows it.
+#[tauri::command]
+#[specta::specta]
+pub fn default_proxy_folder(app: AppHandle) -> String {
+    crate::proxy::default_folder(&app)
+        .map(|p| crate::paths::for_settings(&p.to_string_lossy()))
+        .unwrap_or_default()
+}
+
+/// The proxy cache's size, and what lowering its limit to `limit_gb` would delete.
+#[tauri::command]
+#[specta::specta]
+pub async fn proxy_cache(app: AppHandle, limit_gb: u32) -> crate::proxy::CacheReport {
+    tauri::async_runtime::spawn_blocking(move || crate::proxy::report(&app, limit_gb))
+        .await
+        .unwrap_or(crate::proxy::CacheReport {
+            bytes: 0.0,
+            files: 0,
+            dropping: 0,
+            dropping_bytes: 0.0,
+        })
+}

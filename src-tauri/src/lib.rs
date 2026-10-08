@@ -4,6 +4,7 @@ mod commands;
 mod editor;
 mod folders;
 mod media;
+mod paths;
 mod placement;
 mod protocol;
 mod proxy;
@@ -30,12 +31,17 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::update_settings,
             commands::open_settings,
             commands::media_tools,
+            commands::pick_folder,
+            commands::open_folder,
+            commands::default_proxy_folder,
+            commands::proxy_cache,
         ])
         .events(collect_events![
             editor::SourceOpened,
             editor::OpenFailed,
             proxy::ProxyProgress,
             proxy::ProxyReady,
+            proxy::ProxyStopped,
             proxy::ProxyFailed,
             appearance::WindowsAccentChanged,
             settings::SettingsChanged,

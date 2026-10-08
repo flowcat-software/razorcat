@@ -1,6 +1,7 @@
 // What the settings window shows (see schema.ts). Driveby's own settings arrive with the
 // features that use them.
-import { AboutIcon, GeneralIcon } from "./icons";
+import { commands } from "../shared/ipc";
+import { AboutIcon, GeneralIcon, ProxiesIcon } from "./icons";
 import type { Section } from "./schema";
 
 export const sections: Section[] = [
@@ -33,6 +34,50 @@ export const sections: Section[] = [
             description:
               "Used for selected buttons and the Export button. Follows your Windows accent color unless you pick one.",
             keywords: ["accent", "color", "colour", "highlight", "theme", "windows"],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "proxies",
+    title: "Proxies",
+    icon: ProxiesIcon,
+    description:
+      "Small copies of each video, made when you open it, so stepping and scrubbing are instant. They're kept, so a video opens ready next time; past the size limit, the ones used longest ago are deleted.",
+    groups: [
+      {
+        items: [
+          {
+            id: "proxiesOn",
+            kind: "toggle",
+            path: "proxies.enabled",
+            label: "Use proxies",
+            description:
+              "Off: nothing is made or kept, and stepping and scrubbing read the video itself, which is slower on long recordings.",
+            keywords: ["proxy", "proxies", "cache", "scrub", "step", "fast", "off"],
+          },
+          {
+            id: "proxyFolder",
+            kind: "folder",
+            path: "proxies.folder",
+            label: "Folder",
+            description:
+              "Where proxies are kept. Clear it to go back to the default. Changing it moves the proxies already made.",
+            defaultFolder: () => commands.defaultProxyFolder(),
+            disabled: (s) => !s.proxies.enabled,
+            keywords: ["proxy", "cache", "folder", "location", "disk", "drive"],
+          },
+          {
+            id: "proxyLimit",
+            kind: "proxyLimit",
+            path: "proxies.limitGb",
+            label: "Size limit",
+            description: "The most space proxies may take up.",
+            min: 1,
+            max: 50,
+            disabled: (s) => !s.proxies.enabled,
+            keywords: ["proxy", "cache", "size", "limit", "space", "disk", "storage", "gb"],
           },
         ],
       },

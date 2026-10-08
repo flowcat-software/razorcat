@@ -2,8 +2,8 @@
 //
 // To add a setting, add an item to a group in `sections.tsx`. To add a new kind of control,
 // add an item type to `Item` below and a component to the registry in `controls/index.ts`
-// (TypeScript will insist on both). Vandal's settings have more kinds to copy (toggle, text,
-// folder, slider...) when a setting needs one.
+// (TypeScript will insist on both). Vandal's settings have more kinds to copy (toggle, text...)
+// when a setting needs one.
 import type { ComponentType } from "react";
 import type { Settings } from "../shared/ipc";
 import type { PathOf } from "./path";
@@ -34,12 +34,34 @@ export interface AccentItem extends BaseItem {
   path: PathOf<Settings, string>;
 }
 
+/** On or off, as a switch. */
+export interface ToggleItem extends BaseItem {
+  kind: "toggle";
+  path: PathOf<Settings, boolean>;
+}
+
+/** A folder: typed (`%VARS%` allowed), browsed for, or opened in Explorer. */
+export interface FolderItem extends BaseItem {
+  kind: "folder";
+  path: PathOf<Settings, string>;
+  /** What an empty setting means: the field shows it, and storing it stores empty. */
+  defaultFolder?: () => Promise<string>;
+}
+
+/** The proxy cache's size limit: asks before a lower limit deletes proxies. */
+export interface ProxyLimitItem extends BaseItem {
+  kind: "proxyLimit";
+  path: PathOf<Settings, number>;
+  min: number;
+  max: number;
+}
+
 /** The About card: logo, name, version, description, author. */
 export interface AboutItem extends BaseItem {
   kind: "about";
 }
 
-export type Item = ChoiceItem | AccentItem | AboutItem;
+export type Item = ToggleItem | ChoiceItem | AccentItem | FolderItem | ProxyLimitItem | AboutItem;
 export type ItemKind = Item["kind"];
 
 export interface Group {

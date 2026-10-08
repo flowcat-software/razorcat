@@ -97,6 +97,10 @@ export function EditorApp() {
         setProxy((p) => (p?.url && p.source === payload.source ? p : { ...payload, done }));
       }),
       events.proxyReady.listen(({ payload }) => setProxy(payload)),
+      // Proxies turned off mid-way: the progress goes.
+      events.proxyStopped.listen(({ payload }) =>
+        setProxy((p) => (p?.source === payload.source && !p.url ? null : p)),
+      ),
       events.proxyFailed.listen(({ payload }) => {
         setProxy(null);
         setNotice({ text: payload.message, error: true });

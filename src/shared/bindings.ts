@@ -59,6 +59,20 @@ export const commands = {
 	openSettings: () => __TAURI_INVOKE<void>("open_settings"),
 	/**  The bundled ffmpeg's and gifski's versions (Settings › About); runs each once. */
 	mediaTools: () => __TAURI_INVOKE<MediaTools>("media_tools"),
+	/**
+	 *  A folder picker, modal to the calling window, starting at `current` (a folder setting, may
+	 *  contain `%VARS%`). Paths under the user profile come back as `%USERPROFILE%\...`.
+	 */
+	pickFolder: (current: string) => __TAURI_INVOKE<string | null>("pick_folder", { current }),
+	/**
+	 *  Opens a folder setting's folder (may contain `%VARS%`) in Explorer, making it first so the
+	 *  button always does something.
+	 */
+	openFolder: (path: string) => typedError<null, string>(__TAURI_INVOKE("open_folder", { path })),
+	/**  Where proxies go when Settings › Proxies › Folder is empty, as the field shows it. */
+	defaultProxyFolder: () => __TAURI_INVOKE<string>("default_proxy_folder"),
+	/**  The proxy cache's size, and what lowering its limit to `limit_gb` would delete. */
+	proxyCache: (limitGb: number) => __TAURI_INVOKE<CacheReport>("proxy_cache", { limitGb }),
 };
 
 /** Events */
@@ -67,6 +81,7 @@ export const events = {
 	proxyFailed: makeEvent<ProxyFailed>("proxy-failed"),
 	proxyProgress: makeEvent<ProxyProgress>("proxy-progress"),
 	proxyReady: makeEvent<ProxyReady>("proxy-ready"),
+	proxyStopped: makeEvent<ProxyStopped>("proxy-stopped"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	sourceOpened: makeEvent<SourceOpened>("source-opened"),
 	windowsAccentChanged: makeEvent<WindowsAccentChanged>("windows-accent-changed"),
@@ -79,6 +94,16 @@ export type Appearance = {
 	accent?: string,
 };
 
+/**  The cache's size, and what a limit would drop (Settings asks before lowering it). */
+export type CacheReport = {
+	/**  Bytes the proxies take up. */
+	bytes: number | null,
+	files: number,
+	/**  What `limit_gb` would delete: how many proxies, and their bytes. */
+	dropping: number,
+	droppingBytes: number | null,
+};
+
 /**  The bundled tools' versions, for Settings › About. `None` when one is missing or broken. */
 export type MediaTools = {
 	ffmpeg: string | null,
@@ -89,6 +114,15 @@ export type MediaTools = {
 export type OpenFailed = {
 	/**  A sentence for the user. */
 	message: string,
+};
+
+export type Proxies = {
+	/**  Make and use them (on by default). */
+	enabled?: boolean,
+	/**  Where they're kept, with `%VARS%` (paths.rs); empty for the default, in local app data. */
+	folder?: string,
+	/**  The most they may take up, in GB; past it, the least recently used are deleted. */
+	limitGb?: number,
 };
 
 /**  Rust → editor: the proxy couldn't be made. Stepping stays on the original. */
@@ -113,10 +147,17 @@ export type ProxyReady = {
 	url: string,
 };
 
+/**  Rust → editor: the proxy stopped being made (proxies were turned off, or another file opened). */
+export type ProxyStopped = {
+	source: string,
+};
+
 export type Settings = {
 	version?: number,
 	/**  How the app looks. */
 	appearance?: Appearance,
+	/**  The proxies made for stepping and scrubbing (proxy.rs). */
+	proxies?: Proxies,
 };
 
 /**  Rust → all windows: settings changed (from any source), here's the new state. */
