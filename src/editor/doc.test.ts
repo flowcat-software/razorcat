@@ -5,6 +5,7 @@ import {
   deleteClip,
   editPoints,
   moveClip,
+  moveSlot,
   split,
   total,
   trimClip,
@@ -90,6 +91,18 @@ describe("delete and move", () => {
     expect(clipStarts(doc)).toEqual([0, 30, 70]);
     expect(moveClip(three, 1, 5).clips.map((c) => c.id)).toEqual([2, 3, 1]);
     expect(moveClip(three, 2, 1)).toBe(three);
+  });
+
+  it("a dragged clip stays put until its edge passes a neighbour's middle", () => {
+    // Clips 0-30, 30-75 (2), 75-100 (3). Richard's bug: clip 2 longer than clip 3, so measured
+    // by the pointer it jumped past clip 3 on a click.
+    const long = split(split(wholeSource(100), 30), 75);
+    expect(moveSlot(long, 2, 0)).toBe(1);
+    expect(moveSlot(long, 2, 12)).toBe(1);
+    expect(moveSlot(long, 2, 13)).toBe(2);
+    expect(moveSlot(long, 2, -14)).toBe(1);
+    expect(moveSlot(long, 2, -16)).toBe(0);
+    expect(moveSlot(three, 1, 1000)).toBe(2);
   });
 });
 

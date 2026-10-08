@@ -1,8 +1,8 @@
 import { useSyncExternalStore, type ReactNode } from "react";
 import type { SourceInfo } from "../shared/ipc";
-import { total as docTotal } from "./doc";
+import { shownRanges, total as docTotal } from "./doc";
 import { useDoc } from "./docStore";
-import { deleteSelected, seekEdit, splitAtPlayhead } from "./edits";
+import { addRangeAtPlayhead, deleteSelected, seekEdit, splitAtPlayhead } from "./edits";
 import type { Player, PlayerState } from "./player";
 import { needsHours, timecode } from "./timecode";
 import styles from "./EditorApp.module.css";
@@ -11,8 +11,6 @@ interface Props {
   /** The open video and its player; null before one is open. */
   source: SourceInfo | null;
   player: Player | null;
-  /** Ranges aren't built yet (Phase 2.4). */
-  noRanges: boolean;
   /** The readout shows frame numbers (a click switches), as the ruler does. */
   inFrames: boolean;
   onToggleFrames: () => void;
@@ -94,14 +92,17 @@ function Readout({
  * The bar under the preview: the time readout, the transport and the timeline's edits (the
  * mockup's).
  */
-export function TimelineBar({ source, player, noRanges, inFrames, onToggleFrames }: Props) {
+export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props) {
   const { frame, speed } = useSyncExternalStore(
     player?.subscribe ?? nothing,
     player?.getState ?? paused,
   );
   const off = !player;
-  const selected = useDoc((s) => s.selected !== null);
-  const deletable = useDoc((s) => s.doc.clips.length > 1);
+  const selected = useDoc((s) =>
+    s.selectedRange !== null ? "range" : s.selected !== null ? "clip" : null,
+  );
+  const deletable = useDoc((s) => s.selectedRange !== null || s.doc.clips.length > 1);
+  const ranges = useDoc((s) => shownRanges(s.doc).length);
   return (
     <div className={styles.timelineBar}>
       <Readout source={source} frame={frame} inFrames={inFrames} onToggle={onToggleFrames} />
@@ -157,8 +158,10 @@ export function TimelineBar({ source, player, noRanges, inFrames, onToggleFrames
       <button
         type="button"
         className={`${styles.barButton} ${styles.withText}`}
-        title="Add a range at the playhead (R)"
-        disabled={off || noRanges}
+        title="Add a range at the playhead (R); I and O mark its in and out"
+        disabled={off}
+        onMouseDown={keepFocus}
+        onClick={() => player && addRangeAtPlayhead(player)}
       >
         <svg viewBox="0 0 24 24" aria-hidden>
           <path d="M4 6v12M20 6v12M4 12h16" />
@@ -169,7 +172,13 @@ export function TimelineBar({ source, player, noRanges, inFrames, onToggleFrames
         <button
           type="button"
           className={`${styles.barButton} ${styles.withText}`}
-          title={deletable ? "Delete the clip (Delete)" : "The last clip can't be deleted"}
+          title={
+            !deletable
+              ? "The last clip can't be deleted"
+              : selected === "range"
+                ? "Delete the range (Delete)"
+                : "Delete the clip (Delete)"
+          }
           disabled={!deletable}
           onMouseDown={keepFocus}
           onClick={deleteSelected}
@@ -179,6 +188,29 @@ export function TimelineBar({ source, player, noRanges, inFrames, onToggleFrames
           </svg>
           Delete <span className={styles.kbd}>Del</span>
         </button>
+      )}
+      {ranges > 0 && (
+        <>
+          <span className={styles.barDivider} />
+          <button
+            type="button"
+            className={`${styles.barButton} ${styles.withText}`}
+            title="Keep only the ranges: cut out everything else"
+            onMouseDown={keepFocus}
+            onClick={() => useDoc.getState().keepRanges()}
+          >
+            Keep ranges
+          </button>
+          <button
+            type="button"
+            className={`${styles.barButton} ${styles.withText}`}
+            title="Cut the ranges out"
+            onMouseDown={keepFocus}
+            onClick={() => useDoc.getState().removeRanges()}
+          >
+            Remove ranges
+          </button>
+        </>
       )}
     </div>
   );

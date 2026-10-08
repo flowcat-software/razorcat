@@ -51,6 +51,11 @@ pub struct Timeline {
     pub thumbnails: bool,
     /// The waveform along the clip (wave.rs): the same.
     pub waveform: bool,
+    /// Ranges stay on the video they mark as clips are trimmed, deleted or moved (on by
+    /// default); off, they stay at their place on the timeline. (Markup joins them in Phase 4.)
+    pub ranges_follow_video: bool,
+    /// Deleting a clip deletes the ranges on it (on by default); off, they're kept, hidden.
+    pub delete_ranges_with_clip: bool,
 }
 
 impl Default for Timeline {
@@ -58,6 +63,8 @@ impl Default for Timeline {
         Self {
             thumbnails: true,
             waveform: true,
+            ranges_follow_video: true,
+            delete_ranges_with_clip: true,
         }
     }
 }
@@ -433,5 +440,7 @@ mod tests {
         assert_eq!(v["appearance"]["accent"], "windows");
         assert_eq!(v["timeline"]["thumbnails"], true);
         assert_eq!(v["timeline"]["waveform"], true);
+        assert_eq!(v["timeline"]["rangesFollowVideo"], true);
+        assert_eq!(v["timeline"]["deleteRangesWithClip"], true);
     }
 }

@@ -2,7 +2,15 @@
 // measured from the raw pointer frame, never from where the drag last landed, so a snap is
 // stable: it holds within reach of a target and lets go beyond.
 
-import { clipLength, clipStarts, editPoints, type Doc } from "./doc";
+import {
+  clipLength,
+  clipStarts,
+  editPoints,
+  shownRanges,
+  total,
+  type Doc,
+  type RangeId,
+} from "./doc";
 
 /** How near (px) a target pulls. */
 export const SNAP_PX = 8;
@@ -40,10 +48,33 @@ export function snap(
 }
 
 /**
- * What scrubbing snaps the playhead to: each clip's first frame. (Not the timeline's end: the
- * playhead stops a frame before it, so the guide would show a frame off.)
+ * What scrubbing snaps the playhead to: each clip's first frame, the ranges' edges and a pending
+ * in-point. (Not the timeline's end: the playhead stops a frame before it, so the guide would
+ * show a frame off.)
  */
-export const scrubTargets = (doc: Doc): number[] => clipStarts(doc);
+export function scrubTargets(doc: Doc, pendingIn: number | null): number[] {
+  const t = clipStarts(doc);
+  for (const r of shownRanges(doc)) t.push(r.a, r.b);
+  if (pendingIn !== null) t.push(pendingIn);
+  return t;
+}
+
+/**
+ * What a range's edges (or the pending in-point) snap to: the playhead, the cuts and the
+ * timeline's ends, the other ranges' edges, and the pending in-point (when it isn't what's
+ * dragged).
+ */
+export function rangeTargets(
+  doc: Doc,
+  playhead: number,
+  exclude: RangeId | null,
+  pendingIn: number | null,
+): number[] {
+  const t = [playhead, ...clipStarts(doc), total(doc)];
+  for (const r of shownRanges(doc)) if (r.id !== exclude) t.push(r.a, r.b);
+  if (pendingIn !== null) t.push(pendingIn);
+  return t;
+}
 
 /**
  * What trimming clip `index` may snap to, fixed when the drag starts: only things the trim can't

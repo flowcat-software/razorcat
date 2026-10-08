@@ -4,9 +4,21 @@ import type { Player } from "./player";
 import { ThumbStrip } from "./thumbs";
 import { Peaks, waveHeight } from "./wave";
 import { timecode, needsHours } from "./timecode";
-import { clipAt, clipLength, clipStarts, total, type Clip, type ClipId, type Doc } from "./doc";
+import {
+  clipAt,
+  clipLength,
+  clipStarts,
+  moveSlot,
+  shownRanges,
+  total,
+  type Clip,
+  type ClipId,
+  type Doc,
+  type RangeId,
+  type ShownRange,
+} from "./doc";
 import { useDoc } from "./docStore";
-import { scrubTargets, snap, trimTargets } from "./snap";
+import { rangeTargets, scrubTargets, snap, trimTargets } from "./snap";
 import { useTimeline } from "./timelineStore";
 import { FRAME_TICKS, HEADER, fOf, ticks, xOf, zoomAnchor, type View } from "./timelineView";
 import styles from "./EditorApp.module.css";
@@ -25,6 +37,8 @@ interface Props {
 // The mockup's geometry (mockup/main.html). Markup lanes go between the ruler and the clip track
 // in Phase 4.
 const RULER = 30;
+/** The strip along the ruler's top: ranges' bars; drag on it to draw one. */
+const RANGE_STRIP = 11;
 const CLIP_TOP = RULER + 10;
 const CLIP_H = 76;
 /** The clip's label row, above its thumbnails. */
@@ -38,6 +52,8 @@ const CLIP_GAP = 0.5;
 const CLIP_RADIUS = 8;
 /** How near (px, either side) a clip's edge the pointer grabs it. */
 const EDGE_HIT = 7;
+/** How far (px) the pointer must move before a title bar's press becomes a drag. */
+const DRAG_PX = 3;
 /** How long the pointer rests on a handle before its tooltip shows. */
 const TIP_DELAY = 600;
 
@@ -51,18 +67,42 @@ const TOKENS = [
   "border",
   "playhead",
   "snap",
+  "range",
+  "range-edge",
 ];
 
 type Edge = "in" | "out";
 
-/** What the pointer is on: a clip's edge (trims it) or its title bar (moves it). */
-type Hit = { kind: Edge; clip: Clip } | { kind: "move"; clip: Clip };
+/**
+ * What the pointer is on: a clip's edge (trims it) or title bar (moves it); a range's edge
+ * (resizes it) or bar (moves it); the empty range strip (draws one); the pending in-point.
+ */
+type Hit =
+  | { kind: Edge | "move"; clip: Clip }
+  | { kind: "rangeA" | "rangeB" | "rangeMove"; range: ShownRange }
+  | { kind: "rangeNew" | "pendingIn" };
 
 /** What a handle does (the mockup's tooltips). */
 const TIPS: Record<Hit["kind"], [string, string]> = {
   in: ["Trim the clip's start", "the rest ripples along · Alt: no snap"],
   out: ["Trim the clip's end", "the rest ripples along · Alt: no snap"],
   move: ["Move the clip", "drag left or right · Ctrl+[ ]"],
+  rangeA: ["Range start", "drag"],
+  rangeB: ["Range end", "drag"],
+  rangeMove: ["Move the range", "drag"],
+  rangeNew: ["Draw a range", "drag · or R, or I and O"],
+  pendingIn: ["Pending in-point", "drag to adjust · O sets the out"],
+};
+
+const CURSORS: Record<Hit["kind"], string> = {
+  in: "ew-resize",
+  out: "ew-resize",
+  move: "grab",
+  rangeA: "ew-resize",
+  rangeB: "ew-resize",
+  rangeMove: "grab",
+  rangeNew: "crosshair",
+  pendingIn: "ew-resize",
 };
 
 /** A trim under way: the edge, where the drag started, and the clip as it was. */
@@ -77,9 +117,37 @@ interface Trim {
   targets: number[];
 }
 
-/** The clip edge or title bar at (x, y), if any. */
-function hitAt(doc: Doc, view: View, x: number, y: number): Hit | null {
-  if (x < HEADER || y < CLIP_TOP || y > CLIP_TOP + CLIP_H) return null;
+/**
+ * A range drag under way: an edge, the whole range, a new one being drawn (from `from`), or
+ * the pending in-point.
+ */
+interface RangeDrag {
+  kind: "a" | "b" | "move" | "new" | "pendingIn";
+  /** The range (a new one: once it's a frame long). */
+  id: RangeId | null;
+  x0: number;
+  /** The range as it was (a new one: where the drag started, twice). */
+  orig: { a: number; b: number };
+}
+
+/** What's at (x, y): on the ruler, ranges and the pending in-point; on the clip track, clips. */
+function hitAt(doc: Doc, pendingIn: number | null, view: View, x: number, y: number): Hit | null {
+  if (x < HEADER) return null;
+  if (y < RULER) {
+    if (pendingIn !== null && Math.abs(x - xOf(view, pendingIn)) <= EDGE_HIT) {
+      return { kind: "pendingIn" };
+    }
+    const ranges = shownRanges(doc);
+    for (const range of ranges) {
+      if (Math.abs(x - xOf(view, range.a)) <= EDGE_HIT) return { kind: "rangeA", range };
+      if (Math.abs(x - xOf(view, range.b)) <= EDGE_HIT) return { kind: "rangeB", range };
+    }
+    if (y >= RANGE_STRIP + 2) return null;
+    // A range's bar moves it; the empty strip draws a new one.
+    const range = ranges.find((r) => x > xOf(view, r.a) && x < xOf(view, r.b));
+    return range ? { kind: "rangeMove", range } : { kind: "rangeNew" };
+  }
+  if (y < CLIP_TOP || y > CLIP_TOP + CLIP_H) return null;
   const starts = clipStarts(doc);
   const last = doc.clips.length - 1;
   // Edges first. The boundary between two clips belongs to whichever side the pointer is on;
@@ -100,8 +168,11 @@ function hitAt(doc: Doc, view: View, x: number, y: number): Hit | null {
   return under && { kind: "move", clip: under.clip };
 }
 
+/** What a hit is on: its clip or range, for telling hits apart. */
+const hitId = (h: Hit) => ("clip" in h ? h.clip.id : "range" in h ? -h.range.id : 0);
+
 const sameHit = (a: Hit | null, b: Hit | null) =>
-  a === b || (!!a && !!b && a.kind === b.kind && a.clip.id === b.clip.id);
+  a === b || (!!a && !!b && a.kind === b.kind && hitId(a) === hitId(b));
 
 /** A change in frames, signed: "+14 frames", "−3 frames". */
 const signed = (n: number) =>
@@ -230,7 +301,7 @@ function drawWave(
 }
 
 /**
- * The timeline (the mockup's): the ruler, the document's clips with their thumbnails and
+ * The timeline (the mockup's): the ruler with the ranges, the document's clips with their thumbnails and
  * waveform, frame ticks once there's room, and the playhead. Click or drag to move the playhead
  * (on a clip, it's selected too); the wheel scrolls, Ctrl+wheel zooms at the pointer.
  */
@@ -243,8 +314,10 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
   /** The edge or title bar under the pointer (not dragging). */
   const hover = useRef<Hit | null>(null);
   const trim = useRef<Trim | null>(null);
-  /** A clip being moved by its title bar. */
-  const moving = useRef<ClipId | null>(null);
+  /** A clip being moved by its title bar: from where, in the document as the drag started. */
+  const moving = useRef<{ id: ClipId; x0: number; start: Doc } | null>(null);
+  /** A range (or the pending in-point) being dragged. */
+  const ranging = useRef<RangeDrag | null>(null);
   /** Where a drag snapped to: the guide is drawn there. */
   const guide = useRef<number | null>(null);
   const readout = useRef<HTMLDivElement>(null);
@@ -366,12 +439,68 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
 
       // The clips, each inset by half a pixel so a cut shows as a 1 px gap, with 8 px corners
       // notching it top and bottom.
-      const { doc, selected } = useDoc.getState();
+      const { doc, selected, selectedRange, pendingIn } = useDoc.getState();
       const starts = clipStarts(doc);
       g.save();
       g.beginPath();
       g.rect(HEADER, 0, W - HEADER, H);
       g.clip();
+
+      // Ranges: a bar along the ruler's top with the length, a wash down the timeline (under
+      // the clips), and lines at the edges (thicker, selected).
+      for (const r of shownRanges(doc)) {
+        const x0 = Math.round(xOf(view, r.a));
+        const x1 = Math.round(xOf(view, r.b));
+        if (x1 < HEADER || x0 > W) continue;
+        const sel = r.id === selectedRange;
+        g.fillStyle = c["range"];
+        g.fillRect(x0, 0, x1 - x0, H);
+        g.fillStyle = c["range-edge"];
+        g.fillRect(x0, 0, x1 - x0, RANGE_STRIP);
+        g.fillRect(x0 - (sel ? 1 : 0), 0, sel ? 2 : 1, H);
+        g.fillRect(x1 - (sel ? 1 : 0), 0, sel ? 2 : 1, H);
+        if (x1 - x0 > 40) {
+          g.fillStyle = "#000";
+          g.font = "600 10px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
+          g.fillText(
+            inFrames ? String(r.b - r.a) : timecode(r.b - r.a, num, den, hours),
+            Math.max(x0, HEADER) + 4,
+            RANGE_STRIP / 2 + 0.5,
+          );
+        }
+      }
+
+      // A pending in-point (I pressed, O not yet): a draft at half strength, its bar fading out
+      // to the right; a faint wash shows the range O would make at the playhead.
+      if (pendingIn !== null) {
+        const x = Math.round(xOf(view, pendingIn));
+        const { frame: ph } = player.getState();
+        if (ph >= pendingIn) {
+          g.globalAlpha = 0.35;
+          g.fillStyle = c["range"];
+          g.fillRect(x, 0, xOf(view, ph + 1) - x, H);
+        }
+        g.globalAlpha = 0.6;
+        const fade = g.createLinearGradient(x, 0, x + 110, 0);
+        fade.addColorStop(0, c["range-edge"]);
+        fade.addColorStop(1, "transparent");
+        g.fillStyle = fade;
+        g.fillRect(x, 0, 110, RANGE_STRIP);
+        g.globalAlpha = 0.85;
+        g.strokeStyle = c["range-edge"];
+        g.setLineDash([4, 3]);
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.moveTo(x + 0.5, 0);
+        g.lineTo(x + 0.5, H);
+        g.stroke();
+        g.setLineDash([]);
+        g.lineWidth = 1;
+        g.globalAlpha = 1;
+        g.fillStyle = "#000";
+        g.font = "600 10px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
+        g.fillText("IN", x + 4, RANGE_STRIP / 2 + 0.5);
+      }
       doc.clips.forEach((clip, i) => {
         const span = { start: starts[i], in: clip.in, out: clip.out };
         const len = clipLength(clip);
@@ -428,7 +557,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       const h = hover.current;
       const edge = t
         ? { kind: t.edge, id: t.id }
-        : h && h.kind !== "move"
+        : h && (h.kind === "in" || h.kind === "out")
           ? { kind: h.kind, id: h.clip.id }
           : null;
       const ei = edge ? doc.clips.findIndex((cl) => cl.id === edge.id) : -1;
@@ -607,9 +736,10 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
   };
 
   // Click or drag: the playhead follows the pointer (scrubbing; the proxy keeps up), snapping
-  // to the clips' starts. On the clip track the clip under the pointer is selected. By an edge
-  // it's trimmed; by its title bar it's dragged to another place, the others sliding aside. A
-  // drag is one undo step.
+  // to the clips' starts and the ranges' edges. On the clip track the clip under the pointer is
+  // selected. By an edge it's trimmed; by its title bar it's dragged to another place, the
+  // others sliding aside. On the ruler's top strip a drag draws a range; a range's bar moves it
+  // and its edges resize it. A drag is one undo step.
   const at = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top, view: useTimeline.getState().view };
@@ -619,11 +749,18 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
   const scrubTo = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const { x, view } = at(e);
     const f = fOf(view, Math.max(HEADER, x));
-    const s = snap(f, scrubTargets(useDoc.getState().doc), view.zoom, snapping(e), Math.floor);
+    const { doc, pendingIn } = useDoc.getState();
+    const s = snap(f, scrubTargets(doc, pendingIn), view.zoom, snapping(e), Math.floor);
     guide.current = s.target;
     player.seek(s.frame);
   };
-  const cursorFor = (hit: Hit | null) => (!hit ? "" : hit.kind === "move" ? "grab" : "ew-resize");
+  const cursorFor = (hit: Hit | null) => (hit ? CURSORS[hit.kind] : "");
+  /** Timeline frames as the ruler shows them. */
+  const formatter = () => {
+    const { rateNum: num, rateDen: den } = source;
+    const hours = needsHours(Math.max(frames, useDoc.getState().doc.sourceFrames), num, den);
+    return (f: number) => (inFrames ? String(f) : timecode(f, num, den, hours));
+  };
 
   /**
    * Trims as the pointer moves (ripple). An out edge follows the pointer. An in edge stays put
@@ -647,9 +784,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     const clip = doc.clips.find((c) => c.id === t.id);
     if (!clip) return;
     player.peek(t.edge === "in" ? clip.in : clip.out - 1);
-    const { rateNum: num, rateDen: den } = source;
-    const hours = needsHours(doc.sourceFrames, num, den);
-    const fmt = (f: number) => (inFrames ? String(f) : timecode(f, num, den, hours));
+    const fmt = formatter();
     const lines =
       t.edge === "in"
         ? [`In ${fmt(clip.in)}  ${signed(clip.in - t.orig.in)}`]
@@ -660,6 +795,64 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     showReadout(lines.join("\n"), e.clientX, e.clientY);
   };
 
+  /** Moves, resizes or draws a range (or moves the pending in-point) as the pointer moves. */
+  const rangeTo = (e: React.PointerEvent<HTMLCanvasElement>, d: RangeDrag) => {
+    const { x, view } = at(e);
+    const store = useDoc.getState();
+    const length = total(store.doc);
+    const targets = rangeTargets(
+      store.doc,
+      player.getState().frame,
+      d.id,
+      d.kind === "pendingIn" ? null : store.pendingIn,
+    );
+    const on = snapping(e);
+    const fmt = formatter();
+    if (d.kind === "pendingIn") {
+      const s = snap(fOf(view, x), targets, view.zoom, on);
+      guide.current = s.target;
+      store.setPendingIn(Math.max(0, Math.min(length - 1, s.frame)));
+      showReadout(
+        `In ${fmt(useDoc.getState().pendingIn ?? 0)}  (O sets the out)`,
+        e.clientX,
+        e.clientY,
+      );
+      draw.current();
+      return;
+    }
+    const { a, b } = d.orig;
+    let to: { a: number; b: number };
+    if (d.kind === "move") {
+      // Whichever edge lands near something snaps, the start first.
+      const len = b - a;
+      const df = (x - d.x0) / view.zoom;
+      let s = snap(a + df, targets, view.zoom, on);
+      let start = s.frame;
+      if (s.target === null) {
+        s = snap(b + df, targets, view.zoom, on);
+        start = s.target === null ? Math.round(a + df) : s.frame - len;
+      }
+      guide.current = s.target;
+      start = Math.max(0, Math.min(length - len, start));
+      to = { a: start, b: start + len };
+    } else {
+      // An edge (or a new range's far end) against the edge that stays: past it, they swap.
+      const s = snap(fOf(view, x), targets, view.zoom, on);
+      guide.current = s.target;
+      const f = Math.max(0, Math.min(length, s.frame));
+      const fixed = d.kind === "a" ? b : a;
+      if (f === fixed) {
+        draw.current();
+        return;
+      }
+      to = { a: Math.min(f, fixed), b: Math.max(f, fixed) };
+    }
+    if (d.id === null) d.id = store.addRange(to.a, to.b);
+    else store.setRange(d.id, to.a, to.b);
+    showReadout(`${fmt(to.a)} → ${fmt(to.b)}\n${fmt(to.b - to.a)}`, e.clientX, e.clientY);
+    draw.current();
+  };
+
   /** The drag ended (or was cancelled by the system): one undo step, and back to hovering. */
   const endDrag = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const docState = useDoc.getState();
@@ -668,17 +861,74 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       docState.endGesture();
       useTimeline.getState().hold(false);
       player.peek(null);
-      showReadout(null);
     }
     if (moving.current !== null) {
       moving.current = null;
       docState.endGesture();
     }
+    if (ranging.current) {
+      ranging.current = null;
+      docState.endGesture();
+    }
+    showReadout(null);
     guide.current = null;
     const { x, y, view } = at(e);
-    hover.current = hitAt(useDoc.getState().doc, view, x, y);
+    const now = useDoc.getState();
+    hover.current = hitAt(now.doc, now.pendingIn, view, x, y);
     e.currentTarget.style.cursor = cursorFor(hover.current);
     draw.current();
+  };
+
+  /** Starts a drag on what was hit; false if it's not a drag of something (scrub instead). */
+  const startDrag = (e: React.PointerEvent<HTMLCanvasElement>, hit: Hit, x: number) => {
+    const docState = useDoc.getState();
+    if (hit.kind === "in" || hit.kind === "out") {
+      const index = docState.doc.clips.findIndex((c) => c.id === hit.clip.id);
+      docState.select(hit.clip.id);
+      docState.beginGesture();
+      useTimeline.getState().hold(true);
+      trim.current = {
+        id: hit.clip.id,
+        edge: hit.kind,
+        x0: x,
+        start: clipStarts(docState.doc)[index],
+        orig: hit.clip,
+        targets: trimTargets(docState.doc, index, hit.kind, player.getState().frame),
+      };
+      player.peek(hit.kind === "in" ? hit.clip.in : hit.clip.out - 1);
+      return;
+    }
+    if (hit.kind === "move") {
+      docState.select(hit.clip.id);
+      docState.beginGesture();
+      moving.current = { id: hit.clip.id, x0: x, start: docState.doc };
+      e.currentTarget.style.cursor = "grabbing";
+      return;
+    }
+    if (hit.kind === "pendingIn") {
+      ranging.current = { kind: "pendingIn", id: null, x0: x, orig: { a: 0, b: 0 } };
+      return;
+    }
+    docState.beginGesture();
+    if (hit.kind === "rangeNew") {
+      const { view } = at(e);
+      const { doc, pendingIn } = docState;
+      const s = snap(
+        fOf(view, x),
+        rangeTargets(doc, player.getState().frame, null, pendingIn),
+        view.zoom,
+        snapping(e),
+      );
+      const f = Math.max(0, Math.min(total(doc), s.frame));
+      ranging.current = { kind: "new", id: null, x0: x, orig: { a: f, b: f } };
+      return;
+    }
+    if (!("range" in hit)) return;
+    const { range } = hit;
+    docState.selectRange(range.id);
+    const kind = hit.kind === "rangeA" ? "a" : hit.kind === "rangeB" ? "b" : "move";
+    ranging.current = { kind, id: range.id, x0: x, orig: { a: range.a, b: range.b } };
+    if (kind === "move") e.currentTarget.style.cursor = "grabbing";
   };
 
   return (
@@ -693,30 +943,11 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           e.currentTarget.setPointerCapture(e.pointerId);
           const docState = useDoc.getState();
           const { x, y, view } = at(e);
-          const hit = hitAt(docState.doc, view, x, y);
+          const hit = hitAt(docState.doc, docState.pendingIn, view, x, y);
           hover.current = null;
-          if (hit && hit.kind !== "move") {
-            const index = docState.doc.clips.findIndex((c) => c.id === hit.clip.id);
-            docState.select(hit.clip.id);
-            docState.beginGesture();
-            useTimeline.getState().hold(true);
-            trim.current = {
-              id: hit.clip.id,
-              edge: hit.kind,
-              x0: x,
-              start: clipStarts(docState.doc)[index],
-              orig: hit.clip,
-              targets: trimTargets(docState.doc, index, hit.kind, player.getState().frame),
-            };
-            player.peek(hit.kind === "in" ? hit.clip.in : hit.clip.out - 1);
-            draw.current();
-            return;
-          }
           if (hit) {
-            docState.select(hit.clip.id);
-            docState.beginGesture();
-            moving.current = hit.clip.id;
-            e.currentTarget.style.cursor = "grabbing";
+            startDrag(e, hit, x);
+            draw.current();
             return;
           }
           if (y >= CLIP_TOP && x >= HEADER) {
@@ -730,19 +961,16 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
             trimTo(e, trim.current);
             return;
           }
+          if (ranging.current) {
+            rangeTo(e, ranging.current);
+            return;
+          }
           if (moving.current !== null) {
-            // The slot: past how many of the other clips' middles the pointer is.
+            // A click isn't a drag: nothing moves until the pointer has.
+            const m = moving.current;
             const { x, view } = at(e);
-            const f = fOf(view, x);
-            const { doc, move } = useDoc.getState();
-            let t = 0;
-            let slot = 0;
-            for (const c of doc.clips) {
-              if (c.id === moving.current) continue;
-              if (f > t + clipLength(c) / 2) slot++;
-              t += clipLength(c);
-            }
-            move(moving.current, slot);
+            if (Math.abs(x - m.x0) < DRAG_PX) return;
+            useDoc.getState().move(m.id, moveSlot(m.start, m.id, (x - m.x0) / view.zoom));
             return;
           }
           if (canvas.hasPointerCapture(e.pointerId)) {
@@ -750,7 +978,8 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
             return;
           }
           const { x, y, view } = at(e);
-          const hit = hitAt(useDoc.getState().doc, view, x, y);
+          const { doc, pendingIn } = useDoc.getState();
+          const hit = hitAt(doc, pendingIn, view, x, y);
           if (!sameHit(hit, hover.current)) {
             hover.current = hit;
             draw.current();
@@ -763,7 +992,9 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         onPointerLeave={() => {
           hideTip();
           tipFor.current = null;
-          if (trim.current || moving.current !== null || !hover.current) return;
+          if (trim.current || ranging.current || moving.current !== null || !hover.current) {
+            return;
+          }
           hover.current = null;
           draw.current();
         }}

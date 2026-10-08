@@ -5,12 +5,41 @@
 //
 // Every edit is one undo step. A drag is wrapped in beginGesture/endGesture so all its
 // intermediate updates become a single step; edits that change nothing add nothing to history.
+//
+// After an edit of the clips, the ranges follow their video (each kept in one place), or, with
+// Settings › Timeline › "Ranges follow their video" off, stay where they were on the timeline
+// (where they were when the drag started, for a drag).
 
 import { create } from "zustand";
-import { deleteClip, moveClip, split, trimClip, wholeSource, type ClipId, type Doc } from "./doc";
+import {
+  addRange,
+  deleteClip,
+  deleteRange,
+  keepRanges,
+  keepRangesInPlace,
+  moveClip,
+  removeRanges,
+  separateRanges,
+  setRange,
+  shownRanges,
+  split,
+  trimClip,
+  wholeSource,
+  type ClipId,
+  type Doc,
+  type RangeId,
+} from "./doc";
 
 /** Oldest steps are dropped beyond this. */
 export const HISTORY_LIMIT = 200;
+
+/** Settings › Timeline: how ranges take edits of the clips. */
+export interface RangeOptions {
+  /** Ranges follow their video (else they keep their place on the timeline). */
+  follow: boolean;
+  /** Deleting a clip deletes the ranges on it (else they're kept, hidden). */
+  deleteWithClip: boolean;
+}
 
 export interface DocState {
   doc: Doc;
@@ -18,8 +47,15 @@ export interface DocState {
   future: Doc[];
   /** The Doc when the current gesture began, or null outside a gesture. */
   gestureStart: Doc | null;
-  /** The selected clip. Not part of history; cleared if undo/redo removes it. */
+  /**
+   * The selected clip, or range (one or neither). Not part of history; cleared if an edit,
+   * undo or redo takes it away.
+   */
   selected: ClipId | null;
+  selectedRange: RangeId | null;
+  /** I pressed, O not yet: the in-point of the range to come, a timeline frame. */
+  pendingIn: number | null;
+  options: RangeOptions;
 
   /** Starts editing a new source, `frames` long: one clip, no history. */
   load: (frames: number) => void;
@@ -32,6 +68,16 @@ export interface DocState {
   /** Trims clip `id` to source frames `in` to `out` (ripple). */
   trim: (id: ClipId, inF: number, outF: number) => boolean;
 
+  /** Adds a range over timeline frames `a` to `b` and selects it; its id, or null. */
+  addRange: (a: number, b: number) => RangeId | null;
+  /** Moves or resizes range `id` to timeline frames `a` to `b`. */
+  setRange: (id: RangeId, a: number, b: number) => boolean;
+  removeRange: (id: RangeId) => boolean;
+  /** Keep only the ranges' frames, or cut them out (ripple); the ranges go. */
+  keepRanges: () => boolean;
+  removeRanges: () => boolean;
+  setPendingIn: (f: number | null) => void;
+
   beginGesture: () => void;
   endGesture: () => void;
   /** Abandons the gesture and restores the Doc from before it. */
@@ -41,6 +87,8 @@ export interface DocState {
   redo: () => void;
 
   select: (id: ClipId | null) => void;
+  selectRange: (id: RangeId | null) => void;
+  setOptions: (options: RangeOptions) => void;
 }
 
 export function canUndo(s: DocState): boolean {
@@ -59,13 +107,29 @@ export const useDoc = create<DocState>()((set, get) => {
     if (doc === s.doc) return false;
     if (s.gestureStart) set({ doc });
     else set({ doc, past: pushLimited(s.past, s.doc), future: [] });
+    prune();
     return true;
   };
 
-  /** The selection, if its clip is gone. */
-  const pruneSelection = () => {
-    const { doc, selected } = get();
+  /** An edit of the clips: the ranges follow their video, or keep their place. */
+  const applyClips = (edit: (doc: Doc) => Doc): boolean =>
+    apply((doc) => {
+      const after = edit(doc);
+      if (after === doc) return doc;
+      const { options, gestureStart } = get();
+      if (options.follow) return separateRanges(after);
+      // In a drag, from where the ranges were when it started (a drag's steps only move clips).
+      if (!gestureStart) return keepRangesInPlace(doc, after);
+      return keepRangesInPlace(gestureStart, { ...after, ranges: gestureStart.ranges });
+    });
+
+  /** The selection, if what's selected is gone (or hidden). */
+  const prune = () => {
+    const { doc, selected, selectedRange } = get();
     if (selected !== null && !doc.clips.some((c) => c.id === selected)) set({ selected: null });
+    if (selectedRange !== null && !shownRanges(doc).some((r) => r.id === selectedRange)) {
+      set({ selectedRange: null });
+    }
   };
 
   return {
@@ -74,18 +138,37 @@ export const useDoc = create<DocState>()((set, get) => {
     future: [],
     gestureStart: null,
     selected: null,
+    selectedRange: null,
+    pendingIn: null,
+    options: { follow: true, deleteWithClip: true },
 
     load: (frames) =>
-      set({ doc: wholeSource(frames), past: [], future: [], gestureStart: null, selected: null }),
+      set({
+        doc: wholeSource(frames),
+        past: [],
+        future: [],
+        gestureStart: null,
+        selected: null,
+        selectedRange: null,
+        pendingIn: null,
+      }),
 
-    split: (f) => apply((doc) => split(doc, f)),
-    remove: (id) => {
-      const done = apply((doc) => deleteClip(doc, id));
-      pruneSelection();
-      return done;
+    split: (f) => applyClips((doc) => split(doc, f)),
+    remove: (id) => applyClips((doc) => deleteClip(doc, id, get().options.deleteWithClip)),
+    move: (id, to) => applyClips((doc) => moveClip(doc, id, to)),
+    trim: (id, inF, outF) => applyClips((doc) => trimClip(doc, id, inF, outF)),
+
+    addRange: (a, b) => {
+      const id = get().doc.nextRangeId;
+      if (!apply((doc) => addRange(doc, a, b))) return null;
+      set({ selected: null, selectedRange: id });
+      return id;
     },
-    move: (id, to) => apply((doc) => moveClip(doc, id, to)),
-    trim: (id, inF, outF) => apply((doc) => trimClip(doc, id, inF, outF)),
+    setRange: (id, a, b) => apply((doc) => setRange(doc, id, a, b)),
+    removeRange: (id) => apply((doc) => deleteRange(doc, id)),
+    keepRanges: () => apply(keepRanges),
+    removeRanges: () => apply(removeRanges),
+    setPendingIn: (f) => set({ pendingIn: f }),
 
     beginGesture: () => {
       if (!get().gestureStart) set({ gestureStart: get().doc });
@@ -100,7 +183,7 @@ export const useDoc = create<DocState>()((set, get) => {
       const start = get().gestureStart;
       if (!start) return;
       set({ doc: start, gestureStart: null });
-      pruneSelection();
+      prune();
     },
 
     undo: () => {
@@ -111,16 +194,19 @@ export const useDoc = create<DocState>()((set, get) => {
         past: s.past.slice(0, -1),
         future: [s.doc, ...s.future],
       });
-      pruneSelection();
+      prune();
     },
     redo: () => {
       const s = get();
       if (!canRedo(s)) return;
       set({ doc: s.future[0], past: pushLimited(s.past, s.doc), future: s.future.slice(1) });
-      pruneSelection();
+      prune();
     },
 
-    select: (id) => set({ selected: id }),
+    // One thing selected at a time: either null selects nothing.
+    select: (id) => set({ selected: id, selectedRange: null }),
+    selectRange: (id) => set({ selectedRange: id, selected: null }),
+    setOptions: (options) => set({ options }),
   };
 });
 

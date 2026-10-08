@@ -3,7 +3,15 @@ import { commands, events, type Settings, type SourceInfo, type ThumbsInfo } fro
 import { CommandBar } from "./CommandBar";
 import { EmptyEditor } from "./EmptyEditor";
 import { useDoc } from "./docStore";
-import { deleteSelected, moveSelected, seekEdit, splitAtPlayhead } from "./edits";
+import {
+  addRangeAtPlayhead,
+  deleteSelected,
+  moveSelected,
+  rangeIn,
+  rangeOut,
+  seekEdit,
+  splitAtPlayhead,
+} from "./edits";
 import { checkFrames } from "./frameCheck";
 import { sourceFacts } from "./format";
 import { Player } from "./player";
@@ -19,6 +27,13 @@ const openVideo = () => void commands.openDialog();
 
 /** Thumbnails are made from proxies: none without them. */
 const thumbsOn = (s: Settings) => s.timeline.thumbnails && s.proxies.enabled;
+
+/** Settings › Timeline › Ranges: how ranges take edits of the clips. */
+const rangeOptions = (s: Settings) =>
+  useDoc.getState().setOptions({
+    follow: s.timeline.rangesFollowVideo,
+    deleteWithClip: s.timeline.deleteRangesWithClip,
+  });
 
 /** The transport's and the timeline's keys (mockup's keys table). True if the key was theirs. */
 function transportKey(e: KeyboardEvent, player: Player): boolean {
@@ -47,18 +62,33 @@ function transportKey(e: KeyboardEvent, player: Player): boolean {
       return true;
   }
   // Held down, these would flip back and forth (or split again and again).
-  if (e.shiftKey || e.repeat) return ["Space", "KeyJ", "KeyK", "KeyL", "KeyS"].includes(e.code);
+  if (e.shiftKey || e.repeat) {
+    return ["Space", "KeyJ", "KeyK", "KeyL", "KeyS", "KeyR", "KeyI", "KeyO"].includes(e.code);
+  }
   switch (e.code) {
     case "KeyS":
       splitAtPlayhead(player);
+      return true;
+    case "KeyR":
+      addRangeAtPlayhead(player);
+      return true;
+    case "KeyI":
+      rangeIn(player);
+      return true;
+    case "KeyO":
+      rangeOut(player);
       return true;
     case "Delete":
     case "Backspace":
       deleteSelected();
       return true;
-    case "Escape":
-      useDoc.getState().select(null);
+    case "Escape": {
+      // A pending in-point first, then the selection.
+      const doc = useDoc.getState();
+      if (doc.pendingIn !== null) doc.setPendingIn(null);
+      else doc.select(null);
       return true;
+    }
     case "Space":
       player.toggle();
       return true;
@@ -180,6 +210,7 @@ export function EditorApp() {
       events.settingsChanged.listen(({ payload }) => {
         setShowThumbs(thumbsOn(payload as Settings));
         setShowWave((payload as Settings).timeline.waveform);
+        rangeOptions(payload as Settings);
       }),
       // Proxies turned off mid-way: the progress goes.
       events.proxyStopped.listen(({ payload }) =>
@@ -202,6 +233,7 @@ export function EditorApp() {
           if (gone) return;
           setShowThumbs(thumbsOn(s as Settings));
           setShowWave((s as Settings).timeline.waveform);
+          rangeOptions(s as Settings);
         });
         return commands.editorReady();
       })
@@ -323,8 +355,8 @@ export function EditorApp() {
     mine && !proxyUrl
       ? { text: `Preparing fast stepping… ${Math.floor((mine.done ?? 0) * 100)}%` }
       : null;
-  // Controls stay disabled until the increment that makes them work: ranges and export
-  // (Phase 2), the picture's tools (Phases 3-4).
+  // Controls stay disabled until the increment that makes them work: export (Phase 2), the
+  // picture's tools (Phases 3-4).
   const notYet = true;
   return (
     <div className={styles.app}>
@@ -362,7 +394,6 @@ export function EditorApp() {
       <TimelineBar
         source={source}
         player={player}
-        noRanges={notYet}
         inFrames={inFrames}
         onToggleFrames={() => setInFrames((f) => !f)}
       />

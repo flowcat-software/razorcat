@@ -51,6 +51,48 @@ describe("the document store", () => {
     expect(s().doc.clips).toHaveLength(1);
   });
 
+  it("selects a new range, and one thing at a time", () => {
+    s().select(1);
+    const id = s().addRange(10, 20);
+    expect(s().selectedRange).toBe(id);
+    expect(s().selected).toBeNull();
+    s().select(1);
+    expect(s().selectedRange).toBeNull();
+  });
+
+  it("drops a range's selection when it's trimmed away", () => {
+    const id = s().addRange(80, 90);
+    s().trim(1, 0, 50);
+    expect(s().selectedRange).toBeNull();
+    s().undo();
+    expect(s().doc.ranges.map((r) => r.id)).toEqual([id]);
+  });
+
+  it("keeps ranges in place through a whole drag, with following off", () => {
+    s().setOptions({ follow: false, deleteWithClip: true });
+    s().addRange(60, 70);
+    // A trim past the range and back again, in one drag: it's where it was.
+    s().beginGesture();
+    s().trim(1, 0, 50);
+    s().trim(1, 5, 100);
+    s().endGesture();
+    s().setOptions({ follow: true, deleteWithClip: true });
+    const r = s().doc.ranges[0];
+    expect(r.pieces).toEqual([{ clip: 1, in: 65, out: 75 }]);
+  });
+
+  it("keeps ranges, hidden, when their clip is deleted, if that's set", () => {
+    s().split(50);
+    s().addRange(60, 70);
+    s().setOptions({ follow: true, deleteWithClip: false });
+    s().remove(2);
+    s().setOptions({ follow: true, deleteWithClip: true });
+    expect(s().doc.ranges).toHaveLength(1);
+    s().undo();
+    s().remove(2);
+    expect(s().doc.ranges).toHaveLength(0);
+  });
+
   it("keeps at most the history limit", () => {
     s().load(1000);
     for (let f = 1; f <= HISTORY_LIMIT + 10; f++) s().split(f);

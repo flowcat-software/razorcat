@@ -43,7 +43,7 @@ export const sections: Section[] = [
     id: "timeline",
     title: "Timeline",
     icon: TimelineIcon,
-    description: "What the timeline shows.",
+    description: "What the timeline shows, and how ranges take edits.",
     groups: [
       {
         title: "Clips",
@@ -68,6 +68,28 @@ export const sections: Section[] = [
             label: "Show waveform",
             description: "How loud the audio is along each clip, all its tracks together.",
             keywords: ["waveform", "audio", "sound", "volume", "loud", "clip", "timeline"],
+          },
+        ],
+      },
+      {
+        title: "Ranges",
+        items: [
+          {
+            id: "rangesFollowVideo",
+            kind: "toggle",
+            path: "timeline.rangesFollowVideo",
+            label: "Ranges follow their video",
+            description:
+              "When clips are trimmed, deleted or moved, ranges stay on the frames they mark. Off: they stay at their place on the timeline.",
+            keywords: ["ranges", "follow", "anchor", "stay", "move", "trim", "timeline"],
+          },
+          {
+            id: "deleteRangesWithClip",
+            kind: "toggle",
+            path: "timeline.deleteRangesWithClip",
+            label: "Deleting a clip deletes its ranges",
+            description: "Off: they're kept, hidden, and come back if the clip does.",
+            keywords: ["ranges", "delete", "clip", "remove", "timeline"],
           },
         ],
       },
