@@ -1,5 +1,6 @@
 //! Folder memory for the file dialogs, as Vandal's: Open starts in the folder last opened from
-//! (the Videos folder at first). Export's (the folder last saved to) comes with export.
+//! (the Videos folder at first); Export in the folder last exported to (the video's own folder
+//! at first).
 
 use std::path::{Path, PathBuf};
 
@@ -9,6 +10,7 @@ use tauri_plugin_store::StoreExt;
 
 const STATE_FILE: &str = "window-state.json";
 const OPEN_FOLDER_KEY: &str = "openFolder";
+const EXPORT_FOLDER_KEY: &str = "exportFolder";
 
 /// Where the Open dialog starts: the last folder opened from, if it's still there, else the
 /// Videos folder, else the Desktop.
@@ -21,6 +23,17 @@ pub fn open_start(app: &AppHandle) -> Option<PathBuf> {
 /// A file was opened from `folder` (the dialog, a drop, "Open with"): Open starts there next.
 pub fn opened_from(app: &AppHandle, folder: &Path) {
     remember(app, OPEN_FOLDER_KEY, folder);
+}
+
+/// Where the Export dialog starts: the last folder exported to, if it's still there, else the
+/// video's own folder.
+pub fn export_start(app: &AppHandle, source_folder: &Path) -> Option<PathBuf> {
+    remembered(app, EXPORT_FOLDER_KEY).or_else(|| Some(source_folder.to_path_buf()))
+}
+
+/// An export was saved to `folder`: Export starts there next.
+pub fn saved_to(app: &AppHandle, folder: &Path) {
+    remember(app, EXPORT_FOLDER_KEY, folder);
 }
 
 /// A folder remembered under `key`, if it's still there.

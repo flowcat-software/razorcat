@@ -1,11 +1,16 @@
+import { useState } from "react";
 import { canRedo, canUndo, useDoc } from "./docStore";
+import { exportClip, exportEach, exportTimeline } from "./exports";
+import { Menu, type MenuItems } from "./Menu";
 import styles from "./EditorApp.module.css";
 
 interface Props {
   /** No video yet: only Open works. */
   empty: boolean;
-  /** The picture's tools and export aren't built yet (Phases 2.5-4). */
+  /** The picture's tools aren't built yet (Phases 3-4). */
   notYet: boolean;
+  /** An export is under way: another waits for it. */
+  exporting: boolean;
   onOpen: () => void;
 }
 
@@ -37,9 +42,28 @@ const TOOLS = [
 ];
 
 /** The editor's top row: the picture's tools on the left, file actions on the right. */
-export function CommandBar({ empty, notYet, onOpen }: Props) {
+export function CommandBar({ empty, notYet, exporting, onOpen }: Props) {
   const undoable = useDoc(canUndo);
   const redoable = useDoc(canRedo);
+  const selected = useDoc((s) => s.selected);
+  const clips = useDoc((s) => s.doc.clips.length);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const noExport = empty || exporting;
+  // The Export button's menu (the mockup's; GIF and Save to default folder come in 2.6-2.7).
+  const items: MenuItems = [
+    { label: "Timeline as MP4", hint: "Ctrl+E", run: exportTimeline },
+    "-",
+    {
+      label: "Each clip as its own file",
+      disabled: clips < 2,
+      run: exportEach,
+    },
+    {
+      label: "Selected clip",
+      disabled: selected === null,
+      run: () => selected !== null && exportClip(selected),
+    },
+  ];
   return (
     <div className={styles.commandBar}>
       <div className={styles.tools}>
@@ -106,8 +130,10 @@ export function CommandBar({ empty, notYet, onOpen }: Props) {
           type="button"
           className={styles.splitMain}
           aria-label="Export the timeline (Ctrl+E)"
-          title="Export the timeline (Ctrl+E)"
-          disabled={empty || notYet}
+          title={exporting ? "An export is under way" : "Export the timeline (Ctrl+E)"}
+          disabled={noExport}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={exportTimeline}
         >
           <svg viewBox="0 0 24 24" aria-hidden>
             <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
@@ -119,13 +145,21 @@ export function CommandBar({ empty, notYet, onOpen }: Props) {
           className={styles.splitMore}
           aria-label="Export options"
           title="Export options"
-          disabled={empty || notYet}
+          aria-expanded={menu !== null}
+          disabled={noExport}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => {
+            if (menu) return setMenu(null);
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenu({ x: r.right - 260, y: r.bottom + 4 });
+          }}
         >
           <svg viewBox="0 0 24 24" aria-hidden>
             <path d="M6 9l6 6 6-6" />
           </svg>
         </button>
       </div>
+      {menu && <Menu items={items} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />}
     </div>
   );
 }

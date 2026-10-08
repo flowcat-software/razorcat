@@ -43,18 +43,31 @@ describe("zoom", () => {
     expect(z.zoom).toBeCloseTo(v.zoom * 4, 9);
   });
 
-  it("keeps the frame under the pointer in place below fit, too", () => {
-    // Zoomed out past fit, the pointer over the last quarter of the timeline.
-    const out = zoomAt(fitted(width, frames), 0, 900, width, frames);
-    const f = fOf(out, 900);
-    const z = zoomAt(out, out.zoom * 1.3, 900, width, frames);
-    expect(fOf(z, 900)).toBeCloseTo(f, 6);
+  it("below fit, keeps your place without the start coming past the left edge", () => {
+    // Zoomed out past fit from the left edge: still at the left edge (no gap opens there).
+    const out = zoomAt(fitted(width, frames), 0, 400, width, frames);
+    expect(out.scroll).toBe(0);
+    expect(scrolled(out, -200, width, frames).scroll).toBe(0);
+    expect(scrolled(out, 200, width, frames).scroll).toBe(0);
+    // Zooming in follows the pointer at once, below fit too (Richard: the frame under it
+    // mustn't fly off while the timeline grows to fill the view).
+    const before = fOf(out, 400);
+    const z = zoomAt(out, out.zoom * 1.3, 400, width, frames);
+    expect(z.scroll).toBeGreaterThan(0);
+    expect(fOf(z, 400)).toBeCloseTo(before, 6);
+    // Back out at the same place: back at the left edge.
+    expect(zoomAt(z, out.zoom, 400, width, frames).scroll).toBeCloseTo(0, 9);
+    // Out elsewhere: partly off the left, and scrolling brings it back to the edge, no further.
+    const away = zoomAt(z, out.zoom, 100, width, frames);
+    expect(away.scroll).toBeGreaterThan(0);
+    expect(scrolled(away, -100000, width, frames).scroll).toBe(0);
+    expect(scrolled(away, 200, width, frames).scroll).toBe(away.scroll);
   });
 
   it("holds the playhead exactly when the pointer is on it", () => {
-    // Fitted, a pixel is about a frame; zoomed out it's two. The pointer 3 px off the playhead
-    // still zooms about the playhead, and after zooming in 40x it hasn't moved.
-    let v = zoomAt(fitted(width, frames), 0, 500, width, frames);
+    // Fitted, a pixel is about a frame. The pointer 3 px off the playhead still zooms about
+    // the playhead, and after zooming in 40x it hasn't moved.
+    let v = fitted(width, frames);
     const playhead = 700;
     const at = xOf(v, playhead);
     for (let i = 0; i < 6; i++) {

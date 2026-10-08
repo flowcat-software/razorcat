@@ -4,6 +4,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::editor::EditorState;
+use crate::export::Encoder;
 use crate::settings::Settings;
 use crate::source::Source;
 
@@ -15,6 +16,10 @@ pub struct AppState {
     pub source: Mutex<Option<Source>>,
     /// The conversion under way (convert.rs): set to stop it.
     pub converting: Mutex<Option<Arc<AtomicBool>>>,
+    /// The export under way (export.rs): set to stop it.
+    pub exporting: Mutex<Option<Arc<AtomicBool>>>,
+    /// The encoders that work here, best first, once found (export.rs).
+    pub encoders: Mutex<Option<Vec<Encoder>>>,
 }
 
 impl AppState {
@@ -24,6 +29,8 @@ impl AppState {
             editor: Mutex::new(EditorState::default()),
             source: Mutex::new(None),
             converting: Mutex::new(None),
+            exporting: Mutex::new(None),
+            encoders: Mutex::new(None),
         }
     }
 }

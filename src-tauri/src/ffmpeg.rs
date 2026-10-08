@@ -24,9 +24,46 @@ pub enum Outcome {
 }
 
 /// Runs ffmpeg with `args` (inputs, filters, codecs: everything but the output) writing to
-/// `output`. `frames`, if known, measures progress; otherwise the input's duration does.
-/// `progress` gets 0 to 1; `stop` is asked as ffmpeg reports, and ends it if true.
+/// `output`, in the background (below-normal priority). `frames`, if known, measures progress;
+/// otherwise the input's duration does. `progress` gets 0 to 1; `stop` is asked as ffmpeg
+/// reports, and ends it if true.
 pub fn run(
+    args: &[OsString],
+    output: &Path,
+    frames: Option<u64>,
+    progress: impl FnMut(f64),
+    stop: impl Fn() -> bool,
+) -> Result<Outcome, String> {
+    run_with(
+        sidecar::background(Tool::Ffmpeg)?,
+        args,
+        output,
+        frames,
+        progress,
+        stop,
+    )
+}
+
+/// As `run`, at normal priority: work the user is waiting for (an export).
+pub fn run_now(
+    args: &[OsString],
+    output: &Path,
+    frames: Option<u64>,
+    progress: impl FnMut(f64),
+    stop: impl Fn() -> bool,
+) -> Result<Outcome, String> {
+    run_with(
+        sidecar::command(Tool::Ffmpeg)?,
+        args,
+        output,
+        frames,
+        progress,
+        stop,
+    )
+}
+
+fn run_with(
+    mut cmd: std::process::Command,
     args: &[OsString],
     output: &Path,
     frames: Option<u64>,
@@ -34,7 +71,6 @@ pub fn run(
     stop: impl Fn() -> bool,
 ) -> Result<Outcome, String> {
     let part = output.with_extension("part");
-    let mut cmd = sidecar::background(Tool::Ffmpeg)?;
     cmd.args([
         "-hide_banner",
         "-nostdin",

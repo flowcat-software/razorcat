@@ -95,6 +95,24 @@ export const commands = {
 	convertForPreview: (url: string) => __TAURI_INVOKE<void>("convert_for_preview", { url }),
 	/**  The status bar's Cancel: stops the conversion under way. */
 	cancelConversion: () => __TAURI_INVOKE<void>("cancel_conversion"),
+	/**
+	 *  Exports the timeline (`clip` None) or one clip (`clip`, its number) as MP4: the Save
+	 *  dialog, then the export on a thread ([`crate::export::ExportProgress`], then
+	 *  [`crate::export::ExportEnded`]). False if it didn't start (the dialog cancelled, or an export
+	 *  under way).
+	 */
+	exportMp4: (clips: ExportClip[], clip: number | null) => __TAURI_INVOKE<boolean>("export_mp4", { clips, clip }),
+	/**  Exports each clip as its own MP4, into a folder the user picks. */
+	exportEachMp4: (clips: ExportClip[]) => __TAURI_INVOKE<boolean>("export_each_mp4", { clips }),
+	/**  The status bar's Cancel: stops the export under way. */
+	cancelExport: () => __TAURI_INVOKE<void>("cancel_export"),
+	/**  Shows a file in Explorer, selected (after an export). */
+	showInFolder: (path: string) => typedError<null, string>(__TAURI_INVOKE("show_in_folder", { path })),
+	/**
+	 *  Development: exports `clips` to a temporary file and reads back each frame's barcode (the
+	 *  export check, check.rs).
+	 */
+	frameCheckExport: (clips: ExportClip[]) => typedError<number[], string>(__TAURI_INVOKE("frame_check_export", { clips })),
 };
 
 /** Events */
@@ -102,6 +120,8 @@ export const events = {
 	checkFrames: makeEvent<CheckFrames>("check-frames"),
 	convertEnded: makeEvent<ConvertEnded>("convert-ended"),
 	convertProgress: makeEvent<ConvertProgress>("convert-progress"),
+	exportEnded: makeEvent<ExportEnded>("export-ended"),
+	exportProgress: makeEvent<ExportProgress>("export-progress"),
 	openFailed: makeEvent<OpenFailed>("open-failed"),
 	proxyFailed: makeEvent<ProxyFailed>("proxy-failed"),
 	proxyProgress: makeEvent<ProxyProgress>("proxy-progress"),
@@ -154,6 +174,30 @@ export type ConvertProgress = {
 	/**  The file being converted, for the status bar. */
 	name: string,
 	/**  0 to 1. */
+	done: number | null,
+};
+
+/**  A clip of the edit, as the page sends it: its number, and its source grid frames. */
+export type ExportClip = {
+	id: number,
+	in: number,
+	out: number,
+};
+
+/**
+ *  Rust → editor: an export ended. `files` were written; `message` says why it failed. Neither:
+ *  cancelled.
+ */
+export type ExportEnded = {
+	files: string[],
+	message: string | null,
+};
+
+/**  Rust → editor: an export is this far along. */
+export type ExportProgress = {
+	/**  The file being written, for the status bar. */
+	name: string,
+	/**  0 to 1, over all the files. */
 	done: number | null,
 };
 

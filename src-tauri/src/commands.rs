@@ -144,12 +144,68 @@ pub fn cancel_conversion(app: AppHandle) {
     crate::convert::cancel(&app);
 }
 
+/// Exports the timeline (`clip` None) or one clip (`clip`, its number) as MP4: the Save
+/// dialog, then the export on a thread ([`crate::export::ExportProgress`], then
+/// [`crate::export::ExportEnded`]). False if it didn't start (the dialog cancelled, or an export
+/// under way).
+#[tauri::command]
+#[specta::specta]
+pub async fn export_mp4(
+    app: AppHandle,
+    clips: Vec<crate::export::ExportClip>,
+    clip: Option<u32>,
+) -> bool {
+    tauri::async_runtime::spawn_blocking(move || crate::export::ask_and_export(&app, clips, clip))
+        .await
+        .unwrap_or(false)
+}
+
+/// Exports each clip as its own MP4, into a folder the user picks.
+#[tauri::command]
+#[specta::specta]
+pub async fn export_each_mp4(app: AppHandle, clips: Vec<crate::export::ExportClip>) -> bool {
+    tauri::async_runtime::spawn_blocking(move || crate::export::ask_and_export_each(&app, clips))
+        .await
+        .unwrap_or(false)
+}
+
+/// The status bar's Cancel: stops the export under way.
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_export(app: AppHandle) {
+    crate::export::cancel(&app);
+}
+
+/// Shows a file in Explorer, selected (after an export).
+#[tauri::command]
+#[specta::specta]
+pub fn show_in_folder(path: String) -> Result<(), String> {
+    std::process::Command::new("explorer.exe")
+        .arg(format!("/select,{path}"))
+        .spawn()
+        .map(drop)
+        .map_err(|e| e.to_string())
+}
+
 /// Development: the source frame export would show at each grid frame of the open source, by
 /// its barcode (the preview = export check, check.rs).
 #[tauri::command]
 #[specta::specta]
 pub async fn frame_check_expected(app: AppHandle) -> Result<Vec<u32>, String> {
     tauri::async_runtime::spawn_blocking(move || crate::check::expected(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Development: exports `clips` to a temporary file and reads back each frame's barcode (the
+/// export check, check.rs).
+#[tauri::command]
+#[specta::specta]
+pub async fn frame_check_export(
+    app: AppHandle,
+    clips: Vec<crate::export::ExportClip>,
+) -> Result<Vec<u32>, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::check::exported(&app, &clips))
         .await
         .map_err(|e| e.to_string())?
 }

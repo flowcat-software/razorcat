@@ -4,6 +4,7 @@ mod cli;
 mod commands;
 mod convert;
 mod editor;
+mod export;
 mod ffmpeg;
 mod folders;
 mod media;
@@ -44,6 +45,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::frame_check_report,
             commands::convert_for_preview,
             commands::cancel_conversion,
+            commands::export_mp4,
+            commands::export_each_mp4,
+            commands::cancel_export,
+            commands::show_in_folder,
+            commands::frame_check_export,
         ])
         .events(collect_events![
             editor::SourceOpened,
@@ -51,6 +57,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             editor::SourceConverted,
             convert::ConvertProgress,
             convert::ConvertEnded,
+            export::ExportProgress,
+            export::ExportEnded,
             proxy::ProxyProgress,
             proxy::ProxyReady,
             proxy::ProxyStopped,
@@ -129,6 +137,7 @@ pub fn run() {
             app.manage(AppState::new(settings::load(app.handle())));
             appearance::watch_windows_accent(app.handle());
             proxy::sweep(app.handle());
+            export::probe(app.handle());
             editor::open(app.handle())?;
             let args: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().unwrap_or_default();

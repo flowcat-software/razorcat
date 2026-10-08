@@ -12,6 +12,7 @@ import {
   seekEdit,
   splitAtPlayhead,
 } from "./edits";
+import { exportTimeline } from "./exports";
 import { checkFrames } from "./frameCheck";
 import { sourceFacts } from "./format";
 import { Player } from "./player";
@@ -118,6 +119,8 @@ export function EditorApp() {
   const [inFrames, setInFrames] = useState(false);
   /** The source the preview last asked to convert: asked once, however many errors. */
   const convertAsked = useRef<string | null>(null);
+  /** An export under way (export.rs): the file being written and how far along, over all. */
+  const [exporting, setExporting] = useState<{ name: string; done: number } | null>(null);
   /** A conversion under way (convert.rs): the file and how far along. */
   const [converting, setConverting] = useState<{ name: string; done: number } | null>(null);
   /** The proxy of the open source: ready (its URL) or how far along; keyed by the source. */
@@ -195,6 +198,25 @@ export function EditorApp() {
         setConverting(null);
         if (payload.message) setNotice({ text: payload.message, error: true });
       }),
+      events.exportProgress.listen(({ payload }) =>
+        setExporting({ name: payload.name, done: payload.done ?? 0 }),
+      ),
+      events.exportEnded.listen(({ payload }) => {
+        setExporting(null);
+        const [first] = payload.files;
+        const name = (path: string) => path.split(/[\\/]/).pop() ?? path;
+        if (payload.message) setNotice({ text: payload.message, error: true });
+        else if (!first) setNotice({ text: "Export cancelled." });
+        else {
+          setNotice({
+            text:
+              payload.files.length > 1
+                ? `Exported ${payload.files.length} files.`
+                : `Exported ${name(first)}.`,
+            action: { label: "Show in folder", run: () => void commands.showInFolder(first) },
+          });
+        }
+      }),
       events.openFailed.listen(({ payload }) => {
         setConverting(null);
         setNotice({ text: payload.message, error: true });
@@ -269,7 +291,7 @@ export function EditorApp() {
     };
   }, [player, source, checkFor]);
 
-  // Ctrl+O opens a video, Ctrl+, opens Settings, Ctrl+Z undoes (as in Vandal); Ctrl+0, Ctrl+=
+  // Ctrl+O opens a video, Ctrl+E exports, Ctrl+, opens Settings, Ctrl+Z undoes (as in Vandal); Ctrl+0, Ctrl+=
   // and Ctrl+− fit and zoom the timeline.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -300,6 +322,9 @@ export function EditorApp() {
         const doc = useDoc.getState();
         if (e.code === "KeyY") doc.redo();
         else doc.undo();
+      } else if (e.code === "KeyE") {
+        e.preventDefault();
+        if (useDoc.getState().doc.sourceFrames > 0) exportTimeline();
       } else if (e.code === "KeyO") {
         e.preventDefault();
         openVideo();
@@ -339,6 +364,10 @@ export function EditorApp() {
   const proxyUrl = source?.proxyUrl ?? mine?.url ?? null;
   // A conversion's progress, with Cancel, comes first; then the proxy's until it's ready, unless
   // there's something to say.
+  const exportNotice: Notice | null = exporting && {
+    text: `Exporting ${exporting.name}… ${Math.floor(exporting.done * 100)}%`,
+    action: { label: "Cancel", run: () => void commands.cancelExport() },
+  };
   const conversion: Notice | null = converting && {
     text: `Converting ${converting.name} to play here… ${Math.floor(converting.done * 100)}%`,
     action: {
@@ -355,12 +384,12 @@ export function EditorApp() {
     mine && !proxyUrl
       ? { text: `Preparing fast stepping… ${Math.floor((mine.done ?? 0) * 100)}%` }
       : null;
-  // Controls stay disabled until the increment that makes them work: export (Phase 2), the
-  // picture's tools (Phases 3-4).
+  // Controls stay disabled until the increment that makes them work: the picture's tools
+  // (Phases 3-4).
   const notYet = true;
   return (
     <div className={styles.app}>
-      <CommandBar empty={empty} notYet={notYet} onOpen={openVideo} />
+      <CommandBar empty={empty} notYet={notYet} exporting={exporting !== null} onOpen={openVideo} />
       <div className={styles.optionsBar}>
         {source ? (
           <>
@@ -409,7 +438,7 @@ export function EditorApp() {
           />
         )}
       </div>
-      <StatusBar notice={conversion ?? notice ?? making} empty={empty} />
+      <StatusBar notice={exportNotice ?? conversion ?? notice ?? making} empty={empty} />
     </div>
   );
 }

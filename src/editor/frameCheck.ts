@@ -12,6 +12,7 @@
 import { commands } from "../shared/ipc";
 import { clipStarts, total } from "./doc";
 import { useDoc } from "./docStore";
+import { exportClips } from "./exports";
 import type { Player } from "./player";
 
 /** The barcode: cells along the bottom sixteenth of the picture, least significant on the left. */
@@ -212,6 +213,19 @@ export async function checkFrames(
       played += seen.length;
     }
     passes.push({ pass: "play", checked: played, misses: wrong, covered: 0 });
+
+    // Export = preview: the edit exported (as Export does), every frame of it.
+    progress("Checking frames: exporting the edit…");
+    const exported = await commands.frameCheckExport(exportClips(useDoc.getState().doc));
+    if (exported.status === "error") throw new Error(exported.error);
+    const shownFrames = exported.data;
+    let wrongExport = 0;
+    for (let k = 0; k < Math.max(n, shownFrames.length); k++) {
+      if (shownFrames[k] === want(k)) continue;
+      wrongExport++;
+      misses.push({ pass: "export", frame: k, expected: want(k), shown: shownFrames[k] ?? -1 });
+    }
+    passes.push({ pass: "export", checked: n, misses: wrongExport, covered: 0 });
   }
 
   const wrongs = misses.length;

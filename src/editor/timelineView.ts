@@ -38,15 +38,26 @@ export function fitted(width: number, frames: number): View {
   return { zoom: fitZoom(width, frames), scroll: 0 };
 }
 
-/** The least zoom allowed: half of fitted, so there's room either side. */
+/** The least zoom allowed: half of fitted. */
 const minZoom = (width: number, frames: number) => fitZoom(width, frames) * 0.5;
 
 /**
- * How far the view may scroll at a zoom. Either end may leave up to a tenth of the view empty,
- * or, zoomed out past fit, as much as the timeline is shorter than the view (it can sit anywhere
- * in it). The limits change smoothly with zoom.
+ * Fitted or zoomed out past it, the timeline's start never comes into the view past the left
+ * edge (Richard, 2026-10-08). Zooming still follows the pointer, so the frame under it never
+ * flies off: zoomed in and back out at the same place, the timeline retraces its path to the
+ * left edge; elsewhere it may stay partly off the left, and scrolling brings it back to the
+ * edge, no further.
+ */
+const atLeft = (zoom: number, width: number, frames: number) =>
+  zoom <= fitZoom(width, frames) * (1 + 1e-9);
+
+/**
+ * How far the view may scroll at a zoom: either end may leave up to a tenth of the view empty.
+ * At fit or below, none: the left edge (a view zoomed in to there from the pointer may only
+ * scroll back toward it, `scrolled`).
  */
 function scrollLimits(zoom: number, width: number, frames: number): [number, number] {
+  if (atLeft(zoom, width, frames)) return [0, 0];
   const visible = (width - HEADER) / zoom;
   return [Math.min(-visible * 0.1, frames - visible), Math.max(frames - visible * 0.9, 0)];
 }
@@ -61,7 +72,8 @@ export function clampScroll(v: View, width: number, frames: number): View {
 /**
  * Zooms to `zoom` keeping the frame under `anchorX` where it is. On the timeline, it stays put
  * even if that leaves more of the view empty than scrolling would (the limits would pull it
- * away from the pointer); off it, the view is kept in its limits.
+ * away from the pointer); off it, the view is kept in its limits. At fit or below, its start
+ * stays at or past the left edge (`atLeft`).
  */
 export function zoomAt(
   v: View,
@@ -73,7 +85,8 @@ export function zoomAt(
   const f = fOf(v, anchorX);
   const z = Math.max(minZoom(width, frames), Math.min(MAX_ZOOM, zoom));
   const next = { zoom: z, scroll: f - (anchorX - HEADER) / z };
-  return f >= 0 && f <= frames ? next : clampScroll(next, width, frames);
+  if (f < 0 || f > frames) return clampScroll(next, width, frames);
+  return atLeft(z, width, frames) ? { zoom: z, scroll: Math.max(0, next.scroll) } : next;
 }
 
 /**

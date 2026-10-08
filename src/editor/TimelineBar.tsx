@@ -3,6 +3,7 @@ import type { SourceInfo } from "../shared/ipc";
 import { shownRanges, total as docTotal } from "./doc";
 import { useDoc } from "./docStore";
 import { addRangeAtPlayhead, deleteSelected, seekEdit, splitAtPlayhead } from "./edits";
+import { exportClip } from "./exports";
 import type { Player, PlayerState } from "./player";
 import { needsHours, timecode } from "./timecode";
 import styles from "./EditorApp.module.css";
@@ -103,6 +104,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
   );
   const deletable = useDoc((s) => s.selectedRange !== null || s.doc.clips.length > 1);
   const ranges = useDoc((s) => shownRanges(s.doc).length);
+  const clipId = useDoc((s) => s.selected);
   return (
     <div className={styles.timelineBar}>
       <Readout source={source} frame={frame} inFrames={inFrames} onToggle={onToggleFrames} />
@@ -187,6 +189,20 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
             <path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" />
           </svg>
           Delete <span className={styles.kbd}>Del</span>
+        </button>
+      )}
+      {selected === "clip" && clipId !== null && (
+        <button
+          type="button"
+          className={`${styles.barButton} ${styles.withText}`}
+          title="Export this clip as MP4"
+          onMouseDown={keepFocus}
+          onClick={() => exportClip(clipId)}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden>
+            <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+          </svg>
+          Export clip…
         </button>
       )}
       {ranges > 0 && (

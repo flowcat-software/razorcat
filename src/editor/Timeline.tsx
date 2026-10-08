@@ -18,6 +18,9 @@ import {
   type ShownRange,
 } from "./doc";
 import { useDoc } from "./docStore";
+import { deleteSelected, splitAtPlayhead } from "./edits";
+import { exportClip } from "./exports";
+import { Menu, type MenuItems } from "./Menu";
 import { rangeTargets, scrubTargets, snap, trimTargets } from "./snap";
 import { useTimeline } from "./timelineStore";
 import { FRAME_TICKS, HEADER, fOf, ticks, xOf, zoomAnchor, type View } from "./timelineView";
@@ -324,6 +327,8 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
   const tip = useRef<HTMLDivElement>(null);
   const tipFor = useRef<string | null>(null);
   const tipTimer = useRef(0);
+  /** A clip's right-click menu, where it was opened. */
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItems } | null>(null);
 
   // The thumbnails: a strip per source, loaded as Rust makes them.
   const strip = useRef<ThumbStrip | null>(null);
@@ -987,6 +992,41 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           canvas.style.cursor = cursorFor(hit);
           hoverTip(hit?.kind ?? null, e.clientX, e.clientY);
         }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          const r = e.currentTarget.getBoundingClientRect();
+          const x = e.clientX - r.left;
+          const y = e.clientY - r.top;
+          const docState = useDoc.getState();
+          const view = useTimeline.getState().view;
+          if (x < HEADER || y < CLIP_TOP || y > CLIP_TOP + CLIP_H) return;
+          const under = clipAt(docState.doc, Math.floor(fOf(view, x)));
+          if (!under) return;
+          const { clip } = under;
+          docState.select(clip.id);
+          const whole = clip.in === 0 && clip.out === docState.doc.sourceFrames;
+          setMenu({
+            x: e.clientX,
+            y: e.clientY,
+            items: [
+              { label: "Export clip as MP4…", run: () => exportClip(clip.id) },
+              "-",
+              { label: "Split at the playhead", hint: "S", run: () => splitAtPlayhead(player) },
+              {
+                label: "Delete (close the gap)",
+                hint: "Delete",
+                disabled: docState.doc.clips.length < 2,
+                run: deleteSelected,
+              },
+              "-",
+              {
+                label: "Restore the full length",
+                disabled: whole,
+                run: () => useDoc.getState().trim(clip.id, 0, useDoc.getState().doc.sourceFrames),
+              },
+            ],
+          });
+        }}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         onPointerLeave={() => {
@@ -1001,6 +1041,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       />
       <div ref={readout} className={styles.dragReadout} style={{ display: "none" }} />
       <div ref={tip} className={styles.handleTip} style={{ display: "none" }} />
+      {menu && <Menu items={menu.items} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />}
     </>
   );
 }

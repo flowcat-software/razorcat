@@ -1,9 +1,9 @@
 //! Development: the preview = export check (PLAN 1.8). `driveby --check-frames <file>` opens a
 //! barcoded test clip (`spikes/make-test-media.mjs`) and the page steps and seeks the preview
 //! over it, reading the barcode of the frame on screen; `--check-edit` does it on an edited
-//! timeline (clips cut out and moved), and plays across the cuts. Here: the frames export would pick (the
-//! `fps` filter over the original, as export reads it), and the report. Release builds do none
-//! of it.
+//! timeline (clips cut out and moved), plays across the cuts, and exports it (export = preview).
+//! Here: the frames export would pick (the `fps` filter over the original, as export reads it),
+//! the edit's export read back frame by frame, and the report. Release builds do none of it.
 
 use std::ffi::OsString;
 use std::fs;
@@ -16,6 +16,7 @@ use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use crate::editor::LABEL;
+use crate::export::ExportClip;
 use crate::ffmpeg::{self, Outcome};
 use crate::state::AppState;
 
@@ -88,6 +89,34 @@ pub fn expected(app: &AppHandle) -> Result<Vec<u32>, String> {
     }
     let bytes = fs::read(&out).map_err(|e| e.to_string());
     let _ = fs::remove_file(&out);
+    Ok(barcodes(&bytes?))
+}
+
+/// Exports `clips` of the open source (export.rs, as a real export) to a temporary file, then
+/// reads each of its frames' barcodes: what the edit's export shows, frame by frame.
+pub fn exported(app: &AppHandle, clips: &[ExportClip]) -> Result<Vec<u32>, String> {
+    if !cfg!(debug_assertions) {
+        return Err("development only".into());
+    }
+    let dir = std::env::temp_dir();
+    let file = dir.join("driveby-check-export.mp4");
+    let stop = AtomicBool::new(false);
+    match crate::export::render(app, clips, &file, |_| {}, &stop)? {
+        Outcome::Finished => {}
+        Outcome::Stopped => return Err("stopped".into()),
+    }
+    let out = dir.join("driveby-check-export.gray");
+    let mut args: Vec<OsString> = vec!["-i".into(), file.clone().into()];
+    args.extend(["-map", "0:v:0", "-an", "-vf"].map(OsString::from));
+    args.push(format!("crop=iw:ih/16:0:ih-ih/16,scale={BITS}:1:flags=area,format=gray").into());
+    args.extend(["-fps_mode", "passthrough", "-f", "rawvideo"].map(OsString::from));
+    match ffmpeg::run(&args, &out, None, |_| {}, || false)? {
+        Outcome::Finished => {}
+        Outcome::Stopped => return Err("stopped".into()),
+    }
+    let bytes = fs::read(&out).map_err(|e| e.to_string());
+    let _ = fs::remove_file(&out);
+    let _ = fs::remove_file(&file);
     Ok(barcodes(&bytes?))
 }
 
