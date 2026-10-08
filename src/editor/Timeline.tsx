@@ -26,7 +26,7 @@ const CLIP_TOP = RULER + 10;
 const CLIP_H = 76;
 /** The clip's label row, above its thumbnails. */
 const LABEL_H = 18;
-/** The waveform's band, below them (1.7c). */
+/** The waveform's band, below them. */
 const WAVE_H = 20;
 const THUMB_TOP = CLIP_TOP + LABEL_H;
 const THUMB_H = CLIP_H - LABEL_H - WAVE_H;
@@ -147,8 +147,8 @@ function drawWave(
 }
 
 /**
- * The timeline (the mockup's, so far without edits): the ruler, the clip (the whole source),
- * frame ticks once there's room, and the playhead. Click or drag to move the playhead; the wheel
+ * The timeline (the mockup's, so far without edits): the ruler, the clip (the whole source) with
+ * its thumbnails and waveform, frame ticks once there's room, and the playhead. Click or drag to move the playhead; the wheel
  * scrolls, Ctrl+wheel zooms at the pointer.
  */
 export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
@@ -270,8 +270,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         g.stroke();
       }
 
-      // The clip: the whole source, for now (Phase 2 splits it). Thumbnails and the waveform
-      // come in 1.7b and 1.7c.
+      // The clip: the whole source, for now (Phase 2 splits it).
       const x0 = xOf(view, 0);
       const x1 = xOf(view, frames);
       if (x1 > HEADER && x0 < W) {

@@ -37,6 +37,28 @@ npm run lint; npm test; npx tsc --noEmit
 npm run security    # known advisories (npm audit, cargo deny); a few seconds
 ```
 
+## Test media and the frame check
+
+`node spikes/make-test-media.mjs` (PowerShell, repo root; needs `spikes/.tools/ffmpeg`) writes
+synthetic clips to `spikes/media/` (gitignored): CFR and VFR, an upright HEVC stored sideways,
+MKV, GIF, a 10-minute 1080p60. Each burns in its frame number and a 16-bit barcode of it along
+the bottom, and beeps on whole seconds.
+
+The frame check proves the preview shows the frame export will: with the dev app running,
+
+```powershell
+src-tauri\target\debug\driveby.exe --check-frames spikes\media\phone-h264-vfr.mp4
+```
+
+opens the clip, steps and seeks the preview as the keys do (the original, then the proxy if
+it's ready), reads the barcode on screen and compares it with ffmpeg's `fps` output at each
+grid frame. The result shows in the status bar; the mismatches go to
+`%TEMP%\driveby-check-<file>.json`. Development builds only. Run it after changing the player,
+the proxy or the frame grid.
+
+The dev app keeps proxies, converted copies, thumbnails and waveforms in
+`%LOCALAPPDATA%\com.driveby.desktop.dev\proxies\` (Settings › Proxies can move it).
+
 ## Dependencies
 
 Every package we add can run code on our machines and in users' hands, so new ones get checked

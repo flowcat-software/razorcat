@@ -5,7 +5,8 @@
 //! The rule is ffmpeg's `fps` filter's, so the preview and export pick the same frames: each
 //! source frame goes to the grid slot its time rounds to, and a grid frame shows the latest
 //! source frame in a slot at or before it (a later frame in the same slot replaces an earlier
-//! one; an empty slot repeats the previous frame). Phase 1.8 checks this against ffmpeg.
+//! one; an empty slot repeats the previous frame). The frame check (check.rs) confirms it
+//! against ffmpeg on the test clips.
 
 use super::mp4::VideoIndex;
 
