@@ -20,8 +20,15 @@ interface TimelineState {
   frames: number;
   /** Fitted: it stays fitted as the window resizes. */
   isFitted: boolean;
+  /** A drag is changing the timeline's length (a trim): the view keeps still until it ends. */
+  held: boolean;
+  /** Snapping (the status bar's toggle; Alt held turns it off for a moment). */
+  snap: boolean;
   /** The timeline was measured, or its length changed (an edit): fitted stays fitted. */
   setSize: (width: number, frames: number) => void;
+  /** Holds the view still (a trim starts), or lets it fit the timeline again (it ends). */
+  hold: (on: boolean) => void;
+  toggleSnap: () => void;
   fit: () => void;
   /** Zooms by `factor`, about `anchorX` (default: the middle). */
   zoomBy: (factor: number, anchorX?: number) => void;
@@ -39,16 +46,37 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   width: 0,
   frames: 0,
   isFitted: true,
+  held: false,
+  snap: true,
 
   setSize: (width, frames) => {
     const s = get();
     if (width === s.width && frames === s.frames) return;
+    if (s.held) {
+      set({ width, frames });
+      return;
+    }
     set({
       width,
       frames,
       view: s.isFitted ? fitted(width, frames) : clampScroll(s.view, width, frames),
     });
   },
+
+  hold: (on) => {
+    const s = get();
+    if (on === s.held) return;
+    set({
+      held: on,
+      view: on
+        ? s.view
+        : s.isFitted
+          ? fitted(s.width, s.frames)
+          : clampScroll(s.view, s.width, s.frames),
+    });
+  },
+
+  toggleSnap: () => set({ snap: !get().snap }),
 
   fit: () => {
     const { width, frames } = get();

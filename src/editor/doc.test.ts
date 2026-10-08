@@ -7,6 +7,7 @@ import {
   moveClip,
   split,
   total,
+  trimClip,
   wholeSource,
 } from "./doc";
 
@@ -89,5 +90,33 @@ describe("delete and move", () => {
     expect(clipStarts(doc)).toEqual([0, 30, 70]);
     expect(moveClip(three, 1, 5).clips.map((c) => c.id)).toEqual([2, 3, 1]);
     expect(moveClip(three, 2, 1)).toBe(three);
+  });
+});
+
+describe("trim", () => {
+  const three = split(split(wholeSource(100), 40), 70);
+
+  it("shortens a clip, the clips after it moving along", () => {
+    const doc = trimClip(three, 1, 10, 30);
+    expect(doc.clips[0]).toEqual({ id: 1, in: 10, out: 30 });
+    expect(clipStarts(doc)).toEqual([0, 20, 50]);
+    expect(total(doc)).toBe(80);
+  });
+
+  it("pulls a clip back out, as far as the source goes", () => {
+    const doc = trimClip(three, 2, -50, 500);
+    expect(doc.clips[1]).toEqual({ id: 2, in: 0, out: 100 });
+  });
+
+  it("keeps at least a frame", () => {
+    // The in dragged past the out stops a frame before it, and the other way round.
+    expect(trimClip(three, 2, 90, 70).clips[1]).toMatchObject({ in: 69, out: 70 });
+    expect(trimClip(three, 2, 40, 10).clips[1]).toMatchObject({ in: 40, out: 41 });
+    expect(trimClip(wholeSource(100), 1, 0, 0).clips[0]).toMatchObject({ in: 0, out: 1 });
+  });
+
+  it("does nothing if nothing changes", () => {
+    expect(trimClip(three, 2, 40, 70)).toBe(three);
+    expect(trimClip(three, 9, 0, 10)).toBe(three);
   });
 });

@@ -5,12 +5,13 @@ import { EmptyEditor } from "./EmptyEditor";
 import { useDoc } from "./docStore";
 import { deleteSelected, moveSelected, seekEdit, splitAtPlayhead } from "./edits";
 import { checkFrames } from "./frameCheck";
-import { formatRate, sourceFacts } from "./format";
+import { sourceFacts } from "./format";
 import { Player } from "./player";
 import { Preview } from "./Preview";
 import { StatusBar, type Notice } from "./StatusBar";
 import { Timeline } from "./Timeline";
 import { TimelineBar } from "./TimelineBar";
+import { TimelineOptions } from "./TimelineOptions";
 import { useTimeline } from "./timelineStore";
 import styles from "./EditorApp.module.css";
 
@@ -322,8 +323,8 @@ export function EditorApp() {
     mine && !proxyUrl
       ? { text: `Preparing fast stepping… ${Math.floor((mine.done ?? 0) * 100)}%` }
       : null;
-  // Controls stay disabled until the increment that makes them work: editing, snapping and
-  // export (Phase 2), the picture's tools (Phases 3-4).
+  // Controls stay disabled until the increment that makes them work: ranges and export
+  // (Phase 2), the picture's tools (Phases 3-4).
   const notYet = true;
   return (
     <div className={styles.app}>
@@ -365,11 +366,7 @@ export function EditorApp() {
         inFrames={inFrames}
         onToggleFrames={() => setInFrames((f) => !f)}
       />
-      <div className={styles.timelineOptions}>
-        {source
-          ? `${source.frames} frames at ${formatRate(source.rateNum, source.rateDen)}`
-          : "Open a video, then split with S, mark ranges with R, and trim by dragging a clip's edge."}
-      </div>
+      <TimelineOptions source={source} inFrames={inFrames} />
       <div className={styles.timeline}>
         {source && player && (
           <Timeline
@@ -381,7 +378,7 @@ export function EditorApp() {
           />
         )}
       </div>
-      <StatusBar notice={conversion ?? notice ?? making} empty={empty} noEdits={notYet} />
+      <StatusBar notice={conversion ?? notice ?? making} empty={empty} />
     </div>
   );
 }

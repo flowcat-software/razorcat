@@ -117,6 +117,8 @@ export class Player {
   private playing = 0;
   /** Playing forward, at a cut: the seek to the next clip is under way; play on once it's done. */
   private crossing = false;
+  /** A source frame shown instead of the playhead's (a trim shows the frame under its handle). */
+  private peeked: number | null = null;
 
   constructor(
     /** The source's grid frames. */
@@ -164,6 +166,23 @@ export class Player {
   sourceFrame(t: number) {
     const span = this.spans[this.spanIndex(t)];
     return Math.min(span.out - 1, span.in + Math.max(0, t - span.start));
+  }
+
+  /** The source frame to show for timeline frame `t`: its own, unless one is peeked at. */
+  private target(t: number) {
+    return this.peeked ?? this.sourceFrame(t);
+  }
+
+  /**
+   * Shows source frame `f` without moving the playhead (paused; the proxy keeps up), until
+   * `peek(null)` goes back to the playhead's frame.
+   */
+  peek(f: number | null) {
+    if (f === this.peeked) return;
+    this.stop();
+    this.peeked = f;
+    this.proxyHeld = false;
+    this.show(this.state.frame);
   }
 
   /** Starts (or, after `close`, restarts: StrictMode mounts twice): reads the frame times. */
@@ -234,6 +253,7 @@ export class Player {
    */
   seek(n: number, useProxy = true) {
     this.stop();
+    this.peeked = null;
     this.set({ frame: this.clamp(n) });
     this.proxyHeld = !useProxy;
     if (this.proxyHeld && this.proxy) this.proxy.video.style.visibility = "hidden";
@@ -274,6 +294,10 @@ export class Player {
     const v = this.original?.video;
     if (!v) return;
     this.stop();
+    if (this.peeked !== null) {
+      this.peeked = null;
+      this.show(this.state.frame);
+    }
     if (speed > 0) {
       if (this.state.frame >= this.frames - 1) this.seek(0);
       this.playing = this.spanIndex(this.state.frame);
@@ -322,7 +346,7 @@ export class Player {
   /** Seeks the original, and the proxy if there is one, to frame `n`. */
   private show(n: number) {
     if (!this.times) return;
-    this.original?.seek(this.times.seek[this.sourceFrame(n)]);
+    this.original?.seek(this.times.seek[this.target(n)]);
     this.showProxy(n);
   }
 
@@ -330,7 +354,7 @@ export class Player {
     const p = this.proxy;
     if (!p) return;
     // The proxy can end a frame short of the grid.
-    const f = this.sourceFrame(n);
+    const f = this.target(n);
     const last = Number.isFinite(p.video.duration) ? this.proxyFrame(p.video.duration) - 1 : f;
     p.seek((Math.min(f, last) + 0.5) / this.fps);
     this.paint();
@@ -349,7 +373,7 @@ export class Player {
   private originalShowsFrame() {
     const o = this.original;
     if (!o || !this.times || o.busy) return false;
-    return Math.abs(o.shownTime - this.times.start[this.sourceFrame(this.state.frame)]) < 1e-3;
+    return Math.abs(o.shownTime - this.times.start[this.target(this.state.frame)]) < 1e-3;
   }
 
   /** The original has finished seeking a while ago, and shows another picture than the playhead's. */
@@ -367,7 +391,7 @@ export class Player {
     const p = this.proxy;
     if (!p) return;
     const proxyShowsFrame =
-      !p.busy && this.proxyFrame(p.shownTime) === this.sourceFrame(this.state.frame);
+      !p.busy && this.proxyFrame(p.shownTime) === this.target(this.state.frame);
     let on: boolean;
     if (this.state.speed > 0 || this.originalShowsFrame()) on = false;
     else if (proxyShowsFrame && (!this.proxyHeld || this.originalMissed())) on = true;
@@ -439,7 +463,7 @@ export class Player {
   shows(which: "original" | "proxy") {
     if (which === "original") return this.originalShowsFrame();
     const p = this.proxy;
-    return !!p && !p.busy && this.proxyFrame(p.shownTime) === this.sourceFrame(this.state.frame);
+    return !!p && !p.busy && this.proxyFrame(p.shownTime) === this.target(this.state.frame);
   }
 
   video(which: "original" | "proxy") {
@@ -450,7 +474,7 @@ export class Player {
   originalTimes() {
     return {
       shown: this.original?.shownTime,
-      want: this.times?.start[this.sourceFrame(this.state.frame)],
+      want: this.times?.start[this.target(this.state.frame)],
       seeking: this.original?.busy,
     };
   }
@@ -463,7 +487,7 @@ export class Player {
 
   /** Development: paused, the original's picture must be the playhead's. */
   private check(meta: VideoFrameCallbackMetadata) {
-    const want = this.times!.start[this.sourceFrame(this.state.frame)];
+    const want = this.times!.start[this.target(this.state.frame)];
     if (Math.abs(meta.mediaTime - want) > 1e-3) {
       console.warn(
         `[player] frame ${this.state.frame} wants the picture at ${want.toFixed(6)} s; ` +

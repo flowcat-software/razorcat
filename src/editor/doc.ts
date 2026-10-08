@@ -19,11 +19,13 @@ export interface Doc {
   clips: readonly Clip[];
   /** The next clip's id. */
   nextId: ClipId;
+  /** The source's length in grid frames: how far a trim can pull a clip back out. */
+  sourceFrames: number;
 }
 
 /** A source `frames` long, whole: one clip. */
 export function wholeSource(frames: number): Doc {
-  return { clips: [{ id: 1, in: 0, out: frames }], nextId: 2 };
+  return { clips: [{ id: 1, in: 0, out: frames }], nextId: 2, sourceFrames: frames };
 }
 
 export const clipLength = (c: Clip) => c.out - c.in;
@@ -72,7 +74,29 @@ export function split(doc: Doc, f: number): Doc {
     { ...at.clip, out: cut },
     { id: doc.nextId, in: cut, out: at.clip.out },
   );
-  return { clips, nextId: doc.nextId + 1 };
+  return { ...doc, clips, nextId: doc.nextId + 1 };
+}
+
+/**
+ * Trims clip `id` to show source frames `in` to `out` (ripple: the clips after it move along).
+ * Kept to the source, and to at least one frame: an `in` past the clip's `out` stops a frame
+ * before it, and the other way round. The same document if nothing changes.
+ */
+export function trimClip(doc: Doc, id: ClipId, inF: number, outF: number): Doc {
+  const index = doc.clips.findIndex((c) => c.id === id);
+  if (index < 0) return doc;
+  const old = doc.clips[index];
+  let a = Math.round(Math.max(0, Math.min(doc.sourceFrames - 1, inF)));
+  let b = Math.round(Math.max(1, Math.min(doc.sourceFrames, outF)));
+  if (b <= a) {
+    // Whichever end moved stops a frame short of the other.
+    if (a !== old.in) a = b - 1;
+    else b = a + 1;
+  }
+  if (a === old.in && b === old.out) return doc;
+  const clips = [...doc.clips];
+  clips[index] = { ...old, in: a, out: b };
+  return { ...doc, clips };
 }
 
 /**

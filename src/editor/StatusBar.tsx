@@ -16,12 +16,10 @@ interface Props {
   notice: Notice | null;
   /** No video yet: the timeline's view controls don't apply. */
   empty: boolean;
-  /** Editing isn't built yet (Phase 2): snapping waits for it. */
-  noEdits: boolean;
 }
 
 /** The bottom row: messages, snapping, the timeline's zoom, and Settings (Vandal's gear). */
-export function StatusBar({ notice, empty, noEdits }: Props) {
+export function StatusBar({ notice, empty }: Props) {
   const timeline = useTimeline();
   const slider = Math.round(timeline.slider() * 1000);
   return (
@@ -39,9 +37,12 @@ export function StatusBar({ notice, empty, noEdits }: Props) {
         type="button"
         className={styles.textButton}
         title="Snapping (hold Alt: off)"
-        disabled={empty || noEdits}
+        aria-pressed={timeline.snap}
+        disabled={empty}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={timeline.toggleSnap}
       >
-        Snap: on
+        Snap: {timeline.snap ? "on" : "off"}
       </button>
       <span className={styles.divider} />
       <button

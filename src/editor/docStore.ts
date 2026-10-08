@@ -7,7 +7,7 @@
 // intermediate updates become a single step; edits that change nothing add nothing to history.
 
 import { create } from "zustand";
-import { deleteClip, moveClip, split, wholeSource, type ClipId, type Doc } from "./doc";
+import { deleteClip, moveClip, split, trimClip, wholeSource, type ClipId, type Doc } from "./doc";
 
 /** Oldest steps are dropped beyond this. */
 export const HISTORY_LIMIT = 200;
@@ -29,6 +29,8 @@ export interface DocState {
   remove: (id: ClipId) => boolean;
   /** Moves clip `id` to position `to`. */
   move: (id: ClipId, to: number) => boolean;
+  /** Trims clip `id` to source frames `in` to `out` (ripple). */
+  trim: (id: ClipId, inF: number, outF: number) => boolean;
 
   beginGesture: () => void;
   endGesture: () => void;
@@ -83,6 +85,7 @@ export const useDoc = create<DocState>()((set, get) => {
       return done;
     },
     move: (id, to) => apply((doc) => moveClip(doc, id, to)),
+    trim: (id, inF, outF) => apply((doc) => trimClip(doc, id, inF, outF)),
 
     beginGesture: () => {
       if (!get().gestureStart) set({ gestureStart: get().doc });
