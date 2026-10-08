@@ -37,6 +37,24 @@ export const sections: Section[] = [
           },
         ],
       },
+      {
+        title: "Timeline",
+        items: [
+          {
+            id: "thumbnails",
+            kind: "toggle",
+            path: "timeline.thumbnails",
+            label: "Show thumbnails",
+            description: "Pictures from the video along each clip.",
+            disabled: (s) => !s.proxies.enabled,
+            note: (s) =>
+              s.proxies.enabled
+                ? undefined
+                : "Thumbnails are made from proxies: turn on Proxies › Use proxies to show them.",
+            keywords: ["thumbnails", "pictures", "frames", "filmstrip", "clip", "timeline"],
+          },
+        ],
+      },
     ],
   },
   {

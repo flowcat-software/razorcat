@@ -159,15 +159,24 @@ fn resume(app: &AppHandle) {
             url: crate::protocol::proxy_url(generation),
         }
         .emit_to(app, LABEL);
+        crate::thumbs::start(app, generation);
     }
 }
 
-/// The cached files the open source is using: its proxy and its converted copy.
-fn in_use(app: &AppHandle) -> Vec<PathBuf> {
+/// The cached files the open source is using: its proxy, its converted copy, its thumbnails.
+pub fn in_use(app: &AppHandle) -> Vec<PathBuf> {
     let state = app.state::<AppState>();
     let open = state.source.lock().unwrap();
     open.as_ref()
-        .map(|s| s.proxy.iter().chain(&s.playable).cloned().collect())
+        .map(|s| {
+            let thumbs = s.thumbs.as_ref().filter(|t| t.ready).map(|t| &t.file);
+            s.proxy
+                .iter()
+                .chain(&s.playable)
+                .chain(thumbs)
+                .cloned()
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -196,11 +205,16 @@ fn move_cache(app: &AppHandle, from: &Path, to: &Path) {
             continue;
         }
         moved += 1;
-        // The open source's proxy is read from its new place from now on.
+        // The open source's proxy and thumbnails are read from their new place from now on.
         let state = app.state::<AppState>();
         let mut open = state.source.lock().unwrap();
-        if let Some(s) = open.as_mut().filter(|s| s.proxy.as_deref() == Some(&old)) {
-            s.proxy = Some(new);
+        if let Some(s) = open.as_mut() {
+            if s.proxy.as_deref() == Some(&old) {
+                s.proxy = Some(new.clone());
+            }
+            if let Some(t) = s.thumbs.as_mut().filter(|t| t.file == old) {
+                t.file = new;
+            }
         }
     }
     eprintln!(
@@ -212,20 +226,30 @@ fn move_cache(app: &AppHandle, from: &Path, to: &Path) {
     let _ = fs::remove_dir(from);
 }
 
-/// A proxy's file name: 16 hex digits and `.mp4` (`file_for`). Nothing else in the folder is
-/// ever moved or deleted, whatever folder the user picks.
+/// A cached file's name: 16 hex digits and `.mp4` or `.thumbs` (`file_for`), or `.part` while
+/// it's made. Nothing else in the folder is ever moved or deleted, whatever folder the user
+/// picks.
 fn is_proxy(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
     name.strip_suffix(".mp4")
+        .or_else(|| name.strip_suffix(".thumbs"))
         .or_else(|| name.strip_suffix(".part"))
         .is_some_and(|stem| stem.len() == 16 && stem.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
+/// A finished cached file (not a `.part`).
+fn is_finished(path: &Path) -> bool {
+    is_proxy(path)
+        && path
+            .extension()
+            .is_some_and(|x| x == "mp4" || x == crate::thumbs::EXTENSION)
+}
+
 /// The cached file made from `source` by `recipe`: named by a hash of what identifies the
-/// file's contents and how it was made.
-pub fn file_for(folder: &Path, source: &Path, recipe: &str) -> Option<PathBuf> {
+/// file's contents and how it was made, with `extension` (`mp4`, or `thumbs`).
+pub fn file_for(folder: &Path, source: &Path, recipe: &str, extension: &str) -> Option<PathBuf> {
     let meta = fs::metadata(source).ok()?;
     let modified = meta
         .modified()
@@ -240,7 +264,7 @@ pub fn file_for(folder: &Path, source: &Path, recipe: &str) -> Option<PathBuf> {
         &modified.to_le_bytes(),
         recipe.as_bytes(),
     ]);
-    Some(folder.join(format!("{key:016x}.mp4")))
+    Some(folder.join(format!("{key:016x}.{extension}")))
 }
 
 /// FNV-1a, 64-bit: stable across runs and Rust versions (std's hasher isn't).
@@ -265,10 +289,17 @@ pub fn cached(app: &AppHandle, source: &Path) -> Option<PathBuf> {
 
 /// What `recipe` made of `source`, if it's in the cache (marked as just used).
 pub fn find(app: &AppHandle, source: &Path, recipe: &str) -> Option<PathBuf> {
-    let file = file_for(&folder(app)?, source, recipe)?;
-    let f = fs::File::options().write(true).open(&file).ok()?;
+    let file = file_for(&folder(app)?, source, recipe, "mp4")?;
+    touch(&file).then_some(file)
+}
+
+/// Marks a cached file as just used. False if it isn't there.
+pub fn touch(file: &Path) -> bool {
+    let Ok(f) = fs::File::options().write(true).open(file) else {
+        return false;
+    };
     let _ = f.set_modified(SystemTime::now());
-    Some(file)
+    true
 }
 
 /// Removes what runs stopped by a crash left behind (`.part` files). At startup, before any
@@ -324,6 +355,7 @@ pub fn make(
                     keep.push(file.clone());
                     trim(parent, &keep, limit(&app));
                 }
+                crate::thumbs::start(&app, generation);
             }
             // Another file was opened, or proxies were turned off.
             Ok(None) => {
@@ -356,7 +388,7 @@ fn run(
 ) -> Result<Option<PathBuf>, String> {
     let folder = folder(app).ok_or("no local data folder")?;
     fs::create_dir_all(&folder).map_err(|e| format!("can't make {}: {e}", folder.display()))?;
-    let file = file_for(&folder, source, RECIPE).ok_or("can't read the file's details")?;
+    let file = file_for(&folder, source, RECIPE, "mp4").ok_or("can't read the file's details")?;
     let mut args: Vec<OsString> = vec!["-i".into(), input.into()];
     args.extend(
         [
@@ -456,7 +488,7 @@ fn cached_files(folder: &Path) -> Vec<(PathBuf, u64, SystemTime)> {
     };
     entries
         .flatten()
-        .filter(|e| is_proxy(&e.path()) && e.path().extension().is_some_and(|x| x == "mp4"))
+        .filter(|e| is_finished(&e.path()))
         .filter_map(|e| {
             let m = e.metadata().ok()?;
             Some((e.path(), m.len(), m.modified().ok()?))
@@ -511,6 +543,8 @@ mod tests {
     fn only_proxy_files_are_touched() {
         assert!(is_proxy(Path::new(r"D:\p\0912b2a2a5ad7664.mp4")));
         assert!(is_proxy(Path::new(r"D:\p\0912b2a2a5ad7664.part")));
+        assert!(is_proxy(Path::new(r"D:\p\0912b2a2a5ad7664.thumbs")));
+        assert!(!is_finished(Path::new(r"D:\p\0912b2a2a5ad7664.part")));
         assert!(!is_proxy(Path::new(r"D:\p\holiday.mp4")));
         assert!(!is_proxy(Path::new(r"D:\p\0912b2a2a5ad766.mp4")));
         assert!(!is_proxy(Path::new(r"D:\p\0912b2a2a5ad7664.mov")));

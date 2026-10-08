@@ -13,6 +13,8 @@ export const commands = {
 	 *  ([`editor::SourceOpened`] follows). Returns the open source, if the page reloaded.
 	 */
 	editorReady: () => __TAURI_INVOKE<{
+	/**  What events about it name it by: its URL when opened, which `url` may not stay. */
+	id: string,
 	path: string,
 	/**  Where the page reads the file (`media://`, see protocol.rs). */
 	url: string,
@@ -42,6 +44,8 @@ export const commands = {
 	variable: boolean,
 	/**  The preview plays a converted copy (convert.rs); export reads the original. */
 	converted: boolean,
+	/**  Its thumbnails, if they're made or being made (else `ThumbsUpdate` says when they are). */
+	thumbs: ThumbsInfo | null,
 } | null>("editor_ready"),
 	/**
 	 *  Show the Open dialog and open the picked file ([`editor::SourceOpened`] or
@@ -96,6 +100,7 @@ export const events = {
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	sourceConverted: makeEvent<SourceConverted>("source-converted"),
 	sourceOpened: makeEvent<SourceOpened>("source-opened"),
+	thumbsUpdate: makeEvent<ThumbsUpdate>("thumbs-update"),
 	windowsAccentChanged: makeEvent<WindowsAccentChanged>("windows-accent-changed"),
 };
 
@@ -187,6 +192,7 @@ export type Settings = {
 	appearance?: Appearance,
 	/**  The proxies made for stepping and scrubbing (proxy.rs). */
 	proxies?: Proxies,
+	timeline?: Timeline,
 };
 
 /**  Rust → all windows: settings changed (from any source), here's the new state. */
@@ -200,6 +206,8 @@ export type SourceConverted = SourceInfo;
 
 /**  What the page shows about the open source. */
 export type SourceInfo = {
+	/**  What events about it name it by: its URL when opened, which `url` may not stay. */
+	id: string,
 	path: string,
 	/**  Where the page reads the file (`media://`, see protocol.rs). */
 	url: string,
@@ -229,6 +237,8 @@ export type SourceInfo = {
 	variable: boolean,
 	/**  The preview plays a converted copy (convert.rs); export reads the original. */
 	converted: boolean,
+	/**  Its thumbnails, if they're made or being made (else `ThumbsUpdate` says when they are). */
+	thumbs: ThumbsInfo | null,
 };
 
 /**  Rust → editor: a file was opened (it replaces the one before). */
@@ -236,6 +246,30 @@ export type SourceOpened = SourceInfo;
 
 /**  Light, dark, or following Windows. */
 export type ThemeMode = "system" | "light" | "dark";
+
+/**  What the page needs to read and place the thumbnails. */
+export type ThumbsInfo = {
+	/**  Thumbnails from `i` on are at `{url}/{i}`. */
+	url: string,
+	width: number,
+	height: number,
+	step: number,
+	count: number,
+	/**  All made: no more are coming. */
+	ready: boolean,
+};
+
+/**  Rust → editor: more of a source's thumbnails are ready (or all of them are). */
+export type ThumbsUpdate = {
+	/**  The source they're for (its `SourceInfo::id`). */
+	source: string,
+	thumbs: ThumbsInfo,
+};
+
+export type Timeline = {
+	/**  Thumbnails along the clip (thumbs.rs): on by default. Off, they aren't made either. */
+	thumbnails?: boolean,
+};
 
 /**
  *  The Windows accent color as Windows 11 apps use it: a darker shade on light backgrounds, a

@@ -15,6 +15,7 @@ mod settings_window;
 mod sidecar;
 mod source;
 mod state;
+mod thumbs;
 
 use std::path::Path;
 
@@ -50,6 +51,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             proxy::ProxyReady,
             proxy::ProxyStopped,
             proxy::ProxyFailed,
+            thumbs::ThumbsUpdate,
             appearance::WindowsAccentChanged,
             settings::SettingsChanged,
         ])

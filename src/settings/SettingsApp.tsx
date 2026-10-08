@@ -241,6 +241,7 @@ function Row({ item, settings }: { item: Item; settings: Settings }) {
   const def = controls[item.kind];
   const Control = def.component as ComponentType<ControlProps<Item>>;
   const disabled = item.disabled?.(settings) ?? false;
+  const note = item.note?.(settings);
   const id = `setting-${item.id}`;
   // A control that is its own content (the About card): no label column.
   if (def.layout === "bare")
@@ -263,6 +264,11 @@ function Row({ item, settings }: { item: Item; settings: Settings }) {
       <div className={styles.control}>
         <Control item={item} id={id} disabled={disabled} />
       </div>
+      {note && (
+        <p className={styles.note} role="status">
+          {note}
+        </p>
+      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ use specta::Type;
 
 use crate::media::grid::{self, Grid};
 use crate::media::mp4::{self, Mp4Error, Mp4Info};
+use crate::thumbs::{Thumbs, ThumbsInfo};
 
 /// An opened source: what Rust keeps (the index, for the protocol, proxies and export later).
 pub struct Source {
@@ -23,12 +24,16 @@ pub struct Source {
     /// The copy the preview plays, when the original can't be (convert.rs). Export still
     /// reads `path`.
     pub playable: Option<PathBuf>,
+    /// Its thumbnails, once made or being made (thumbs.rs).
+    pub thumbs: Option<Thumbs>,
 }
 
 /// What the page shows about the open source.
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceInfo {
+    /// What events about it name it by: its URL when opened, which `url` may not stay.
+    pub id: String,
     pub path: String,
     /// Where the page reads the file (`media://`, see protocol.rs).
     pub url: String,
@@ -58,6 +63,8 @@ pub struct SourceInfo {
     pub variable: bool,
     /// The preview plays a converted copy (convert.rs); export reads the original.
     pub converted: bool,
+    /// Its thumbnails, if they're made or being made (else `ThumbsUpdate` says when they are).
+    pub thumbs: Option<ThumbsInfo>,
 }
 
 impl Source {
@@ -70,6 +77,7 @@ impl Source {
         };
         let rate = self.grid.rate;
         SourceInfo {
+            id: crate::protocol::source_url(self.generation),
             path: self.path.display().to_string(),
             url: if self.playable.is_some() {
                 crate::protocol::playable_url(self.generation)
@@ -99,6 +107,7 @@ impl Source {
             audio_tracks: self.info.audio_tracks,
             variable: self.grid.variable,
             converted: self.playable.is_some(),
+            thumbs: self.thumbs.as_ref().map(|t| t.info(self.generation)),
         }
     }
 }
@@ -110,7 +119,8 @@ pub fn file_name(path: &Path) -> String {
 }
 
 fn has_extension(path: &Path, ext: &str) -> bool {
-    path.extension().is_some_and(|x| x.eq_ignore_ascii_case(ext))
+    path.extension()
+        .is_some_and(|x| x.eq_ignore_ascii_case(ext))
 }
 
 fn codec_name(code: &str) -> String {
@@ -164,6 +174,7 @@ pub fn open(path: &Path, playable: Option<PathBuf>) -> Result<Source, OpenError>
         grid,
         proxy: None,
         playable,
+        thumbs: None,
     })
 }
 

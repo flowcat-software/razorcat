@@ -4,8 +4,10 @@
 //! asked for and a stale `<video>` can't read the new file. Ported from spike 0.2.
 //!
 //! `/playable/{generation}` is its converted copy (convert.rs), when it has one;
-//! `/proxy/{generation}` is its proxy (proxy.rs), once made. `/frames/{generation}` is the source's frame times (`grid::times`), for the player: two
-//! little-endian f64s per grid frame (when its picture starts showing, and the middle of it).
+//! `/proxy/{generation}` is its proxy (proxy.rs), once made. `/frames/{generation}` is the
+//! source's frame times (`grid::times`), for the player: two little-endian f64s per grid frame
+//! (when its picture starts showing, and the middle of it). `/thumbs/{generation}/{from}` is its
+//! thumbnails from `from` on (thumbs.rs), as many as are made.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -44,6 +46,14 @@ pub fn frames_url(generation: u64) -> String {
     format!("http://{SCHEME}.localhost/frames/{generation}")
 }
 
+/// Where the page reads the thumbnails of the source opened as `generation` (`/{from}` added).
+pub fn thumbs_url(generation: u64) -> String {
+    format!("http://{SCHEME}.localhost/thumbs/{generation}")
+}
+
+/// Thumbnails per response: the page asks again for more.
+const THUMBS_MAX: u64 = 100;
+
 /// What a request asks for.
 #[derive(Debug, PartialEq)]
 enum Route {
@@ -51,6 +61,8 @@ enum Route {
     Playable(u64),
     Proxy(u64),
     Frames(u64),
+    /// The generation, and the first thumbnail.
+    Thumbs(u64, u64),
 }
 
 pub fn handle<R: Runtime>(
@@ -99,16 +111,41 @@ pub fn handle<R: Runtime>(
                     None => reply(StatusCode::NOT_FOUND, vec![]),
                 }
             }
+            Some(Route::Thumbs(asked, from)) => {
+                let thumbs = {
+                    let source = state.source.lock().unwrap();
+                    source
+                        .as_ref()
+                        .filter(|s| s.generation == asked)
+                        .and_then(|s| s.thumbs.as_ref())
+                        .map(|t| (t.file.clone(), t.size()))
+                };
+                match thumbs {
+                    Some((file, size)) => {
+                        match crate::thumbs::read(&file, size, from, THUMBS_MAX) {
+                            Ok(bytes) => bytes_for_page(bytes),
+                            // Not started writing, or just renamed into place: none yet.
+                            Err(_) => bytes_for_page(vec![]),
+                        }
+                    }
+                    None => reply(StatusCode::NOT_FOUND, vec![]),
+                }
+            }
             None => reply(StatusCode::NOT_FOUND, vec![]),
         };
         responder.respond(resp);
     });
 }
 
-/// `/source/`, `/playable/`, `/proxy/` or `/frames/`, then the generation.
+/// `/source/`, `/playable/`, `/proxy/` or `/frames/`, then the generation; or `/thumbs/`, the
+/// generation and the first thumbnail.
 fn route(path: &str) -> Option<Route> {
-    let (kind, generation) = path.strip_prefix('/')?.split_once('/')?;
-    let generation = generation.parse().ok()?;
+    let (kind, rest) = path.strip_prefix('/')?.split_once('/')?;
+    if kind == "thumbs" {
+        let (generation, from) = rest.split_once('/')?;
+        return Some(Route::Thumbs(generation.parse().ok()?, from.parse().ok()?));
+    }
+    let generation = rest.parse().ok()?;
     match kind {
         "source" => Some(Route::Source(generation)),
         "playable" => Some(Route::Playable(generation)),
@@ -118,13 +155,18 @@ fn route(path: &str) -> Option<Route> {
     }
 }
 
-/// The frame times as bytes. The page fetches them (the video doesn't), so they need CORS.
+/// The frame times as bytes.
 fn frames(times: &[(f64, f64)]) -> Response<Vec<u8>> {
     let body: Vec<u8> = times
         .iter()
         .flat_map(|&(a, b)| [a.to_le_bytes(), b.to_le_bytes()])
         .flatten()
         .collect();
+    bytes_for_page(body)
+}
+
+/// Bytes the page fetches (the video doesn't), so they need CORS.
+fn bytes_for_page(body: Vec<u8>) -> Response<Vec<u8>> {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/octet-stream")
@@ -194,6 +236,9 @@ mod tests {
         assert_eq!(route("/frames/12"), Some(Route::Frames(12)));
         assert_eq!(route("/proxy/4"), Some(Route::Proxy(4)));
         assert_eq!(route("/playable/5"), Some(Route::Playable(5)));
+        assert_eq!(route("/thumbs/6/120"), Some(Route::Thumbs(6, 120)));
+        assert_eq!(route("/thumbs/6"), None);
+        assert_eq!(route("/thumbs/6/x"), None);
         assert_eq!(route("/source/x"), None);
         assert_eq!(route("/frames/"), None);
         assert_eq!(route("/C:/Windows/win.ini"), None);

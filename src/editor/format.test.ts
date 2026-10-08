@@ -30,6 +30,7 @@ describe("formatBytes", () => {
 
 describe("sourceFacts", () => {
   const base: SourceInfo = {
+    id: "http://media.localhost/source/1",
     path: "D:\\obs\\IMG_2821.MOV",
     url: "http://media.localhost/source/1",
     framesUrl: "http://media.localhost/frames/1",
@@ -47,6 +48,7 @@ describe("sourceFacts", () => {
     audioTracks: 1,
     variable: true,
     converted: false,
+    thumbs: null,
   };
 
   it("lists size, rate, length, codec and file size", () => {

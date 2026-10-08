@@ -208,7 +208,8 @@ fn attempts(
         Kind::Transcode => &[(TRANSCODE, H264)],
     };
     for (recipe, codecs) in plans {
-        let file = proxy::file_for(&folder, path, recipe).ok_or("can't read the file's details")?;
+        let file =
+            proxy::file_for(&folder, path, recipe, "mp4").ok_or("can't read the file's details")?;
         let mut args: Vec<OsString> = vec!["-i".into(), path.into()];
         args.extend(
             [

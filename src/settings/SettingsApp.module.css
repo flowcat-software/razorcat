@@ -211,7 +211,9 @@
 }
 
 .row {
+  flex-wrap: wrap;
   align-items: center;
+  row-gap: 10px;
 }
 
 .rowStacked {
@@ -226,8 +228,8 @@
   border-top: 2px solid var(--divider);
 }
 
-.row[data-disabled],
-.rowStacked[data-disabled] {
+/* Greyed out, all but a note saying why. */
+:is(.row, .rowStacked)[data-disabled] :is(.label, .description, .control) {
   opacity: 0.5;
 }
 
@@ -246,6 +248,18 @@
 .description {
   margin: 2px 0 0;
   color: var(--text-2);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+/* A warning bar across the row (as a field's error, in Windows' caution colours). */
+.note {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: var(--warning-bg);
+  box-shadow: 0 0 0 1px var(--warning-border);
   font-size: 12px;
   line-height: 16px;
 }

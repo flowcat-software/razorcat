@@ -19,6 +19,8 @@ interface BaseItem {
   visible?: (s: Settings) => boolean;
   /** Grey the row out when true (keep it visible so it's discoverable). */
   disabled?: (s: Settings) => boolean;
+  /** A warning bar under the row, when there's something to say (why it's greyed out). */
+  note?: (s: Settings) => string | undefined;
 }
 
 /** One of a fixed set of strings, as joined buttons. */

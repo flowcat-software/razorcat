@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { SourceInfo } from "../shared/ipc";
+import type { SourceInfo, ThumbsInfo } from "../shared/ipc";
 import type { Player } from "./player";
+import { ThumbStrip } from "./thumbs";
 import { timecode, needsHours } from "./timecode";
 import { useTimeline } from "./timelineStore";
-import { FRAME_TICKS, HEADER, fOf, ticks, xOf, zoomAnchor } from "./timelineView";
+import { FRAME_TICKS, HEADER, fOf, ticks, xOf, zoomAnchor, type View } from "./timelineView";
 import styles from "./EditorApp.module.css";
 
 interface Props {
@@ -11,6 +12,8 @@ interface Props {
   player: Player;
   /** The ruler labels frames, as the readout does (else timecode). */
   inFrames: boolean;
+  /** The clip's thumbnails, once they're being made. */
+  thumbs: ThumbsInfo | null;
 }
 
 // The mockup's geometry (mockup/main.html). Markup lanes go between the ruler and the clip track
@@ -18,6 +21,12 @@ interface Props {
 const RULER = 30;
 const CLIP_TOP = RULER + 10;
 const CLIP_H = 76;
+/** The clip's label row, above its thumbnails. */
+const LABEL_H = 18;
+/** The waveform's band, below them (1.7c). */
+const WAVE_H = 20;
+const THUMB_TOP = CLIP_TOP + LABEL_H;
+const THUMB_H = CLIP_H - LABEL_H - WAVE_H;
 const CLIP_GAP = 0.5;
 const CLIP_RADIUS = 8;
 
@@ -62,16 +71,84 @@ function useColours(onChange: () => void): () => Record<string, string> {
 }
 
 /**
+ * The clip's thumbnails, a continuous strip (those not made yet leave the clip's colour). Never a
+ * picture from later than where it's drawn: a thumbnail stands for the frames from its own up to
+ * the next one's.
+ *
+ * Zoomed out, a thumbnail is wider than the frames between thumbnails: each place along the strip
+ * shows the last thumbnail at or before its frame. Zoomed in, the frames between thumbnails are
+ * wider than one: each is drawn at its own frame, and repeated faintly until the next, so the
+ * span reads as one picture and it's clear there's no thumbnail for every frame.
+ */
+function drawThumbs(
+  g: CanvasRenderingContext2D,
+  s: ThumbStrip,
+  view: View,
+  right: number,
+  frames: number,
+) {
+  const first = s.bitmaps[0];
+  if (!first) return;
+  const tw = (THUMB_H * first.width) / first.height;
+  const x0 = xOf(view, 0);
+  const span = s.step * view.zoom;
+  if (span <= tw) {
+    for (let i = Math.max(0, Math.floor((HEADER - x0) / tw)); x0 + i * tw < right; i++) {
+      const f = Math.floor((i * tw) / view.zoom);
+      const bitmap = s.bitmaps[Math.floor(f / s.step)];
+      if (!bitmap) continue;
+      const l = Math.round(x0 + i * tw);
+      g.drawImage(bitmap, l, THUMB_TOP, Math.round(x0 + (i + 1) * tw) - l, THUMB_H);
+    }
+    return;
+  }
+  const w = Math.round(tw);
+  for (let k = Math.max(0, Math.floor((HEADER - x0) / span)); k < s.bitmaps.length; k++) {
+    const l = Math.round(xOf(view, k * s.step));
+    if (l >= right) break;
+    const r = Math.round(xOf(view, Math.min((k + 1) * s.step, frames)));
+    g.save();
+    g.beginPath();
+    g.rect(l, THUMB_TOP, r - l, THUMB_H);
+    g.clip();
+    g.drawImage(s.bitmaps[k], l, THUMB_TOP, w, THUMB_H);
+    g.globalAlpha = 0.3;
+    for (let x = l + w; x < r; x += w) g.drawImage(s.bitmaps[k], x, THUMB_TOP, w, THUMB_H);
+    g.restore();
+  }
+}
+
+/**
  * The timeline (the mockup's, so far without edits): the ruler, the clip (the whole source),
  * frame ticks once there's room, and the playhead. Click or drag to move the playhead; the wheel
  * scrolls, Ctrl+wheel zooms at the pointer.
  */
-export function Timeline({ source, player, inFrames }: Props) {
+export function Timeline({ source, player, inFrames, thumbs }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const draw = useRef<() => void>(() => {});
   const [redraw] = useState(() => () => draw.current());
   const colours = useColours(redraw);
   const frames = source.frames;
+
+  // The thumbnails: a strip per source, loaded as Rust makes them.
+  const strip = useRef<ThumbStrip | null>(null);
+  useEffect(() => {
+    const s = strip.current;
+    if (thumbs && s?.url === thumbs.url) {
+      s.more(thumbs);
+      return;
+    }
+    s?.close();
+    strip.current = thumbs && new ThumbStrip(thumbs, redraw);
+    redraw();
+  }, [thumbs, redraw]);
+  useEffect(
+    () => () => {
+      strip.current?.close();
+      strip.current = null;
+    },
+    [],
+  );
 
   // Drawing: on the next animation frame after anything changes.
   useEffect(() => {
@@ -159,6 +236,7 @@ export function Timeline({ source, player, inFrames }: Props) {
         g.clip();
         g.fillStyle = c["clip"];
         g.fillRect(x0, CLIP_TOP, x1 - x0, CLIP_H);
+        if (strip.current) drawThumbs(g, strip.current, view, Math.min(x1, W), frames);
         const lx = Math.max(x0, HEADER) + 9;
         if (x1 - lx > 50) {
           g.fillStyle = "#fff";

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { commands, events, type SourceInfo } from "../shared/ipc";
+import { commands, events, type Settings, type SourceInfo, type ThumbsInfo } from "../shared/ipc";
 import { CommandBar } from "./CommandBar";
 import { EmptyEditor } from "./EmptyEditor";
 import { formatRate, sourceFacts } from "./format";
@@ -12,6 +12,9 @@ import { useTimeline } from "./timelineStore";
 import styles from "./EditorApp.module.css";
 
 const openVideo = () => void commands.openDialog();
+
+/** Thumbnails are made from proxies: none without them. */
+const thumbsOn = (s: Settings) => s.timeline.thumbnails && s.proxies.enabled;
 
 /** The transport's keys (mockup's keys table). True if the key was the player's. */
 function transportKey(e: KeyboardEvent, player: Player): boolean {
@@ -69,6 +72,10 @@ export function EditorApp() {
   const [converting, setConverting] = useState<{ name: string; done: number } | null>(null);
   /** The proxy of the open source: ready (its URL) or how far along; keyed by the source. */
   const [proxy, setProxy] = useState<{ source: string; url?: string; done?: number } | null>(null);
+  /** Settings › General › Show thumbnails (made from proxies, so not without them). */
+  const [showThumbs, setShowThumbs] = useState(true);
+  /** The thumbnails as they're made; keyed by the source. */
+  const [thumbs, setThumbs] = useState<{ source: string; thumbs: ThumbsInfo } | null>(null);
   const player = useMemo(
     () => source && new Player(source.frames, source.rateNum / source.rateDen, source.framesUrl),
     [source],
@@ -124,6 +131,8 @@ export function EditorApp() {
         setProxy((p) => (p?.url && p.source === payload.source ? p : { ...payload, done }));
       }),
       events.proxyReady.listen(({ payload }) => setProxy(payload)),
+      events.thumbsUpdate.listen(({ payload }) => setThumbs(payload)),
+      events.settingsChanged.listen(({ payload }) => setShowThumbs(thumbsOn(payload as Settings))),
       // Proxies turned off mid-way: the progress goes.
       events.proxyStopped.listen(({ payload }) =>
         setProxy((p) => (p?.source === payload.source && !p.url ? null : p)),
@@ -141,6 +150,7 @@ export function EditorApp() {
           return null;
         }
         stops.push(...unlisten);
+        void commands.getSettings().then((s) => !gone && setShowThumbs(thumbsOn(s as Settings)));
         return commands.editorReady();
       })
       .then((open) => {
@@ -197,7 +207,8 @@ export function EditorApp() {
   }, []);
 
   const empty = source === null;
-  const mine = source && proxy?.source === source.url ? proxy : null;
+  const mine = source && proxy?.source === source.id ? proxy : null;
+  const sourceThumbs = (source && thumbs?.source === source.id && thumbs.thumbs) || source?.thumbs;
   const proxyUrl = source?.proxyUrl ?? mine?.url ?? null;
   // A conversion's progress, with Cancel, comes first; then the proxy's until it's ready, unless
   // there's something to say.
@@ -266,7 +277,14 @@ export function EditorApp() {
           : "Open a video, then split with S, mark ranges with R, and trim by dragging a clip's edge."}
       </div>
       <div className={styles.timeline}>
-        {source && player && <Timeline source={source} player={player} inFrames={inFrames} />}
+        {source && player && (
+          <Timeline
+            source={source}
+            player={player}
+            inFrames={inFrames}
+            thumbs={(showThumbs && sourceThumbs) || null}
+          />
+        )}
       </div>
       <StatusBar notice={conversion ?? notice ?? making} empty={empty} noEdits={notYet} />
     </div>

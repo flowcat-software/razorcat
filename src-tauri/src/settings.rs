@@ -30,6 +30,7 @@ pub struct Settings {
     pub appearance: Appearance,
     /// The proxies made for stepping and scrubbing (proxy.rs).
     pub proxies: Proxies,
+    pub timeline: Timeline,
 }
 
 impl Default for Settings {
@@ -38,7 +39,21 @@ impl Default for Settings {
             version: CURRENT_VERSION,
             appearance: Appearance::default(),
             proxies: Proxies::default(),
+            timeline: Timeline::default(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Timeline {
+    /// Thumbnails along the clip (thumbs.rs): on by default. Off, they aren't made either.
+    pub thumbnails: bool,
+}
+
+impl Default for Timeline {
+    fn default() -> Self {
+        Self { thumbnails: true }
     }
 }
 
@@ -160,6 +175,9 @@ pub fn update(app: &AppHandle<Wry>, new: Settings) -> Result<Settings, String> {
     }
     if old.proxies != new.proxies {
         crate::proxy::settings_changed(app, &old.proxies, &new.proxies);
+    }
+    if new.timeline.thumbnails && !old.timeline.thumbnails {
+        crate::thumbs::turned_on(app);
     }
 
     let _ = SettingsChanged(new.clone()).emit(app);
@@ -405,5 +423,6 @@ mod tests {
         assert_eq!(v["version"], 1);
         assert_eq!(v["appearance"]["theme"], "system");
         assert_eq!(v["appearance"]["accent"], "windows");
+        assert_eq!(v["timeline"]["thumbnails"], true);
     }
 }
