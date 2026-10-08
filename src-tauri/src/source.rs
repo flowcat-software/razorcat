@@ -20,6 +20,9 @@ pub struct Source {
     pub grid: Grid,
     /// Its proxy, once made or found in the cache (proxy.rs).
     pub proxy: Option<PathBuf>,
+    /// The copy the preview plays, when the original can't be (convert.rs). Export still
+    /// reads `path`.
+    pub playable: Option<PathBuf>,
 }
 
 /// What the page shows about the open source.
@@ -53,6 +56,8 @@ pub struct SourceInfo {
     pub audio_tracks: u32,
     /// The source's frame timing varies (a phone clip, a recorder dropping frames).
     pub variable: bool,
+    /// The preview plays a converted copy (convert.rs); export reads the original.
+    pub converted: bool,
 }
 
 impl Source {
@@ -66,7 +71,11 @@ impl Source {
         let rate = self.grid.rate;
         SourceInfo {
             path: self.path.display().to_string(),
-            url: crate::protocol::source_url(self.generation),
+            url: if self.playable.is_some() {
+                crate::protocol::playable_url(self.generation)
+            } else {
+                crate::protocol::source_url(self.generation)
+            },
             frames_url: crate::protocol::frames_url(self.generation),
             proxy_url: self
                 .proxy
@@ -74,7 +83,12 @@ impl Source {
                 .map(|_| crate::protocol::proxy_url(self.generation)),
             name: file_name(&self.path),
             bytes: std::fs::metadata(&self.path).map_or(0.0, |m| m.len() as f64),
-            codec: codec_name(&self.info.codec),
+            // A GIF is indexed from its H.264 copy; it's still a GIF.
+            codec: if self.playable.is_some() && has_extension(&self.path, "gif") {
+                "GIF".into()
+            } else {
+                codec_name(&self.info.codec)
+            },
             width,
             height,
             rotation: self.info.rotation,
@@ -84,6 +98,7 @@ impl Source {
             duration: f64::from(self.grid.frames) / rate.fps(),
             audio_tracks: self.info.audio_tracks,
             variable: self.grid.variable,
+            converted: self.playable.is_some(),
         }
     }
 }
@@ -92,6 +107,10 @@ pub fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string())
+}
+
+fn has_extension(path: &Path, ext: &str) -> bool {
+    path.extension().is_some_and(|x| x.eq_ignore_ascii_case(ext))
 }
 
 fn codec_name(code: &str) -> String {
@@ -107,28 +126,36 @@ fn codec_name(code: &str) -> String {
     .to_string()
 }
 
-/// Reads `path`'s index and builds its grid. The error is a sentence for the user.
-pub fn open(path: &Path) -> Result<Source, String> {
+/// Why a file didn't open.
+#[derive(Debug, PartialEq)]
+pub enum OpenError {
+    /// The MP4 index can't be read from it (MKV, GIF, fragmented MP4...): a converted copy
+    /// can be (convert.rs).
+    NeedsConversion,
+    /// A sentence for the user.
+    Failed(String),
+}
+
+/// Reads the index and builds the grid of `path`, or of `playable`, its converted copy.
+pub fn open(path: &Path, playable: Option<PathBuf>) -> Result<Source, OpenError> {
+    let name = file_name(path);
     if !path.is_file() {
-        return Err(format!("{} isn't there any more.", file_name(path)));
+        return Err(OpenError::Failed(format!("{name} isn't there any more.")));
     }
-    let info = mp4::read(path).map_err(|e| match e {
-        // Converting these on open comes in Phase 1.6.
-        Mp4Error::NotMp4 | Mp4Error::Fragmented => format!(
-            "{} isn't an MP4 or MOV file. Opening MKV, GIF and other formats comes soon.",
-            file_name(path)
-        ),
-        Mp4Error::NoVideo => format!("{} has no video.", file_name(path)),
+    let indexed = playable.as_deref().unwrap_or(path);
+    let info = mp4::read(indexed).map_err(|e| match e {
+        Mp4Error::NotMp4 | Mp4Error::Fragmented if playable.is_none() => OpenError::NeedsConversion,
+        Mp4Error::NotMp4 | Mp4Error::Fragmented => OpenError::Failed(format!(
+            "{name} couldn't be converted into a form Driveby reads."
+        )),
+        Mp4Error::NoVideo => OpenError::Failed(format!("{name} has no video.")),
         Mp4Error::Malformed(why) => {
-            format!(
-                "{} looks damaged and can't be opened ({why}).",
-                file_name(path)
-            )
+            OpenError::Failed(format!("{name} looks damaged and can't be opened ({why})."))
         }
-        Mp4Error::Io(why) => format!("{} can't be read ({why}).", file_name(path)),
+        Mp4Error::Io(why) => OpenError::Failed(format!("{name} can't be read ({why}).")),
     })?;
     let grid = grid::build(&info.video)
-        .ok_or_else(|| format!("{} has no frames to show.", file_name(path)))?;
+        .ok_or_else(|| OpenError::Failed(format!("{name} has no frames to show.")))?;
     static OPENED: AtomicU64 = AtomicU64::new(0);
     Ok(Source {
         generation: OPENED.fetch_add(1, Ordering::Relaxed) + 1,
@@ -136,6 +163,7 @@ pub fn open(path: &Path) -> Result<Source, String> {
         info,
         grid,
         proxy: None,
+        playable,
     })
 }
 
@@ -152,7 +180,10 @@ mod tests {
 
     #[test]
     fn a_missing_file_says_so() {
-        let e = open(Path::new(r"C:\nowhere\clip.mp4")).err().unwrap();
-        assert_eq!(e, "clip.mp4 isn't there any more.");
+        let e = open(Path::new(r"C:\nowhere\clip.mp4"), None).err().unwrap();
+        assert_eq!(
+            e,
+            OpenError::Failed("clip.mp4 isn't there any more.".into())
+        );
     }
 }

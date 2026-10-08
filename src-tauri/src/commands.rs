@@ -128,3 +128,18 @@ pub async fn proxy_cache(app: AppHandle, limit_gb: u32) -> crate::proxy::CacheRe
             dropping_bytes: 0.0,
         })
 }
+
+/// The preview can't play the open source at `url` (its codec): converts it, then sends
+/// [`editor::SourceConverted`] (or `ConvertEnded` with why not).
+#[tauri::command]
+#[specta::specta]
+pub fn convert_for_preview(app: AppHandle, url: String) {
+    crate::convert::for_preview(&app, url);
+}
+
+/// The status bar's Cancel: stops the conversion under way.
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_conversion(app: AppHandle) {
+    crate::convert::cancel(&app);
+}

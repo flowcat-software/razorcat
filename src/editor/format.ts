@@ -34,5 +34,6 @@ export function sourceFacts(s: SourceInfo): string[] {
   if (s.audioTracks === 0) facts.push("No audio");
   else if (s.audioTracks > 1) facts.push(`${s.audioTracks} audio tracks`);
   facts.push(formatBytes(s.bytes));
+  if (s.converted) facts.push("Converted to play here");
   return facts;
 }

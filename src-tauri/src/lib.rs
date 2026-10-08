@@ -1,7 +1,9 @@
 mod appearance;
 mod cli;
 mod commands;
+mod convert;
 mod editor;
+mod ffmpeg;
 mod folders;
 mod media;
 mod paths;
@@ -35,10 +37,15 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::open_folder,
             commands::default_proxy_folder,
             commands::proxy_cache,
+            commands::convert_for_preview,
+            commands::cancel_conversion,
         ])
         .events(collect_events![
             editor::SourceOpened,
             editor::OpenFailed,
+            editor::SourceConverted,
+            convert::ConvertProgress,
+            convert::ConvertEnded,
             proxy::ProxyProgress,
             proxy::ProxyReady,
             proxy::ProxyStopped,
@@ -112,6 +119,7 @@ pub fn run() {
             specta.mount_events(app);
             app.manage(AppState::new(settings::load(app.handle())));
             appearance::watch_windows_accent(app.handle());
+            proxy::sweep(app.handle());
             editor::open(app.handle())?;
             let args: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().unwrap_or_default();

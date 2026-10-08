@@ -5,12 +5,12 @@
 //! the original; the proxy is what moves while you step and scrub.
 //!
 //! Proxies are cached by file (path, size and modified time), so opening a file again finds its
-//! proxy ready. The cache drops the least recently used past its size limit.
+//! proxy ready. The cache drops the least recently used past its size limit. The copies that
+//! conversion on open makes (convert.rs) are kept in the same cache.
 
+use std::ffi::OsString;
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::time::{Instant, SystemTime};
 
 use serde::Serialize;
@@ -19,15 +19,13 @@ use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use crate::editor::LABEL;
+use crate::ffmpeg::{self, Outcome};
 use crate::media::grid::Rate;
 use crate::settings::Proxies;
-use crate::sidecar::{self, Tool};
 use crate::state::AppState;
 
 /// Changes when the proxy's recipe does, so old proxies aren't used.
 const RECIPE: &str = "h264 540 g10 crf26 v1";
-/// Progress events at most this often.
-const PROGRESS_EVERY_MS: u128 = 250;
 
 /// Rust → editor: the proxy for a source is this far along.
 #[derive(Clone, Serialize, Type, Event)]
@@ -96,11 +94,12 @@ pub fn enabled(app: &AppHandle) -> bool {
     settings(app).enabled
 }
 
-fn folder(app: &AppHandle) -> Option<PathBuf> {
+/// The cache's folder (proxies, and conversions' copies).
+pub fn folder(app: &AppHandle) -> Option<PathBuf> {
     folder_for(app, &settings(app))
 }
 
-fn limit(app: &AppHandle) -> u64 {
+pub fn limit(app: &AppHandle) -> u64 {
     u64::from(settings(app).limit_gb) * 1_000_000_000
 }
 
@@ -116,14 +115,14 @@ pub fn settings_changed(app: &AppHandle, old: &Proxies, new: &Proxies) {
     };
     if from == to {
         // Deleting files is quick: done before the page reads the cache's size again.
-        trim(&to, open_proxy(app).as_deref(), limit(app));
+        trim(&to, &in_use(app), limit(app));
         return;
     }
     // Copying to another drive may take a while.
     let app = app.clone();
     std::thread::spawn(move || {
         move_cache(&app, &from, &to);
-        trim(&to, open_proxy(&app).as_deref(), limit(&app));
+        trim(&to, &in_use(&app), limit(&app));
     });
 }
 
@@ -132,15 +131,22 @@ fn resume(app: &AppHandle) {
     let wanted = {
         let state = app.state::<AppState>();
         let open = state.source.lock().unwrap();
-        open.as_ref()
-            .filter(|s| s.proxy.is_none())
-            .map(|s| (s.generation, s.path.clone(), s.grid.rate, s.grid.frames))
+        open.as_ref().filter(|s| s.proxy.is_none()).map(|s| {
+            let input = s.playable.clone().unwrap_or_else(|| s.path.clone());
+            (
+                s.generation,
+                s.path.clone(),
+                input,
+                s.grid.rate,
+                s.grid.frames,
+            )
+        })
     };
-    let Some((generation, path, rate, frames)) = wanted else {
+    let Some((generation, path, input, rate, frames)) = wanted else {
         return;
     };
     let Some(file) = cached(app, &path) else {
-        make(app, generation, path, rate, frames);
+        make(app, generation, path, input, rate, frames);
         return;
     };
     let state = app.state::<AppState>();
@@ -156,11 +162,13 @@ fn resume(app: &AppHandle) {
     }
 }
 
-/// The open source's proxy, if it has one.
-fn open_proxy(app: &AppHandle) -> Option<PathBuf> {
+/// The cached files the open source is using: its proxy and its converted copy.
+fn in_use(app: &AppHandle) -> Vec<PathBuf> {
     let state = app.state::<AppState>();
     let open = state.source.lock().unwrap();
-    open.as_ref().and_then(|s| s.proxy.clone())
+    open.as_ref()
+        .map(|s| s.proxy.iter().chain(&s.playable).cloned().collect())
+        .unwrap_or_default()
 }
 
 /// Moves the proxies from one folder to another: a rename on the same drive, else a copy.
@@ -215,8 +223,9 @@ fn is_proxy(path: &Path) -> bool {
         .is_some_and(|stem| stem.len() == 16 && stem.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
-/// The proxy's file for `source`: named by a hash of what identifies the file's contents.
-fn file_for(folder: &Path, source: &Path) -> Option<PathBuf> {
+/// The cached file made from `source` by `recipe`: named by a hash of what identifies the
+/// file's contents and how it was made.
+pub fn file_for(folder: &Path, source: &Path, recipe: &str) -> Option<PathBuf> {
     let meta = fs::metadata(source).ok()?;
     let modified = meta
         .modified()
@@ -229,7 +238,7 @@ fn file_for(folder: &Path, source: &Path) -> Option<PathBuf> {
         path.as_bytes(),
         &meta.len().to_le_bytes(),
         &modified.to_le_bytes(),
-        RECIPE.as_bytes(),
+        recipe.as_bytes(),
     ]);
     Some(folder.join(format!("{key:016x}.mp4")))
 }
@@ -251,20 +260,48 @@ fn fnv1a(parts: &[&[u8]]) -> u64 {
 
 /// The source's proxy if it's in the cache (marked as just used), else `None`.
 pub fn cached(app: &AppHandle, source: &Path) -> Option<PathBuf> {
-    let file = file_for(&folder(app)?, source)?;
+    find(app, source, RECIPE)
+}
+
+/// What `recipe` made of `source`, if it's in the cache (marked as just used).
+pub fn find(app: &AppHandle, source: &Path, recipe: &str) -> Option<PathBuf> {
+    let file = file_for(&folder(app)?, source, recipe)?;
     let f = fs::File::options().write(true).open(&file).ok()?;
     let _ = f.set_modified(SystemTime::now());
     Some(file)
 }
 
-/// Makes the proxy for the source opened as `generation`, on a thread. It stops if another
-/// file is opened meanwhile.
-pub fn make(app: &AppHandle, generation: u64, source: PathBuf, rate: Rate, frames: u32) {
+/// Removes what runs stopped by a crash left behind (`.part` files). At startup, before any
+/// run: one in progress would lose its file.
+pub fn sweep(app: &AppHandle) {
+    let Some(folder) = folder(app) else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(&folder) else {
+        return;
+    };
+    for e in entries.flatten() {
+        if is_proxy(&e.path()) && e.path().extension().is_some_and(|x| x == "part") {
+            let _ = fs::remove_file(e.path());
+        }
+    }
+}
+
+/// Makes the proxy for the source opened as `generation`, on a thread, from `input` (the source,
+/// or its converted copy). It stops if another file is opened meanwhile.
+pub fn make(
+    app: &AppHandle,
+    generation: u64,
+    source: PathBuf,
+    input: PathBuf,
+    rate: Rate,
+    frames: u32,
+) {
     let app = app.clone();
     std::thread::spawn(move || {
         let url = crate::protocol::source_url(generation);
         let started = Instant::now();
-        match run(&app, generation, &source, rate, frames, &url) {
+        match run(&app, generation, &source, &input, rate, frames, &url) {
             Ok(Some(file)) => {
                 eprintln!(
                     "[proxy] made {} in {:.1} s",
@@ -283,7 +320,9 @@ pub fn make(app: &AppHandle, generation: u64, source: PathBuf, rate: Rate, frame
                     .emit_to(&app, LABEL);
                 }
                 if let Some(parent) = file.parent() {
-                    trim(parent, Some(&file), limit(&app));
+                    let mut keep = in_use(&app);
+                    keep.push(file.clone());
+                    trim(parent, &keep, limit(&app));
                 }
             }
             // Another file was opened, or proxies were turned off.
@@ -305,101 +344,81 @@ pub fn make(app: &AppHandle, generation: u64, source: PathBuf, rate: Rate, frame
     });
 }
 
-/// Runs ffmpeg. `Ok(None)` if it was stopped because another file was opened.
+/// Runs ffmpeg. `Ok(None)` if it was stopped: another file was opened, or proxies turned off.
 fn run(
     app: &AppHandle,
     generation: u64,
     source: &Path,
+    input: &Path,
     rate: Rate,
     frames: u32,
     url: &str,
 ) -> Result<Option<PathBuf>, String> {
     let folder = folder(app).ok_or("no local data folder")?;
     fs::create_dir_all(&folder).map_err(|e| format!("can't make {}: {e}", folder.display()))?;
-    let file = file_for(&folder, source).ok_or("can't read the file's details")?;
-    // Leftovers from a run that was stopped or crashed.
-    remove_parts(&folder);
-    let part = file.with_extension("part");
-
-    let mut cmd = sidecar::background(Tool::Ffmpeg)?;
-    cmd.args(["-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i"])
-        .arg(source)
-        .args(["-map", "0:v:0", "-an", "-sn", "-dn", "-map_metadata", "-1"])
-        .arg("-vf")
-        .arg(format!(
-            // Upright (ffmpeg turns it by default), on the grid, 540 on the short side.
+    let file = file_for(&folder, source, RECIPE).ok_or("can't read the file's details")?;
+    let mut args: Vec<OsString> = vec!["-i".into(), input.into()];
+    args.extend(
+        [
+            "-map",
+            "0:v:0",
+            "-an",
+            "-sn",
+            "-dn",
+            "-map_metadata",
+            "-1",
+            "-vf",
+        ]
+        .map(OsString::from),
+    );
+    // Upright (ffmpeg turns it by default), on the grid, 540 on the short side.
+    args.push(
+        format!(
             "fps={}/{},scale='if(gt(iw,ih),-2,540)':'if(gt(iw,ih),540,-2)':flags=bilinear,format=yuv420p",
             rate.num, rate.den
-        ))
-        .args(["-frames:v", &frames.to_string()])
-        .args(["-c:v", "libx264", "-preset", "ultrafast", "-tune", "fastdecode"])
-        .args(["-bf", "0", "-g", "10", "-crf", "26"])
-        .args(["-movflags", "+faststart", "-f", "mp4"])
-        .args(["-progress", "pipe:1", "-stats_period", "0.25"])
-        .arg(&part)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = sidecar::spawn(&mut cmd).map_err(|e| format!("ffmpeg didn't start: {e}"))?;
-
-    let stdout = child.stdout.take().ok_or("no output from ffmpeg")?;
-    let mut last = Instant::now();
-    for line in BufReader::new(stdout).lines() {
-        let Ok(line) = line else { break };
-        if !still_open(app, generation) || !enabled(app) {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = fs::remove_file(&part);
-            return Ok(None);
+        )
+        .into(),
+    );
+    args.extend(["-frames:v".into(), frames.to_string().into()]);
+    args.extend(
+        [
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-tune",
+            "fastdecode",
+            "-bf",
+            "0",
+            "-g",
+            "10",
+            "-crf",
+            "26",
+            "-movflags",
+            "+faststart",
+            "-f",
+            "mp4",
+        ]
+        .map(OsString::from),
+    );
+    let progress = |done: f64| {
+        let _ = ProxyProgress {
+            source: url.to_string(),
+            done,
         }
-        if let Some(n) = progress_frame(&line) {
-            if last.elapsed().as_millis() >= PROGRESS_EVERY_MS {
-                last = Instant::now();
-                let _ = ProxyProgress {
-                    source: url.to_string(),
-                    done: (n as f64 / f64::from(frames.max(1))).min(1.0),
-                }
-                .emit_to(app, LABEL);
-            }
-        }
+        .emit_to(app, LABEL);
+    };
+    let stop = || !still_open(app, generation) || !enabled(app);
+    match ffmpeg::run(&args, &file, Some(u64::from(frames)), progress, stop)? {
+        Outcome::Finished => Ok(Some(file)),
+        Outcome::Stopped => Ok(None),
     }
-    let mut errors = String::new();
-    if let Some(mut stderr) = child.stderr.take() {
-        let _ = std::io::Read::read_to_string(&mut stderr, &mut errors);
-    }
-    let status = child.wait().map_err(|e| e.to_string())?;
-    if !status.success() {
-        let _ = fs::remove_file(&part);
-        let why = errors.lines().last().unwrap_or("").trim();
-        return Err(if why.is_empty() {
-            format!("ffmpeg {status}")
-        } else {
-            why.to_string()
-        });
-    }
-    fs::rename(&part, &file).map_err(|e| format!("can't keep the proxy: {e}"))?;
-    Ok(Some(file))
 }
 
 fn still_open(app: &AppHandle, generation: u64) -> bool {
     let state = app.state::<AppState>();
     let open = state.source.lock().unwrap();
     open.as_ref().is_some_and(|s| s.generation == generation)
-}
-
-/// The frame count in a `-progress` line (`frame=123`).
-fn progress_frame(line: &str) -> Option<u64> {
-    line.strip_prefix("frame=")?.trim().parse().ok()
-}
-
-fn remove_parts(folder: &Path) {
-    let Ok(entries) = fs::read_dir(folder) else {
-        return;
-    };
-    for e in entries.flatten() {
-        if is_proxy(&e.path()) && e.path().extension().is_some_and(|x| x == "part") {
-            let _ = fs::remove_file(e.path());
-        }
-    }
 }
 
 /// The cache's size, and what a limit would drop (Settings asks before lowering it).
@@ -416,11 +435,10 @@ pub struct CacheReport {
 
 pub fn report(app: &AppHandle, limit_gb: u32) -> CacheReport {
     let files = folder(app).map(|f| cached_files(&f)).unwrap_or_default();
-    let keep = open_proxy(app);
     let drop = to_drop(
         files.clone(),
         u64::from(limit_gb) * 1_000_000_000,
-        keep.as_deref(),
+        &in_use(app),
     );
     let size = |p: &PathBuf| files.iter().find(|f| &f.0 == p).map_or(0, |f| f.1);
     CacheReport {
@@ -446,8 +464,8 @@ fn cached_files(folder: &Path) -> Vec<(PathBuf, u64, SystemTime)> {
         .collect()
 }
 
-/// Drops the least recently used proxies until the cache is within `limit`, never `keep`.
-fn trim(folder: &Path, keep: Option<&Path>, limit: u64) {
+/// Drops the least recently used files until the cache is within `limit`, never those in `keep`.
+pub fn trim(folder: &Path, keep: &[PathBuf], limit: u64) {
     let files = cached_files(folder);
     for path in to_drop(files, limit, keep) {
         eprintln!("[proxy] dropping {} (cache full)", path.display());
@@ -459,7 +477,7 @@ fn trim(folder: &Path, keep: Option<&Path>, limit: u64) {
 fn to_drop(
     mut files: Vec<(PathBuf, u64, SystemTime)>,
     limit: u64,
-    keep: Option<&Path>,
+    keep: &[PathBuf],
 ) -> Vec<PathBuf> {
     let mut total: u64 = files.iter().map(|f| f.1).sum();
     files.sort_by_key(|f| f.2);
@@ -468,7 +486,7 @@ fn to_drop(
         if total <= limit {
             break;
         }
-        if Some(path.as_path()) == keep {
+        if keep.contains(&path) {
             continue;
         }
         total -= size;
@@ -499,13 +517,6 @@ mod tests {
     }
 
     #[test]
-    fn reads_progress_lines() {
-        assert_eq!(progress_frame("frame=123"), Some(123));
-        assert_eq!(progress_frame("frame= 7"), Some(7));
-        assert_eq!(progress_frame("fps=30.0"), None);
-    }
-
-    #[test]
     fn drops_the_least_recently_used_until_within_the_limit() {
         let t = |s| SystemTime::UNIX_EPOCH + Duration::from_secs(s);
         let files = vec![
@@ -514,14 +525,14 @@ mod tests {
             (PathBuf::from("mid"), 40, t(200)),
         ];
         assert_eq!(
-            to_drop(files.clone(), 100, Some(Path::new("new"))),
+            to_drop(files.clone(), 100, &["new".into()]),
             [PathBuf::from("old")]
         );
         assert_eq!(
-            to_drop(files.clone(), 30, Some(Path::new("old"))),
+            to_drop(files.clone(), 30, &["old".into()]),
             [PathBuf::from("mid"), PathBuf::from("new")]
         );
-        assert!(to_drop(files.clone(), 120, None).is_empty());
-        assert_eq!(to_drop(files, 50, None).len(), 2);
+        assert!(to_drop(files.clone(), 120, &[]).is_empty());
+        assert_eq!(to_drop(files, 50, &[]).len(), 2);
     }
 }

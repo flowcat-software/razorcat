@@ -44,7 +44,7 @@ export const sections: Section[] = [
     title: "Proxies",
     icon: ProxiesIcon,
     description:
-      "Small copies of each video, made when you open it, so stepping and scrubbing are instant. They're kept, so a video opens ready next time; past the size limit, the ones used longest ago are deleted.",
+      "Small copies of each video, made when you open it, so stepping and scrubbing are instant. They're kept, so a video opens ready next time, along with copies of videos converted to play here; past the size limit, the ones used longest ago are deleted.",
     groups: [
       {
         items: [

@@ -40,6 +40,8 @@ export const commands = {
 	audioTracks: number,
 	/**  The source's frame timing varies (a phone clip, a recorder dropping frames). */
 	variable: boolean,
+	/**  The preview plays a converted copy (convert.rs); export reads the original. */
+	converted: boolean,
 } | null>("editor_ready"),
 	/**
 	 *  Show the Open dialog and open the picked file ([`editor::SourceOpened`] or
@@ -73,16 +75,26 @@ export const commands = {
 	defaultProxyFolder: () => __TAURI_INVOKE<string>("default_proxy_folder"),
 	/**  The proxy cache's size, and what lowering its limit to `limit_gb` would delete. */
 	proxyCache: (limitGb: number) => __TAURI_INVOKE<CacheReport>("proxy_cache", { limitGb }),
+	/**
+	 *  The preview can't play the open source at `url` (its codec): converts it, then sends
+	 *  [`editor::SourceConverted`] (or `ConvertEnded` with why not).
+	 */
+	convertForPreview: (url: string) => __TAURI_INVOKE<void>("convert_for_preview", { url }),
+	/**  The status bar's Cancel: stops the conversion under way. */
+	cancelConversion: () => __TAURI_INVOKE<void>("cancel_conversion"),
 };
 
 /** Events */
 export const events = {
+	convertEnded: makeEvent<ConvertEnded>("convert-ended"),
+	convertProgress: makeEvent<ConvertProgress>("convert-progress"),
 	openFailed: makeEvent<OpenFailed>("open-failed"),
 	proxyFailed: makeEvent<ProxyFailed>("proxy-failed"),
 	proxyProgress: makeEvent<ProxyProgress>("proxy-progress"),
 	proxyReady: makeEvent<ProxyReady>("proxy-ready"),
 	proxyStopped: makeEvent<ProxyStopped>("proxy-stopped"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
+	sourceConverted: makeEvent<SourceConverted>("source-converted"),
 	sourceOpened: makeEvent<SourceOpened>("source-opened"),
 	windowsAccentChanged: makeEvent<WindowsAccentChanged>("windows-accent-changed"),
 };
@@ -102,6 +114,23 @@ export type CacheReport = {
 	/**  What `limit_gb` would delete: how many proxies, and their bytes. */
 	dropping: number,
 	droppingBytes: number | null,
+};
+
+/**
+ *  Rust → editor: a conversion ended without a copy: cancelled (or replaced by another file
+ *  being opened), or failed (`message` says why, for the user).
+ */
+export type ConvertEnded = {
+	name: string,
+	message: string | null,
+};
+
+/**  Rust → editor: a conversion is this far along. */
+export type ConvertProgress = {
+	/**  The file being converted, for the status bar. */
+	name: string,
+	/**  0 to 1. */
+	done: number | null,
 };
 
 /**  The bundled tools' versions, for Settings › About. `None` when one is missing or broken. */
@@ -163,6 +192,12 @@ export type Settings = {
 /**  Rust → all windows: settings changed (from any source), here's the new state. */
 export type SettingsChanged = Settings;
 
+/**
+ *  Rust → editor: the open source plays from a converted copy now (its codec): the same
+ *  source, at a new URL.
+ */
+export type SourceConverted = SourceInfo;
+
 /**  What the page shows about the open source. */
 export type SourceInfo = {
 	path: string,
@@ -192,6 +227,8 @@ export type SourceInfo = {
 	audioTracks: number,
 	/**  The source's frame timing varies (a phone clip, a recorder dropping frames). */
 	variable: boolean,
+	/**  The preview plays a converted copy (convert.rs); export reads the original. */
+	converted: boolean,
 };
 
 /**  Rust → editor: a file was opened (it replaces the one before). */

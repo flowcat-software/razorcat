@@ -10,8 +10,10 @@ interface Props {
   player: Player;
   /** The proxy, once it's ready (proxy.rs). */
   proxyUrl: string | null;
-  /** The picture can't be shown (a codec WebView2 can't play). */
+  /** The picture can't be shown, even from a converted copy. */
   onError: (message: string) => void;
+  /** The original can't be played here (its codec): convert it (convert.rs). */
+  onUnplayable: () => void;
 }
 
 /** Space kept around the picture, in px. */
@@ -21,7 +23,7 @@ const MARGIN = 16;
  * The picture: the source's `<video>`, fitted into the preview at its shape as shown. The stage
  * (the fitted box) is where crop, grow and markup will sit later (Phases 3-4).
  */
-export function Preview({ source, player, proxyUrl, onError }: Props) {
+export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Props) {
   const areaRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const proxyRef = useRef<HTMLVideoElement>(null);
@@ -55,6 +57,11 @@ export function Preview({ source, player, proxyUrl, onError }: Props) {
     return () => player.attachProxy(null);
   }, [player, proxyUrl]);
 
+  const unplayable = () =>
+    source.converted
+      ? onError(`The preview can't play ${source.name}, even converted.`)
+      : onUnplayable();
+
   const stage = fitRect(area, { width: source.width, height: source.height }, MARGIN);
   const natural = measured?.url === source.url ? measured : null;
   const transform = natural ? videoTransform(natural, source, stage) : null;
@@ -76,18 +83,14 @@ export function Preview({ source, player, proxyUrl, onError }: Props) {
               ? { width: transform.width, height: transform.height, transform: transform.css }
               : { visibility: "hidden" }
           }
-          onLoadedMetadata={(e) =>
-            setMeasured({
-              url: source.url,
-              width: e.currentTarget.videoWidth,
-              height: e.currentTarget.videoHeight,
-            })
-          }
-          onError={() =>
-            onError(
-              `The preview can't play ${source.name} (${source.codec}). Converting it on open comes soon.`,
-            )
-          }
+          onLoadedMetadata={(e) => {
+            const { videoWidth: width, videoHeight: height } = e.currentTarget;
+            // No picture: the video's codec can't be played, though its audio may (no error
+            // is raised then).
+            if (width === 0) unplayable();
+            else setMeasured({ url: source.url, width, height });
+          }}
+          onError={unplayable}
         />
         {proxyUrl && (
           // Already upright and the picture's shape: it fills the stage.

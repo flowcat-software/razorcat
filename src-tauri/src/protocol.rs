@@ -3,6 +3,7 @@
 //! that changes with every file opened (`/source/{generation}`), so nothing else on disk can be
 //! asked for and a stale `<video>` can't read the new file. Ported from spike 0.2.
 //!
+//! `/playable/{generation}` is its converted copy (convert.rs), when it has one;
 //! `/proxy/{generation}` is its proxy (proxy.rs), once made. `/frames/{generation}` is the source's frame times (`grid::times`), for the player: two
 //! little-endian f64s per grid frame (when its picture starts showing, and the middle of it).
 
@@ -28,6 +29,11 @@ pub fn source_url(generation: u64) -> String {
     format!("http://{SCHEME}.localhost/source/{generation}")
 }
 
+/// Where the page reads the converted copy of the source opened as `generation` (convert.rs).
+pub fn playable_url(generation: u64) -> String {
+    format!("http://{SCHEME}.localhost/playable/{generation}")
+}
+
 /// Where the page reads the proxy of the source opened as `generation`.
 pub fn proxy_url(generation: u64) -> String {
     format!("http://{SCHEME}.localhost/proxy/{generation}")
@@ -42,6 +48,7 @@ pub fn frames_url(generation: u64) -> String {
 #[derive(Debug, PartialEq)]
 enum Route {
     Source(u64),
+    Playable(u64),
     Proxy(u64),
     Frames(u64),
 }
@@ -57,12 +64,15 @@ pub fn handle<R: Runtime>(
         let path = req.uri().path().to_string();
         let state = app.state::<AppState>();
         let resp = match route(&path) {
-            Some(route @ (Route::Source(_) | Route::Proxy(_))) => {
+            Some(route @ (Route::Source(_) | Route::Playable(_) | Route::Proxy(_))) => {
                 let file = {
                     let source = state.source.lock().unwrap();
                     match (source.as_ref(), route) {
                         (Some(s), Route::Source(asked)) if s.generation == asked => {
                             Some(s.path.clone())
+                        }
+                        (Some(s), Route::Playable(asked)) if s.generation == asked => {
+                            s.playable.clone()
                         }
                         (Some(s), Route::Proxy(asked)) if s.generation == asked => s.proxy.clone(),
                         _ => None,
@@ -95,12 +105,13 @@ pub fn handle<R: Runtime>(
     });
 }
 
-/// `/source/`, `/proxy/` or `/frames/`, then the generation.
+/// `/source/`, `/playable/`, `/proxy/` or `/frames/`, then the generation.
 fn route(path: &str) -> Option<Route> {
     let (kind, generation) = path.strip_prefix('/')?.split_once('/')?;
     let generation = generation.parse().ok()?;
     match kind {
         "source" => Some(Route::Source(generation)),
+        "playable" => Some(Route::Playable(generation)),
         "proxy" => Some(Route::Proxy(generation)),
         "frames" => Some(Route::Frames(generation)),
         _ => None,
@@ -182,6 +193,7 @@ mod tests {
         assert_eq!(route("/source/3"), Some(Route::Source(3)));
         assert_eq!(route("/frames/12"), Some(Route::Frames(12)));
         assert_eq!(route("/proxy/4"), Some(Route::Proxy(4)));
+        assert_eq!(route("/playable/5"), Some(Route::Playable(5)));
         assert_eq!(route("/source/x"), None);
         assert_eq!(route("/frames/"), None);
         assert_eq!(route("/C:/Windows/win.ini"), None);

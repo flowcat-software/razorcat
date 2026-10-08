@@ -6,6 +6,8 @@ import styles from "./EditorApp.module.css";
 export interface Notice {
   text: string;
   error?: boolean;
+  /** A button after the message (a conversion's Cancel). */
+  action?: { label: string; run: () => void };
 }
 
 interface Props {
@@ -22,6 +24,11 @@ export function StatusBar({ notice, empty }: Props) {
       <span className={notice?.error ? styles.noticeError : undefined} role="status">
         {notice?.text ?? "Ready"}
       </span>
+      {notice?.action && (
+        <button type="button" className={styles.textButton} onClick={notice.action.run}>
+          {notice.action.label}
+        </button>
+      )}
       <span className={styles.spacer} />
       <button
         type="button"

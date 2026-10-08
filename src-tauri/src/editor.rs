@@ -11,7 +11,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_specta::Event;
 
 use crate::placement::{self, Placement};
-use crate::source::{self, SourceInfo};
+use crate::source::{self, OpenError, Source, SourceInfo};
 use crate::state::AppState;
 
 pub const LABEL: &str = "editor";
@@ -20,7 +20,7 @@ const MIN_SIZE: (f64, f64) = (720.0, 480.0);
 
 /// What the Open dialog offers. MP4 and MOV open directly; the rest are converted on open
 /// (Phase 1.6). Keep in step with `windows/hooks.nsh` ("Open with").
-pub const EXTENSIONS: &[&str] = &["mp4", "m4v", "mov", "mkv", "gif"];
+pub const EXTENSIONS: &[&str] = &["mp4", "m4v", "mov", "mkv", "webm", "gif"];
 
 #[derive(Default)]
 pub struct EditorState {
@@ -38,6 +38,11 @@ pub struct EditorState {
 /// Rust → editor: a file was opened (it replaces the one before).
 #[derive(Clone, Serialize, Type, Event)]
 pub struct SourceOpened(pub SourceInfo);
+
+/// Rust → editor: the open source plays from a converted copy now (its codec): the same
+/// source, at a new URL.
+#[derive(Clone, Serialize, Type, Event)]
+pub struct SourceConverted(pub SourceInfo);
 
 /// Rust → editor: a file couldn't be opened; the one before (if any) stays.
 #[derive(Clone, Serialize, Type, Event)]
@@ -124,50 +129,87 @@ pub fn request_open(app: &AppHandle, path: PathBuf) {
             return;
         }
     }
-    // Reading the index takes milliseconds, but it's file I/O: off the main thread.
+    // A file being converted for opening is replaced by this one.
+    crate::convert::cancel(app);
+    // Reading the index takes milliseconds, but it's file I/O (and converting takes longer): off
+    // the main thread.
     let app = app.clone();
-    std::thread::spawn(move || match source::open(&path) {
-        Ok(mut opened) => {
-            let use_proxies = crate::proxy::enabled(&app);
-            if use_proxies {
-                opened.proxy = crate::proxy::cached(&app, &path);
+    std::thread::spawn(move || {
+        let opened = match source::open(&path, None) {
+            // MKV, GIF...: opened from a converted copy.
+            Err(OpenError::NeedsConversion) => match crate::convert::before_open(&app, &path) {
+                Ok(Some(copy)) => source::open(&path, Some(copy)),
+                // Cancelled, or failed: `ConvertEnded` has told the page.
+                Ok(None) | Err(_) => return,
+            },
+            // The preview needed a copy of this one before (its codec): it plays that at once.
+            Ok(mut opened) => {
+                opened.playable = crate::convert::cached_for_preview(&app, &path);
+                Ok(opened)
             }
-            let make = (use_proxies && opened.proxy.is_none()).then_some((
-                opened.generation,
-                opened.grid.rate,
-                opened.grid.frames,
-            ));
-            if let Some(folder) = path.parent() {
-                crate::folders::opened_from(&app, folder);
+            Err(e) => Err(e),
+        };
+        match opened {
+            Ok(opened) => show(&app, path, opened),
+            Err(e) => {
+                let message = match e {
+                    OpenError::Failed(message) => message,
+                    OpenError::NeedsConversion => {
+                        format!("{} can't be opened.", source::file_name(&path))
+                    }
+                };
+                eprintln!("[editor] {message}");
+                let _ = OpenFailed { message }.emit_to(&app, LABEL);
             }
-            let info = opened.info();
-            eprintln!(
-                "[editor] opened {}: {}x{} {} at {}/{} fps, {} frames{}",
-                info.name,
-                info.width,
-                info.height,
-                info.codec,
-                info.rate_num,
-                info.rate_den,
-                info.frames,
-                if info.variable { ", variable" } else { "" }
-            );
-            *app.state::<AppState>().source.lock().unwrap() = Some(opened);
-            if let Some(window) = app.get_webview_window(LABEL) {
-                let _ = window.set_title(&format!("{} — {}", info.name, crate::product_name(&app)));
-            }
-            if let Err(e) = SourceOpened(info).emit_to(&app, LABEL) {
-                eprintln!("[editor] couldn't tell the page: {e}");
-            }
-            if let Some((generation, rate, frames)) = make {
-                crate::proxy::make(&app, generation, path, rate, frames);
-            }
-        }
-        Err(message) => {
-            eprintln!("[editor] {message}");
-            let _ = OpenFailed { message }.emit_to(&app, LABEL);
         }
     });
+}
+
+/// Makes `opened` the open source: the title, the page, its proxy.
+fn show(app: &AppHandle, path: PathBuf, mut opened: Source) {
+    let use_proxies = crate::proxy::enabled(app);
+    if use_proxies {
+        opened.proxy = crate::proxy::cached(app, &path);
+    }
+    let make = (use_proxies && opened.proxy.is_none()).then(|| {
+        let input = opened.playable.clone().unwrap_or_else(|| path.clone());
+        (
+            opened.generation,
+            input,
+            opened.grid.rate,
+            opened.grid.frames,
+        )
+    });
+    if let Some(folder) = path.parent() {
+        crate::folders::opened_from(app, folder);
+    }
+    let info = opened.info();
+    eprintln!(
+        "[editor] opened {}: {}x{} {} at {}/{} fps, {} frames{}{}",
+        info.name,
+        info.width,
+        info.height,
+        info.codec,
+        info.rate_num,
+        info.rate_den,
+        info.frames,
+        if info.variable { ", variable" } else { "" },
+        if opened.playable.is_some() {
+            ", from a converted copy"
+        } else {
+            ""
+        }
+    );
+    *app.state::<AppState>().source.lock().unwrap() = Some(opened);
+    if let Some(window) = app.get_webview_window(LABEL) {
+        let _ = window.set_title(&format!("{} — {}", info.name, crate::product_name(app)));
+    }
+    if let Err(e) = SourceOpened(info).emit_to(app, LABEL) {
+        eprintln!("[editor] couldn't tell the page: {e}");
+    }
+    if let Some((generation, input, rate, frames)) = make {
+        crate::proxy::make(app, generation, path, input, rate, frames);
+    }
 }
 
 /// The Open dialog, starting in the folder last opened from; opens the picked file.

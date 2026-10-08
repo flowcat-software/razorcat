@@ -1,6 +1,7 @@
 //! App-wide state, managed by Tauri (`app.state::<AppState>()`).
 
-use std::sync::{Mutex, RwLock};
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::editor::EditorState;
 use crate::settings::Settings;
@@ -12,6 +13,8 @@ pub struct AppState {
     pub editor: Mutex<EditorState>,
     /// The open source file (one in the MVP).
     pub source: Mutex<Option<Source>>,
+    /// The conversion under way (convert.rs): set to stop it.
+    pub converting: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl AppState {
@@ -20,6 +23,7 @@ impl AppState {
             settings: RwLock::new(settings),
             editor: Mutex::new(EditorState::default()),
             source: Mutex::new(None),
+            converting: Mutex::new(None),
         }
     }
 }

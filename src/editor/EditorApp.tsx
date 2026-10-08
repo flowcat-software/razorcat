@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { commands, events, type SourceInfo } from "../shared/ipc";
 import { CommandBar } from "./CommandBar";
 import { EmptyEditor } from "./EmptyEditor";
@@ -57,6 +57,10 @@ function transportKey(e: KeyboardEvent, player: Player): boolean {
 export function EditorApp() {
   const [source, setSource] = useState<SourceInfo | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  /** The source the preview last asked to convert: asked once, however many errors. */
+  const convertAsked = useRef<string | null>(null);
+  /** A conversion under way (convert.rs): the file and how far along. */
+  const [converting, setConverting] = useState<{ name: string; done: number } | null>(null);
   /** The proxy of the open source: ready (its URL) or how far along; keyed by the source. */
   const [proxy, setProxy] = useState<{ source: string; url?: string; done?: number } | null>(null);
   const player = useMemo(
@@ -90,8 +94,25 @@ export function EditorApp() {
       events.sourceOpened.listen(({ payload }) => {
         setSource(payload as SourceInfo);
         setNotice(null);
+        setConverting(null);
       }),
-      events.openFailed.listen(({ payload }) => setNotice({ text: payload.message, error: true })),
+      // The same source, now playing from a converted copy.
+      events.sourceConverted.listen(({ payload }) => {
+        setSource(payload as SourceInfo);
+        setNotice(null);
+        setConverting(null);
+      }),
+      events.convertProgress.listen(({ payload }) =>
+        setConverting({ name: payload.name, done: payload.done ?? 0 }),
+      ),
+      events.convertEnded.listen(({ payload }) => {
+        setConverting(null);
+        if (payload.message) setNotice({ text: payload.message, error: true });
+      }),
+      events.openFailed.listen(({ payload }) => {
+        setConverting(null);
+        setNotice({ text: payload.message, error: true });
+      }),
       events.proxyProgress.listen(({ payload }) => {
         const done = payload.done ?? 0;
         setProxy((p) => (p?.url && p.source === payload.source ? p : { ...payload, done }));
@@ -144,7 +165,20 @@ export function EditorApp() {
   const empty = source === null;
   const mine = source && proxy?.source === source.url ? proxy : null;
   const proxyUrl = source?.proxyUrl ?? mine?.url ?? null;
-  // The proxy's progress shows until it's ready, unless there's something to say.
+  // A conversion's progress, with Cancel, comes first; then the proxy's until it's ready, unless
+  // there's something to say.
+  const conversion: Notice | null = converting && {
+    text: `Converting ${converting.name} to play here… ${Math.floor(converting.done * 100)}%`,
+    action: {
+      label: "Cancel",
+      run: () => {
+        void commands.cancelConversion();
+        setConverting(null);
+        // Open it again to convert it after all.
+        setNotice({ text: `Stopped converting ${converting.name}.` });
+      },
+    },
+  };
   const making =
     mine && !proxyUrl
       ? { text: `Preparing fast stepping… ${Math.floor((mine.done ?? 0) * 100)}%` }
@@ -174,6 +208,12 @@ export function EditorApp() {
             player={player!}
             proxyUrl={proxyUrl}
             onError={(text) => setNotice({ text, error: true })}
+            onUnplayable={() => {
+              if (convertAsked.current === source.url) return;
+              convertAsked.current = source.url;
+              setConverting({ name: source.name, done: 0 });
+              void commands.convertForPreview(source.url);
+            }}
           />
         ) : (
           <EmptyEditor onOpen={openVideo} />
@@ -186,7 +226,7 @@ export function EditorApp() {
           : "Open a video, then split with S, mark ranges with R, and trim by dragging a clip's edge."}
       </div>
       <div className={styles.timeline} />
-      <StatusBar notice={notice ?? making} empty={empty || notYet} />
+      <StatusBar notice={conversion ?? notice ?? making} empty={empty || notYet} />
     </div>
   );
 }

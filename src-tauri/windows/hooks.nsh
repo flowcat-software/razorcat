@@ -23,6 +23,7 @@
   !insertmacro ${MACRO} m4v
   !insertmacro ${MACRO} mov
   !insertmacro ${MACRO} mkv
+  !insertmacro ${MACRO} webm
   !insertmacro ${MACRO} gif
 !macroend
 

@@ -12,9 +12,7 @@ export function EmptyEditor({ onOpen }: { onOpen: () => void }) {
           </svg>
           Open video
         </button>
-        <p className={styles.emptyHint}>
-          Or drop a video file here. MP4 and MOV for now; MKV and GIF soon.
-        </p>
+        <p className={styles.emptyHint}>Or drop a video file here: MP4, MOV, MKV, WebM or GIF.</p>
       </div>
     </div>
   );

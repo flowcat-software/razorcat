@@ -46,6 +46,7 @@ describe("sourceFacts", () => {
     duration: 26.19,
     audioTracks: 1,
     variable: true,
+    converted: false,
   };
 
   it("lists size, rate, length, codec and file size", () => {
@@ -56,6 +57,10 @@ describe("sourceFacts", () => {
       "H.264",
       "59 MB",
     ]);
+  });
+
+  it("says when the preview plays a converted copy", () => {
+    expect(sourceFacts({ ...base, converted: true })).toContain("Converted to play here");
   });
 
   it("mentions audio only when it's unusual", () => {
