@@ -1,7 +1,20 @@
+import { ColorSwatch } from "../markup/ColorSwatch";
 import type { SourceInfo } from "../shared/ipc";
-import { pickCropRatio, resetCrop } from "./cropTool";
+import { pickCropRatio, resetCrop, resetGrow } from "./cropTool";
 import { useDoc } from "./docStore";
-import { isCropped, isGrown, outputSize, setCropField, SIDES, type CropField } from "./frame";
+import {
+  colourGrow,
+  growColour,
+  growMode,
+  growSide,
+  isCropped,
+  isGrown,
+  outputSize,
+  setCropField,
+  SIDES,
+  type CropField,
+  type Side,
+} from "./frame";
 import { sourceFacts } from "./format";
 import { NumberField } from "./NumberField";
 import { CROP_RATIOS, lockedRatio, useTool } from "./toolStore";
@@ -16,6 +29,7 @@ export function FrameOptions({ source }: { source: SourceInfo | null }) {
   const frame = useDoc((s) => s.doc.frame);
   if (!source) return <div className={styles.optionsBar}>No video open</div>;
   if (tool === "crop") return <CropOptions />;
+  if (tool === "grow") return <GrowOptions />;
   const out = outputSize(frame);
   const grow = SIDES.filter((s) => frame.grow[s] > 0)
     .map((s) => `${s} ${frame.grow[s]} px`)
@@ -31,6 +45,75 @@ export function FrameOptions({ source }: { source: SourceInfo | null }) {
         Output {out.width} × {out.height} · Crop:{" "}
         {isCropped(frame) ? `${frame.crop.width} × ${frame.crop.height}` : "none"} · Grow:{" "}
         {isGrown(frame.grow) ? grow : "none"}
+      </span>
+    </div>
+  );
+}
+
+const SIDE_NAMES: Record<Side, string> = {
+  top: "Top",
+  bottom: "Bottom",
+  left: "Left",
+  right: "Right",
+};
+
+/**
+ * The grow tool's options (the mockup's): each side in px, its colour while grown sides don't
+ * meet (one colour once they do), Reset.
+ */
+function GrowOptions() {
+  const grow = useDoc((s) => s.doc.frame.grow);
+  const each = growMode(grow) === "each";
+  // From the document as it is now: a drag sets several values between renders.
+  const set = (side: Side, value: number) => {
+    const doc = useDoc.getState();
+    doc.grow(growSide(doc.doc.frame.grow, side, value));
+    return useDoc.getState().doc.frame.grow[side];
+  };
+  const colour = (side: Side | null, value: string) => {
+    const doc = useDoc.getState();
+    doc.grow(colourGrow(doc.doc.frame.grow, side, value));
+  };
+  return (
+    <div className={styles.optionsBar}>
+      <b className={styles.optionsTitle}>Grow</b>
+      {SIDES.map((side) => (
+        <span key={side} className={styles.field}>
+          <NumberField
+            label={SIDE_NAMES[side]}
+            value={grow[side]}
+            onChange={(v) => set(side, v)}
+            unit="px"
+          />
+          {each && grow[side] > 0 && (
+            <ColorSwatch
+              name={`${SIDE_NAMES[side]} colour`}
+              value={growColour(grow, side)}
+              onPick={(v) => colour(side, v)}
+            />
+          )}
+        </span>
+      ))}
+      {!each && (
+        <span className={styles.field}>
+          Colour
+          <ColorSwatch name="Colour" value={grow.colour} onPick={(v) => colour(null, v)} />
+        </span>
+      )}
+      <span className={styles.optionsSep} />
+      <button
+        type="button"
+        className={styles.chip}
+        title="Back to the picture alone"
+        disabled={!isGrown(grow)}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={resetGrow}
+      >
+        Reset
+      </button>
+      <span className={styles.spacer} />
+      <span className={styles.kbd}>
+        Drag a side&apos;s handle out, or its number · Shift: the opposite side too · Enter: done
       </span>
     </div>
   );

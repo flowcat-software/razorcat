@@ -1,13 +1,14 @@
-// The crop tool's actions and keys (the options bar's and the keyboard's; the box is
-// CropOverlay.tsx). Crop changes the document as it goes: there's nothing to apply or cancel,
-// and undo takes each change back.
+// The crop and grow tools' actions, and the picture tools' keys (the options bar's and the
+// keyboard's; the boxes are CropOverlay.tsx and GrowOverlay.tsx). They change the document as
+// they go: there's nothing to apply or cancel, and undo takes each change back.
 
 import { useEffect } from "react";
+import { isPopoverOpen } from "../markup/usePopover";
 import { isTyping } from "../shared/dom";
 import { nudgeCrop } from "./cropGeometry";
 import { useDoc } from "./docStore";
 import { cropToRatio } from "./frame";
-import { CROP_RATIOS, lockedRatio, useTool, type CropRatioId } from "./toolStore";
+import { CROP_RATIOS, lockedRatio, useTool, type CropRatioId, type Tool } from "./toolStore";
 
 /** Hold the box to a ratio, refitting it now: the largest of that shape, where it was. */
 export function pickCropRatio(id: CropRatioId): void {
@@ -24,6 +25,13 @@ export function resetCrop(): void {
   useDoc.getState().crop({ x: 0, y: 0, ...source });
 }
 
+/** No grow: back to the picture alone (its colours kept for next time). */
+export function resetGrow(): void {
+  const doc = useDoc.getState();
+  const g = doc.doc.frame.grow;
+  doc.grow({ ...g, top: 0, bottom: 0, left: 0, right: 0 });
+}
+
 const ARROWS: Record<string, [number, number]> = {
   ArrowLeft: [-1, 0],
   ArrowRight: [1, 0],
@@ -31,13 +39,16 @@ const ARROWS: Record<string, [number, number]> = {
   ArrowDown: [0, 1],
 };
 
+/** The picture's tools by key. */
+const TOOL_KEYS: Record<string, Tool> = { KeyV: "select", KeyC: "crop", KeyG: "grow" };
+
 /**
- * The picture's tool keys: C picks crop up (or puts it down), V the select tool. While cropping,
- * arrows nudge the box (Shift 10 px) and Ctrl+arrows resize it from the bottom-right, as in
- * Vandal, one undo step for as long as the key is held; Enter or Esc put the tool down. The rest
- * (Space, J/K/L, undo) still work. `active`: a video is open.
+ * The picture's tool keys: C picks crop up (or puts it down), G grow, V the select tool. While
+ * cropping, arrows nudge the box (Shift 10 px) and Ctrl+arrows resize it from the bottom-right,
+ * as in Vandal, one undo step for as long as the key is held. Enter or Esc put a tool down. The
+ * rest (Space, J/K/L, undo) still work. `active`: a video is open.
  */
-export function useCropKeys(active: boolean): void {
+export function useToolKeys(active: boolean): void {
   useEffect(() => {
     if (!active) return;
     /** The arrow being held, nudging as one undo step. */
@@ -48,12 +59,21 @@ export function useCropKeys(active: boolean): void {
       useDoc.getState().endGesture();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (isTyping(e.target) || e.altKey || e.metaKey) return;
+      if (isTyping(e.target) || isPopoverOpen() || e.altKey || e.metaKey) return;
       const { tool, setTool } = useTool.getState();
-      if (!e.ctrlKey && !e.shiftKey && !e.repeat && (e.code === "KeyC" || e.code === "KeyV")) {
+      const picked = TOOL_KEYS[e.code];
+      if (picked && !e.ctrlKey && !e.shiftKey && !e.repeat) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        setTool(e.code === "KeyC" && tool !== "crop" ? "crop" : "select");
+        // The tool's own key again puts it down.
+        setTool(picked === tool ? "select" : picked);
+        return;
+      }
+      if (tool === "select") return;
+      if (!e.ctrlKey && (e.code === "Enter" || e.code === "NumpadEnter" || e.code === "Escape")) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setTool("select");
         return;
       }
       if (tool !== "crop") return;
@@ -73,12 +93,6 @@ export function useCropKeys(active: boolean): void {
         doc.crop(
           nudgeCrop(crop, arrow[0] * step, arrow[1] * step, source, e.ctrlKey, lockedRatio()),
         );
-        return;
-      }
-      if (!e.ctrlKey && (e.code === "Enter" || e.code === "NumpadEnter" || e.code === "Escape")) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        setTool("select");
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {

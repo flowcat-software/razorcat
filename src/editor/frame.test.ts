@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { setCrop, split, wholeSource } from "./doc";
-import { cropToRatio, fullFrame, isCropped, keepCrop, outputSize, setCropField } from "./frame";
+import { setCrop, setGrow, split, wholeSource } from "./doc";
+import {
+  colourGrow,
+  cropToRatio,
+  fullFrame,
+  growColour,
+  growMode,
+  growSide,
+  isCropped,
+  keepCrop,
+  MAX_GROW,
+  outputSize,
+  setCropField,
+  SIDES,
+} from "./frame";
 import { dragGain } from "./numberDrag";
 
 const source = { width: 1920, height: 1080 };
@@ -57,6 +70,39 @@ describe("the frame", () => {
     // Near an edge: as far over as fits.
     const tall = cropToRatio({ x: 1800, y: 0, width: 100, height: 100 }, source, 9 / 16);
     expect(tall).toEqual({ x: 1312, y: 0, width: 608, height: 1080 });
+  });
+});
+
+describe("the grow", () => {
+  const none = fullFrame(source).grow;
+
+  it("keeps each side to whole pixels, 0 to the most", () => {
+    expect(growSide(none, "top", 150.6).top).toBe(151);
+    expect(growSide(none, "top", -20).top).toBe(0);
+    expect(growSide(none, "left", 1e9).left).toBe(MAX_GROW);
+  });
+
+  it("colours each side until grown sides meet, then one colour", () => {
+    let g = growSide(growSide(none, "top", 100), "bottom", 100);
+    expect(growMode(g)).toBe("each");
+    g = colourGrow(g, "bottom", "#ffffff");
+    expect(growColour(g, "top")).toBe("#000000");
+    expect(growColour(g, "bottom")).toBe("#ffffff");
+    // A side grown meets the top and bottom: one colour.
+    const meet = growSide(g, "left", 10);
+    expect(growMode(meet)).toBe("one");
+    expect(growColour(meet, "bottom")).toBe("#000000");
+    // A colour picked then is for all of it.
+    const red = colourGrow(meet, "left", "#ff0000");
+    expect(SIDES.map((s) => growColour(red, s))).toEqual(Array(4).fill("#ff0000"));
+    expect(red.colours).toEqual({});
+  });
+
+  it("is part of the document, and the same grow changes nothing", () => {
+    const doc = wholeSource(100, source);
+    const grown = setGrow(doc, growSide(doc.frame.grow, "top", 200));
+    expect(outputSize(grown.frame)).toEqual({ width: 1920, height: 1280 });
+    expect(setGrow(grown, { ...grown.frame.grow, colours: {} })).toBe(grown);
   });
 });
 

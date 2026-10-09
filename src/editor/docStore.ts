@@ -21,6 +21,7 @@ import {
   removeRanges,
   separateRanges,
   setCrop,
+  setGrow,
   setRange,
   shownRanges,
   split,
@@ -31,6 +32,7 @@ import {
   type RangeId,
 } from "./doc";
 import type { Rect, Size } from "./fit";
+import type { Grow } from "./frame";
 
 /** Oldest steps are dropped beyond this. */
 export const HISTORY_LIMIT = 200;
@@ -82,6 +84,8 @@ export interface DocState {
 
   /** Crops to `crop` (kept to the source). */
   crop: (crop: Rect) => boolean;
+  /** Grows the frame by `grow`. */
+  grow: (grow: Grow) => boolean;
 
   beginGesture: () => void;
   endGesture: () => void;
@@ -175,6 +179,7 @@ export const useDoc = create<DocState>()((set, get) => {
     removeRanges: () => apply(removeRanges),
     setPendingIn: (f) => set({ pendingIn: f }),
     crop: (crop) => apply((doc) => setCrop(doc, crop)),
+    grow: (grow) => apply((doc) => setGrow(doc, grow)),
 
     beginGesture: () => {
       if (!get().gestureStart) set({ gestureStart: get().doc });

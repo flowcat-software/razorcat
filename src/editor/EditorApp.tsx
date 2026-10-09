@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { commands, events, type Settings, type SourceInfo, type ThumbsInfo } from "../shared/ipc";
 import { CommandBar } from "./CommandBar";
-import { useCropKeys } from "./cropTool";
+import { useToolKeys } from "./cropTool";
 import { EmptyEditor } from "./EmptyEditor";
 import { useDoc } from "./docStore";
 import {
@@ -364,8 +364,8 @@ export function EditorApp() {
     return () => window.removeEventListener("keydown", onKey);
   }, [player]);
 
-  // C and V pick up the crop and select tools; arrows nudge the crop box.
-  useCropKeys(source !== null);
+  // V, C and G pick up the select, crop and grow tools; arrows nudge the crop box.
+  useToolKeys(source !== null);
 
   // Alt pressed and let go on its own (Alt+wheel scrolls the timeline) would reach the window
   // and put it in menu mode, which eats the next input: a Ctrl+wheel zoom did nothing. The page

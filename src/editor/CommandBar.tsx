@@ -16,9 +16,8 @@ interface Props {
   onOpen: () => void;
 }
 
-/** The tools that work on the picture, by the mockup; grow, text and arrow arrive in Phases 3.4
- * and 4. */
-const TOOLS: { id: Tool | "grow" | "text" | "arrow"; label: string; icon: ReactNode }[] = [
+/** The tools that work on the picture, by the mockup; text and arrow arrive in Phase 4. */
+const TOOLS: { id: Tool | "text" | "arrow"; label: string; icon: ReactNode }[] = [
   { id: "select", label: "Select (V)", icon: <path d="M5 3l14 8-6 2-3 6z" /> },
   {
     id: "crop",
@@ -101,7 +100,7 @@ export function CommandBar({ empty, exporting, settings, onOpen }: Props) {
             aria-label={t.label}
             aria-pressed={!empty && t.id === tool}
             title={t.label}
-            disabled={empty || (t.id !== "select" && t.id !== "crop")}
+            disabled={empty || t.id === "text" || t.id === "arrow"}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => useTool.getState().setTool(t.id as Tool)}
           >

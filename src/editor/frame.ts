@@ -8,7 +8,7 @@ import type { Rect, Size } from "./fit";
 export type Side = "top" | "bottom" | "left" | "right";
 export const SIDES: readonly Side[] = ["top", "bottom", "left", "right"];
 
-/** Space added round the cropped picture (Phase 3.4 edits it). */
+/** Space added round the cropped picture. */
 export interface Grow {
   top: number;
   bottom: number;
@@ -48,6 +48,46 @@ export const isCropped = (f: Frame) =>
   f.crop.height !== f.source.height;
 
 export const isGrown = (g: Grow) => SIDES.some((s) => g[s] > 0);
+
+/** The most a side grows, in px. */
+export const MAX_GROW = 4000;
+
+/**
+ * One colour per grown side while they don't meet (one side, or two opposite ones: black top,
+ * white bottom), or one colour for all once two grown sides share a corner (the mockup's rule).
+ */
+export function growMode(g: Grow): "each" | "one" {
+  const across = g.top > 0 || g.bottom > 0;
+  const along = g.left > 0 || g.right > 0;
+  return across && along ? "one" : "each";
+}
+
+/** The colour side `side` is drawn in. */
+export const growColour = (g: Grow, side: Side) =>
+  growMode(g) === "one" ? g.colour : (g.colours[side] ?? g.colour);
+
+/** `g` with `side` grown by `px`: whole pixels, 0 to `MAX_GROW`. */
+export function growSide(g: Grow, side: Side, px: number): Grow {
+  return { ...g, [side]: clamp(Math.round(px), 0, MAX_GROW) };
+}
+
+/**
+ * `g` with `colour` for `side`, or for all of it (`side` null, or once grown sides meet: one
+ * colour then).
+ */
+export function colourGrow(g: Grow, side: Side | null, colour: string): Grow {
+  if (side === null || growMode(g) === "one") return { ...g, colour, colours: {} };
+  return { ...g, colours: { ...g.colours, [side]: colour } };
+}
+
+/** The same grow: sizes and the colours as drawn. */
+export function sameGrow(a: Grow, b: Grow): boolean {
+  return (
+    SIDES.every((s) => a[s] === b[s]) &&
+    a.colour === b.colour &&
+    SIDES.every((s) => a.colours[s] === b.colours[s])
+  );
+}
 
 /** The export's size: the crop plus the grow. */
 export function outputSize(f: Frame): Size {

@@ -18,7 +18,7 @@
 // The frame (crop, and the space grown round it; frame.ts) is one for the whole project.
 
 import type { Rect, Size } from "./fit";
-import { fullFrame, keepCrop, type Frame } from "./frame";
+import { fullFrame, keepCrop, sameGrow, type Frame, type Grow } from "./frame";
 
 export type ClipId = number;
 
@@ -67,6 +67,12 @@ export function wholeSource(frames: number, size: Size = { width: 0, height: 0 }
     nextRangeId: 1,
     frame: fullFrame(size),
   };
+}
+
+/** Grows the frame by `grow`. The same document if nothing changes. */
+export function setGrow(doc: Doc, grow: Grow): Doc {
+  if (sameGrow(grow, doc.frame.grow)) return doc;
+  return { ...doc, frame: { ...doc.frame, grow } };
 }
 
 /** Crops to `crop` (kept to the source). The same document if nothing changes. */

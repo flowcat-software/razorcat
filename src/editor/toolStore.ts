@@ -4,8 +4,8 @@
 import { create } from "zustand";
 import type { DragSpeed } from "../shared/ipc";
 
-/** The picture's tools that work so far (grow, text and arrow come in Phases 3.4 and 4). */
-export type Tool = "select" | "crop";
+/** The picture's tools that work so far (text and arrow come in Phase 4). */
+export type Tool = "select" | "crop" | "grow";
 
 /** The crop's aspect ratios (the mockup's), as width / height; "free" holds none. */
 export const CROP_RATIOS = [
@@ -18,24 +18,39 @@ export const CROP_RATIOS = [
 
 export type CropRatioId = (typeof CROP_RATIOS)[number]["id"];
 
+export interface HeldView {
+  scale: number;
+  x: number;
+  y: number;
+}
+
 interface ToolState {
   tool: Tool;
   /** The crop box keeps this shape (picked in the options bar). */
   cropRatio: CropRatioId;
   /** Settings › Editing › Number drag speed. */
   dragSpeed: DragSpeed;
+  /**
+   * A grow handle is being dragged: the preview keeps its scale (CSS px per source px) and the
+   * picture where it is (its top-left in the preview), so the handle stays under the pointer as
+   * the frame grows round it.
+   */
+  held: HeldView | null;
   setTool: (tool: Tool) => void;
   setCropRatio: (id: CropRatioId) => void;
   setDragSpeed: (speed: DragSpeed) => void;
+  holdView: (view: HeldView | null) => void;
 }
 
 export const useTool = create<ToolState>()((set) => ({
   tool: "select",
   cropRatio: "free",
   dragSpeed: "normal",
+  held: null,
   setTool: (tool) => set({ tool }),
   setCropRatio: (cropRatio) => set({ cropRatio }),
   setDragSpeed: (dragSpeed) => set({ dragSpeed }),
+  holdView: (held) => set({ held }),
 }));
 
 /** Width / height the crop box is held to, if any. */

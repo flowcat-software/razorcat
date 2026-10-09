@@ -1,0 +1,193 @@
+/* The color picker and its popover (Vandal's, from its options.module.css). Markup's options
+   join this file in Phase 4. */
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow:
+    0 8px 24px rgb(0 0 0 / 0.16),
+    0 0 0 1px var(--border);
+}
+
+.menu svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
+
+/* An icon drawn filled, not stroked (the eyedropper). */
+.menu svg.filledIcon {
+  fill: currentColor;
+  stroke: none;
+}
+
+.dropdownRoot {
+  position: relative;
+  display: inline-flex;
+}
+
+/* A color: opens the picker. */
+.swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--control-border);
+}
+
+.swatch[aria-expanded="true"] {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 4px var(--accent);
+}
+
+.colorMenu {
+  width: 260px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 12px;
+  gap: 12px;
+  cursor: default;
+}
+
+.colorPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.svArea,
+.hueBar {
+  position: relative;
+  touch-action: none;
+  outline-offset: 2px;
+}
+
+.svArea {
+  height: 140px;
+  border-radius: 4px;
+  cursor: crosshair;
+}
+
+.hueRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hueBar {
+  flex-grow: 1;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+  cursor: pointer;
+}
+
+.areaThumb {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.colorFields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.colorPreview {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--control-border);
+}
+
+.colorField {
+  width: 36px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  outline: 0;
+  background: var(--control-bg);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.colorField:focus {
+  box-shadow:
+    inset 0 0 0 1px var(--control-border),
+    inset 0 -2px 0 var(--accent);
+}
+
+.hexField {
+  width: 76px;
+  flex-grow: 1;
+}
+
+.colorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.accentButton {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12px;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.accentButton:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.eyedropper {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: var(--button-bg);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  color: var(--text);
+}
+
+.eyedropper:hover {
+  background: var(--button-bg-hover);
+}
+
+.menu .eyedropper svg {
+  width: 16px;
+  height: 16px;
+}

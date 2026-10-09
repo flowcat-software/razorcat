@@ -369,9 +369,81 @@
   position: absolute;
 }
 
-/* The crop box's place: over the stage, so its handles reach past the picture. */
-.cropArea {
+/* The crop and grow tools' place: over the stage, so their handles reach past its edges. */
+.overStage {
   position: absolute;
+}
+
+/* The cropped picture's place in the frame; the grown space is round it. */
+.window {
+  position: absolute;
+  overflow: hidden;
+  background: #000;
+}
+
+/* A grown side, in its own colour (while grown sides don't meet). */
+.growSide {
+  position: absolute;
+}
+
+/* The grow tool (the mockup's): the picture's edge dashed, a bar on each side of the frame. */
+.growOverlay {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+
+.growPicture {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px dashed var(--accent);
+  pointer-events: none;
+}
+
+.growHandle {
+  position: absolute;
+  /* A wide grab area round a slim bar. */
+  padding: 8px;
+  background: var(--accent) content-box;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.growHandle:hover,
+.growHandle[data-held] {
+  filter: brightness(1.15);
+}
+
+.grow_top,
+.grow_bottom {
+  left: calc(50% - 22px);
+  width: 28px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.grow_left,
+.grow_right {
+  top: calc(50% - 22px);
+  width: 6px;
+  height: 28px;
+  cursor: ew-resize;
+}
+
+.grow_top {
+  top: -11px;
+}
+
+.grow_bottom {
+  bottom: -11px;
+}
+
+.grow_left {
+  left: -11px;
+}
+
+.grow_right {
+  right: -11px;
 }
 
 /* The crop box (Vandal's crop mode). */
