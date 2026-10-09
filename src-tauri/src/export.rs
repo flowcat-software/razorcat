@@ -4,7 +4,8 @@
 //! put back on the source's clock (from its first shown frame, as the grid counts), the `fps`
 //! filter puts it on the timeline's grid (the same rule the grid and the preview follow,
 //! grid.rs), and `trim` keeps the clip's grid frames. The audio is cut at the same times (all
-//! its tracks mixed, as the waveform shows them). The clips are joined with `concat`.
+//! its tracks mixed, as the waveform shows them). The clips are joined with `concat`, then the
+//! joined picture is cropped (the project's frame, frame.ts; its grow comes in Phase 3.5).
 //!
 //! The encoder is the machine's best that works, found at startup by trying each in turn
 //! (`probe`): NVIDIA's, AMD's, Intel's, Windows' own (Media Foundation), then libx264, which
@@ -35,6 +36,48 @@ pub struct ExportClip {
     #[serde(rename = "in")]
     pub from: u32,
     pub out: u32,
+}
+
+/// A part of the picture as shown (rotation applied), in its pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Type)]
+pub struct Crop {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// The project's frame, as the page sends it (the document's, frame.ts).
+#[derive(Debug, Clone, Copy, Deserialize, Type)]
+pub struct ExportFrame {
+    pub crop: Crop,
+}
+
+/// Where `crop` of a `width` × `height` picture lands: kept inside it, at even sizes (4:2:0 needs
+/// them: an odd one drops its last row or column rather than resample), at least 2 px.
+fn kept_crop(crop: Crop, width: u32, height: u32) -> Crop {
+    let x = crop.x.min(width.saturating_sub(2));
+    let y = crop.y.min(height.saturating_sub(2));
+    Crop {
+        x,
+        y,
+        width: crop.width.min(width - x).max(2) & !1,
+        height: crop.height.min(height - y).max(2) & !1,
+    }
+}
+
+/// The `crop` filter for `crop` of a `width` × `height` picture (as `kept_crop`); `None` for the
+/// whole picture. Exact: an odd `x` or `y` isn't moved onto the chroma's grid, so the export shows
+/// the pixels the preview does.
+fn crop_filter(crop: Crop, width: u32, height: u32) -> Option<String> {
+    let c = kept_crop(crop, width, height);
+    if c.x == 0 && c.y == 0 && c.width == width & !1 && c.height == height & !1 {
+        return None;
+    }
+    Some(format!(
+        "crop={}:{}:{}:{}:exact=1",
+        c.width, c.height, c.x, c.y
+    ))
 }
 
 /// Rust → editor: an export is this far along.
@@ -162,18 +205,21 @@ fn cuts(starts: &[f64], clips: &[ExportClip]) -> Vec<Cut> {
 
 /// The ffmpeg arguments for `cuts` of `path`, up to the output file: inputs, the graph, the
 /// encoder and the container.
+#[allow(clippy::too_many_arguments)]
 fn args(
     path: &Path,
     cuts: &[Cut],
     rate: Rate,
     origin: f64,
     audio_tracks: u32,
+    crop: Option<&str>,
     encoder: Encoder,
     bitrate: u64,
 ) -> Vec<OsString> {
-    // Even dimensions, as 4:2:0 needs.
+    // Even dimensions, as 4:2:0 needs (for a source of odd size, uncropped).
     let last = format!(
-        "scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,format={}",
+        "{}scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,format={}",
+        then(crop),
         encoder.pixels()
     );
     let mut a = graph(path, cuts, rate, origin, audio_tracks, &last);
@@ -202,6 +248,7 @@ fn gif_args(
     cuts: &[Cut],
     rate: Rate,
     origin: f64,
+    crop: Option<&str>,
     gif_fps: u32,
     size: u32,
 ) -> Vec<OsString> {
@@ -213,10 +260,18 @@ fn gif_args(
             "scale='if(gte(iw,ih),min({size},iw),-2)':'if(gte(iw,ih),-2,min({size},ih))':flags=lanczos"
         )
     };
-    let last = format!("fps={gif_fps},{scale},setsar=1,format=yuv420p");
+    let last = format!(
+        "{}fps={gif_fps},{scale},setsar=1,format=yuv420p",
+        then(crop)
+    );
     let mut a = graph(path, cuts, rate, origin, 0, &last);
     a.extend(["-f", "yuv4mpegpipe", "-"].map(OsString::from));
     a
+}
+
+/// `filter` and a comma, to go first in a chain; nothing if there's none.
+fn then(filter: Option<&str>) -> String {
+    filter.map(|f| format!("{f},")).unwrap_or_default()
 }
 
 /// The inputs and the graph for `cuts`, mapped: the joined picture through `last` (a filter
@@ -422,6 +477,7 @@ fn prepare(
 pub fn render(
     app: &AppHandle,
     clips: &[ExportClip],
+    frame: ExportFrame,
     output: &Path,
     format: Format,
     progress: impl FnMut(f64),
@@ -429,8 +485,8 @@ pub fn render(
 ) -> Result<Outcome, String> {
     let started = Instant::now();
     let done = match format {
-        Format::Mp4 => render_mp4(app, clips, output, progress, stop),
-        Format::Gif => render_gif(app, clips, output, progress, stop),
+        Format::Mp4 => render_mp4(app, clips, frame, output, progress, stop),
+        Format::Gif => render_gif(app, clips, frame, output, progress, stop),
     }?;
     if matches!(done, Outcome::Finished) {
         eprintln!(
@@ -446,13 +502,16 @@ pub fn render(
 fn render_mp4(
     app: &AppHandle,
     clips: &[ExportClip],
+    frame: ExportFrame,
     output: &Path,
     mut progress: impl FnMut(f64),
     stop: &AtomicBool,
 ) -> Result<Outcome, String> {
     let (input, cuts) = prepare(app, clips, output)?;
     let frames: u64 = clips.iter().map(|c| u64::from(c.out - c.from)).sum();
-    let rate = bitrate(input.width, input.height, input.rate.fps());
+    let crop = crop_filter(frame.crop, input.width, input.height);
+    let size = kept_crop(frame.crop, input.width, input.height);
+    let rate = bitrate(size.width, size.height, input.rate.fps());
     let mut last = String::new();
     for encoder in encoders(app) {
         let a = args(
@@ -461,6 +520,7 @@ fn render_mp4(
             input.rate,
             input.starts[0],
             input.audio_tracks,
+            crop.as_deref(),
             encoder,
             rate,
         );
@@ -485,6 +545,7 @@ fn render_mp4(
 fn render_gif(
     app: &AppHandle,
     clips: &[ExportClip],
+    frame: ExportFrame,
     output: &Path,
     mut progress: impl FnMut(f64),
     stop: &AtomicBool,
@@ -512,6 +573,7 @@ fn render_gif(
             &cuts,
             input.rate,
             input.starts[0],
+            crop_filter(frame.crop, input.width, input.height).as_deref(),
             gif_fps,
             size,
         ))
@@ -634,6 +696,7 @@ fn y4m_size(header: &str) -> Option<(usize, usize)> {
 /// A file to write: its clips, where, and as what.
 pub struct Job {
     pub clips: Vec<ExportClip>,
+    pub frame: ExportFrame,
     pub output: PathBuf,
     pub format: Format,
 }
@@ -666,7 +729,15 @@ pub fn start(app: &AppHandle, jobs: Vec<Job>) -> bool {
                 .emit_to(&app, LABEL);
             };
             progress(0.0);
-            match render(&app, &job.clips, &job.output, job.format, progress, &stop) {
+            match render(
+                &app,
+                &job.clips,
+                job.frame,
+                &job.output,
+                job.format,
+                progress,
+                &stop,
+            ) {
                 Ok(Outcome::Finished) => {
                     bytes += std::fs::metadata(&job.output).map_or(0.0, |m| m.len() as f64);
                     files.push(job.output.display().to_string());
@@ -833,6 +904,7 @@ fn free_name(folder: &Path, name: &str) -> PathBuf {
 pub fn ask_and_export(
     app: &AppHandle,
     clips: Vec<ExportClip>,
+    frame: ExportFrame,
     clip: Option<u32>,
     format: Format,
 ) -> bool {
@@ -852,6 +924,7 @@ pub fn ask_and_export(
             app,
             vec![Job {
                 clips,
+                frame,
                 output,
                 format,
             }],
@@ -890,6 +963,7 @@ pub fn ask_and_export(
         app,
         vec![Job {
             clips,
+            frame,
             output,
             format,
         }],
@@ -898,7 +972,12 @@ pub fn ask_and_export(
 
 /// Asks for a folder, then exports each clip as its own file there (named by its number; a
 /// name already taken gets one of its own).
-pub fn ask_and_export_each(app: &AppHandle, clips: Vec<ExportClip>, format: Format) -> bool {
+pub fn ask_and_export_each(
+    app: &AppHandle,
+    clips: Vec<ExportClip>,
+    frame: ExportFrame,
+    format: Format,
+) -> bool {
     use tauri_plugin_dialog::DialogExt;
     let Some((stem, source_folder)) = stem(app).filter(|_| !busy(app)) else {
         return false;
@@ -931,6 +1010,7 @@ pub fn ask_and_export_each(app: &AppHandle, clips: Vec<ExportClip>, format: Form
         .map(|c| Job {
             output: free_name(&folder, &export_name(&names, &stem, Some(c.id), format)),
             clips: vec![c],
+            frame,
             format,
         })
         .collect();
@@ -989,6 +1069,7 @@ mod tests {
             rate,
             0.0,
             1,
+            None,
             Encoder::X264,
             6_000_000,
         ));
@@ -1019,6 +1100,7 @@ mod tests {
             rate,
             0.0,
             2,
+            None,
             Encoder::Nvenc,
             6_000_000,
         ));
@@ -1029,6 +1111,7 @@ mod tests {
             rate,
             0.0,
             0,
+            None,
             Encoder::Nvenc,
             6_000_000,
         ));
@@ -1052,6 +1135,7 @@ mod tests {
             rate,
             0.1,
             1,
+            None,
             Encoder::X264,
             6_000_000,
         ));
@@ -1118,13 +1202,62 @@ mod tests {
             out: 30,
         }];
         let rate = Rate { num: 30, den: 1 };
-        let a = joined(&gif_args(Path::new("in.mp4"), &c, rate, 0.0, 20, 640));
+        let a = joined(&gif_args(Path::new("in.mp4"), &c, rate, 0.0, None, 20, 640));
         assert!(a.contains(
             "[v0]concat=n=1:v=1:a=0[vc];[vc]fps=20,scale='if(gte(iw,ih),min(640,iw),-2)'"
         ));
         assert!(a.ends_with("-map [vout] -f yuv4mpegpipe -"));
-        let whole = joined(&gif_args(Path::new("in.mp4"), &c, rate, 0.0, 25, 0));
+        let whole = joined(&gif_args(Path::new("in.mp4"), &c, rate, 0.0, None, 25, 0));
         assert!(whole.contains("fps=25,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos"));
+    }
+
+    #[test]
+    fn the_crop_is_exact_and_even_and_the_whole_picture_isnt_one() {
+        let crop = |x, y, width, height| Crop {
+            x,
+            y,
+            width,
+            height,
+        };
+        assert_eq!(crop_filter(crop(0, 0, 1920, 1080), 1920, 1080), None);
+        assert_eq!(
+            crop_filter(crop(241, 37, 1441, 811), 1920, 1080).as_deref(),
+            Some("crop=1440:810:241:37:exact=1")
+        );
+        // Kept inside the picture; at least 2 px.
+        assert_eq!(
+            crop_filter(crop(1900, 0, 500, 1), 1920, 1080).as_deref(),
+            Some("crop=20:2:1900:0:exact=1")
+        );
+        // An odd-sized source, uncropped: the scale evens it, as before.
+        assert_eq!(crop_filter(crop(0, 0, 1081, 721), 1081, 721), None);
+        let c = [Cut {
+            seek: 0.0,
+            from: 0,
+            out: 30,
+        }];
+        let rate = Rate { num: 30, den: 1 };
+        let a = joined(&args(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            0,
+            Some("crop=1440:810:241:37:exact=1"),
+            Encoder::X264,
+            6_000_000,
+        ));
+        assert!(a.contains("[vc]crop=1440:810:241:37:exact=1,scale=trunc(iw/2)*2"));
+        let g = joined(&gif_args(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            Some("crop=2:2:0:0:exact=1"),
+            20,
+            640,
+        ));
+        assert!(g.contains("[vc]crop=2:2:0:0:exact=1,fps=20,"));
     }
 
     #[test]

@@ -162,11 +162,12 @@ pub fn cancel_conversion(app: AppHandle) {
 pub async fn export(
     app: AppHandle,
     clips: Vec<crate::export::ExportClip>,
+    frame: crate::export::ExportFrame,
     clip: Option<u32>,
     format: crate::export::Format,
 ) -> bool {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::export::ask_and_export(&app, clips, clip, format)
+        crate::export::ask_and_export(&app, clips, frame, clip, format)
     })
     .await
     .unwrap_or(false)
@@ -178,10 +179,11 @@ pub async fn export(
 pub async fn export_each(
     app: AppHandle,
     clips: Vec<crate::export::ExportClip>,
+    frame: crate::export::ExportFrame,
     format: crate::export::Format,
 ) -> bool {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::export::ask_and_export_each(&app, clips, format)
+        crate::export::ask_and_export_each(&app, clips, frame, format)
     })
     .await
     .unwrap_or(false)
@@ -225,8 +227,10 @@ pub async fn frame_check_expected(app: AppHandle) -> Result<Vec<u32>, String> {
 pub async fn frame_check_export(
     app: AppHandle,
     clips: Vec<crate::export::ExportClip>,
+    frame: crate::export::ExportFrame,
+    cells: u32,
 ) -> Result<Vec<u32>, String> {
-    tauri::async_runtime::spawn_blocking(move || crate::check::exported(&app, &clips))
+    tauri::async_runtime::spawn_blocking(move || crate::check::exported(&app, &clips, frame, cells))
         .await
         .map_err(|e| e.to_string())?
 }

@@ -8,11 +8,13 @@
 // Edited (`--check-edit`), the timeline is cut up first (split four times, a piece deleted,
 // another moved to the front), the steps and seeks cross the cuts, and a last pass plays across
 // them, reading every picture presented: none may come from anywhere but the next frames of the
-// edit (nothing cut out, nothing out of order).
+// edit (nothing cut out, nothing out of order). Then the edit is exported, whole and cropped: two
+// barcode cells off each side and the top quarter off (odd sizes, which export evens), so the
+// export must show the twelve cells between, from the frame the preview shows.
 import { commands } from "../shared/ipc";
 import { clipStarts, total } from "./doc";
 import { useDoc } from "./docStore";
-import { exportClips } from "./exports";
+import { exportClips, exportFrame } from "./exports";
 import type { Player } from "./player";
 
 /** The barcode: cells along the bottom sixteenth of the picture, least significant on the left. */
@@ -216,16 +218,33 @@ export async function checkFrames(
 
     // Export = preview: the edit exported (as Export does), every frame of it.
     progress("Checking frames: exporting the edit…");
-    const exported = await commands.frameCheckExport(exportClips(useDoc.getState().doc));
-    if (exported.status === "error") throw new Error(exported.error);
-    const shownFrames = exported.data;
-    let wrongExport = 0;
-    for (let k = 0; k < Math.max(n, shownFrames.length); k++) {
-      if (shownFrames[k] === want(k)) continue;
-      wrongExport++;
-      misses.push({ pass: "export", frame: k, expected: want(k), shown: shownFrames[k] ?? -1 });
-    }
-    passes.push({ pass: "export", checked: n, misses: wrongExport, covered: 0 });
+    const exportPass = async (pass: string, cells: number, expect: (k: number) => number) => {
+      const { doc } = useDoc.getState();
+      const exported = await commands.frameCheckExport(exportClips(doc), exportFrame(doc), cells);
+      if (exported.status === "error") throw new Error(exported.error);
+      const shownFrames = exported.data;
+      let wrong = 0;
+      for (let k = 0; k < Math.max(n, shownFrames.length); k++) {
+        if (shownFrames[k] === expect(k)) continue;
+        wrong++;
+        misses.push({ pass, frame: k, expected: expect(k), shown: shownFrames[k] ?? -1 });
+      }
+      passes.push({ pass, checked: n, misses: wrong, covered: 0 });
+    };
+    await exportPass("export", BITS, want);
+
+    // Cropped: cells 2 to 13 left, the top quarter gone; odd sizes and an odd top.
+    progress("Checking frames: exporting the edit cropped…");
+    const { width, height } = shown;
+    const top = Math.round(height / 4) + 1;
+    useDoc.getState().crop({
+      x: Math.round((width * 2) / BITS),
+      y: top,
+      width: Math.round((width * 12) / BITS) + 1,
+      height: height - top,
+    });
+    await exportPass("export cropped", 12, (k) => (want(k) >> 2) & 0xfff);
+    useDoc.getState().crop({ x: 0, y: 0, width, height });
   }
 
   const wrongs = misses.length;

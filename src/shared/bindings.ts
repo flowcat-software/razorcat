@@ -103,9 +103,9 @@ export const commands = {
 	 *  [`crate::export::ExportEnded`]). False if it didn't start (the dialog cancelled, or an export
 	 *  under way).
 	 */
-	export: (clips: ExportClip[], clip: number | null, format: Format) => __TAURI_INVOKE<boolean>("export", { clips, clip, format }),
+	export: (clips: ExportClip[], frame: ExportFrame, clip: number | null, format: Format) => __TAURI_INVOKE<boolean>("export", { clips, frame, clip, format }),
 	/**  Exports each clip as its own file, into a folder the user picks. */
-	exportEach: (clips: ExportClip[], format: Format) => __TAURI_INVOKE<boolean>("export_each", { clips, format }),
+	exportEach: (clips: ExportClip[], frame: ExportFrame, format: Format) => __TAURI_INVOKE<boolean>("export_each", { clips, frame, format }),
 	/**  The status bar's Cancel: stops the export under way. */
 	cancelExport: () => __TAURI_INVOKE<void>("cancel_export"),
 	/**  Shows a file in Explorer, selected (after an export). */
@@ -114,7 +114,7 @@ export const commands = {
 	 *  Development: exports `clips` to a temporary file and reads back each frame's barcode (the
 	 *  export check, check.rs).
 	 */
-	frameCheckExport: (clips: ExportClip[]) => typedError<number[], string>(__TAURI_INVOKE("frame_check_export", { clips })),
+	frameCheckExport: (clips: ExportClip[], frame: ExportFrame, cells: number) => typedError<number[], string>(__TAURI_INVOKE("frame_check_export", { clips, frame, cells })),
 };
 
 /** Events */
@@ -179,6 +179,14 @@ export type ConvertProgress = {
 	done: number | null,
 };
 
+/**  A part of the picture as shown (rotation applied), in its pixels. */
+export type Crop = {
+	x: number,
+	y: number,
+	width: number,
+	height: number,
+};
+
 /**  How fast a number field's value changes as it's dragged: scales the mouse's speed. */
 export type DragSpeed = "verySlow" | "slow" | "normal" | "fast" | "veryFast";
 
@@ -224,6 +232,11 @@ export type ExportEnded = {
 	/**  Their size together. */
 	bytes: number | null,
 	message: string | null,
+};
+
+/**  The project's frame, as the page sends it (the document's, frame.ts). */
+export type ExportFrame = {
+	crop: Crop,
 };
 
 /**  Rust → editor: an export is this far along. */

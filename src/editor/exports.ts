@@ -9,20 +9,26 @@ export type ExportFormat = "mp4" | "gif";
 /** The clips as export reads them: their numbers and source frames, in timeline order. */
 export const exportClips = (doc: Doc) => doc.clips.map((c) => ({ id: c.id, in: c.in, out: c.out }));
 
+/** The project's frame as export reads it: the crop (the grow joins in Phase 3.5). */
+export const exportFrame = (doc: Doc) => ({ crop: doc.frame.crop });
+
 /** The whole timeline, as one file (Ctrl+E: MP4). */
 export function exportTimeline(format: ExportFormat = "mp4") {
-  void commands.export(exportClips(useDoc.getState().doc), null, format);
+  const { doc } = useDoc.getState();
+  void commands.export(exportClips(doc), exportFrame(doc), null, format);
 }
 
 /** One clip, as its own file. */
 export function exportClip(id: ClipId, format: ExportFormat = "mp4") {
-  const clips = exportClips(useDoc.getState().doc).filter((c) => c.id === id);
-  if (clips.length) void commands.export(clips, id, format);
+  const { doc } = useDoc.getState();
+  const clips = exportClips(doc).filter((c) => c.id === id);
+  if (clips.length) void commands.export(clips, exportFrame(doc), id, format);
 }
 
 /** Each clip as its own file, into a folder. */
 export function exportEach(format: ExportFormat = "mp4") {
-  void commands.exportEach(exportClips(useDoc.getState().doc), format);
+  const { doc } = useDoc.getState();
+  void commands.exportEach(exportClips(doc), exportFrame(doc), format);
 }
 
 /** A GIF this big (bytes) gets a word about its size. */

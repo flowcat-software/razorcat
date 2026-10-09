@@ -1,7 +1,8 @@
 //! Development: the preview = export check (PLAN 1.8). `driveby --check-frames <file>` opens a
 //! barcoded test clip (`spikes/make-test-media.mjs`) and the page steps and seeks the preview
 //! over it, reading the barcode of the frame on screen; `--check-edit` does it on an edited
-//! timeline (clips cut out and moved), plays across the cuts, and exports it (export = preview).
+//! timeline (clips cut out and moved), plays across the cuts, and exports it (export = preview),
+//! then again cropped.
 //! Here: the frames export would pick (the `fps` filter over the original, as export reads it),
 //! the edit's export read back frame by frame, and the report. Release builds do none of it.
 
@@ -16,7 +17,7 @@ use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use crate::editor::LABEL;
-use crate::export::ExportClip;
+use crate::export::{ExportClip, ExportFrame};
 use crate::ffmpeg::{self, Outcome};
 use crate::state::AppState;
 
@@ -89,26 +90,41 @@ pub fn expected(app: &AppHandle) -> Result<Vec<u32>, String> {
     }
     let bytes = fs::read(&out).map_err(|e| e.to_string());
     let _ = fs::remove_file(&out);
-    Ok(barcodes(&bytes?))
+    Ok(barcodes(&bytes?, BITS))
 }
 
-/// Exports `clips` of the open source (export.rs, as a real export) to a temporary file, then
-/// reads each of its frames' barcodes: what the edit's export shows, frame by frame.
-pub fn exported(app: &AppHandle, clips: &[ExportClip]) -> Result<Vec<u32>, String> {
+/// Exports `clips` of the open source in `frame` (export.rs, as a real export) to a temporary
+/// file, then reads each of its frames' barcodes: what the edit's export shows, frame by frame.
+/// `cells`: how many of the barcode's cells the export's width holds (fewer, cropped at the
+/// sides: the number read is the cells left).
+pub fn exported(
+    app: &AppHandle,
+    clips: &[ExportClip],
+    frame: ExportFrame,
+    cells: u32,
+) -> Result<Vec<u32>, String> {
     if !cfg!(debug_assertions) {
         return Err("development only".into());
     }
     let dir = std::env::temp_dir();
     let file = dir.join("driveby-check-export.mp4");
     let stop = AtomicBool::new(false);
-    match crate::export::render(app, clips, &file, crate::export::Format::Mp4, |_| {}, &stop)? {
+    match crate::export::render(
+        app,
+        clips,
+        frame,
+        &file,
+        crate::export::Format::Mp4,
+        |_| {},
+        &stop,
+    )? {
         Outcome::Finished => {}
         Outcome::Stopped => return Err("stopped".into()),
     }
     let out = dir.join("driveby-check-export.gray");
     let mut args: Vec<OsString> = vec!["-i".into(), file.clone().into()];
     args.extend(["-map", "0:v:0", "-an", "-vf"].map(OsString::from));
-    args.push(format!("crop=iw:ih/16:0:ih-ih/16,scale={BITS}:1:flags=area,format=gray").into());
+    args.push(format!("crop=iw:ih/16:0:ih-ih/16,scale={cells}:1:flags=area,format=gray").into());
     args.extend(["-fps_mode", "passthrough", "-f", "rawvideo"].map(OsString::from));
     match ffmpeg::run(&args, &out, None, |_| {}, || false)? {
         Outcome::Finished => {}
@@ -117,13 +133,13 @@ pub fn exported(app: &AppHandle, clips: &[ExportClip]) -> Result<Vec<u32>, Strin
     let bytes = fs::read(&out).map_err(|e| e.to_string());
     let _ = fs::remove_file(&out);
     let _ = fs::remove_file(&file);
-    Ok(barcodes(&bytes?))
+    Ok(barcodes(&bytes?, cells as usize))
 }
 
-/// The numbers in `BITS`-byte rows of grey cells.
-fn barcodes(bytes: &[u8]) -> Vec<u32> {
+/// The numbers in `cells`-byte rows of grey cells.
+fn barcodes(bytes: &[u8], cells: usize) -> Vec<u32> {
     bytes
-        .chunks_exact(BITS)
+        .chunks_exact(cells)
         .map(|cells| {
             cells
                 .iter()
@@ -163,8 +179,10 @@ mod tests {
         row[2] = 200;
         row[1] = 90;
         row[16 + 15] = 180;
-        assert_eq!(barcodes(&row), [5, 32768]);
+        assert_eq!(barcodes(&row, BITS), [5, 32768]);
         // A part row is ignored.
-        assert_eq!(barcodes(&row[..20]), [5]);
+        assert_eq!(barcodes(&row[..20], BITS), [5]);
+        // Fewer cells (cropped at the sides).
+        assert_eq!(barcodes(&row[..24], 12), [5, 0]);
     }
 }
