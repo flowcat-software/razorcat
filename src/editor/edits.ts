@@ -1,6 +1,6 @@
 // The timeline's edits, as the keys and buttons invoke them: on the document (docStore.ts) at the
 // player's playhead.
-import { clipStarts, editPoints } from "./doc";
+import { clipStarts, editPoints, shownRanges } from "./doc";
 import { useDoc } from "./docStore";
 import type { Player } from "./player";
 
@@ -21,10 +21,16 @@ export function deleteSelected() {
   else if (selected !== null) remove(selected);
 }
 
-/** R: adds a range of 2 seconds from the playhead (less at the end), selected. */
+/**
+ * R: adds a range of 2 seconds from the playhead (less at the end), selected. Nothing with the
+ * playhead on or in a range already.
+ */
 export function addRangeAtPlayhead(player: Player) {
   const f = player.getState().frame;
-  useDoc.getState().addRange(f, f + Math.round(2 * player.fps));
+  const { doc, addRange } = useDoc.getState();
+  // On or in a range already: nothing, rather than another range over it (Richard).
+  if (shownRanges(doc).some((r) => r.a <= f && f <= r.b)) return;
+  addRange(f, f + Math.round(2 * player.fps));
 }
 
 /** I: a pending in-point at the playhead; O makes the range, Esc drops it. */

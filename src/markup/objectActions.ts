@@ -2,19 +2,22 @@
 // and the objects' right-click menu.
 
 import { translateAnnotation } from "./geometry";
-import { docStore } from "./model/store";
+import { docStore, selectedAnnotations } from "./model/store";
 import type { Annotation, AnnotationId, Doc, NewAnnotation, StepAnnotation } from "./model/types";
 import { nextStepSeq, stepsOf } from "./steps";
 import { stepNumbering } from "./styles";
 
-/** Duplicates land this far (source px) down-right of the original. */
-const DUPLICATE_OFFSET = 10;
+/**
+ * Duplicates land this far (source px) down-right of the original: in Driveby, on it (Richard),
+ * since a copy usually goes on at another time, in another lane.
+ */
+const DUPLICATE_OFFSET = 0;
 
 /** Duplicate the selection as one undo step and select the copies. False: nothing selected. */
 export function duplicateSelection(): boolean {
-  const store = docStore.getState();
-  if (!store.selection.length) return false;
-  const picked = store.doc.annotations.filter((a) => store.selection.includes(a.id));
+  // Driveby: what's selected on the timeline too, not only what's at the playhead.
+  const picked = selectedAnnotations();
+  if (!picked.length) return false;
   addCopies(picked.map((a) => translateAnnotation(a, DUPLICATE_OFFSET, DUPLICATE_OFFSET)));
   return true;
 }
@@ -39,7 +42,8 @@ export function addCopies(annotations: readonly Annotation[]): AnnotationId[] {
       copy.seq = firstSeq + stepOrder.indexOf(a as StepAnnotation);
       if (numbering) Object.assign(copy, numbering);
     }
-    return store.add(copy);
+    // When the original is (Driveby: the copy lasts as long, from the same frame).
+    return store.add(copy, a.id);
   });
   store.endGesture();
   store.select(ids);

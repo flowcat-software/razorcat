@@ -189,6 +189,11 @@ export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Pro
           scale={scale}
           offset={{ x: stage.x, y: stage.y }}
           interactive={tool !== "grow"}
+          // Resized boxes snap to the frame's edges, and the picture's in a grown frame.
+          snapTo={{
+            x: [0, grow.left, grow.left + shown.width, out.width],
+            y: [0, grow.top, grow.top + shown.height, out.height],
+          }}
         />
       )}
       {tool === "grow" && (

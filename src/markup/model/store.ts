@@ -41,8 +41,11 @@ export interface DocState {
    * nothing loaded allows (Vandal's tests start this way).
    */
   load: (doc: Doc) => void;
-  /** Adds markup showing `annotation` at the playhead; its id. */
-  add: (annotation: NewAnnotation) => AnnotationId;
+  /**
+   * Adds markup showing `annotation`: at the playhead, or, given the markup it copies (`like`),
+   * when that is; in a free lane. Its id.
+   */
+  add: (annotation: NewAnnotation, like?: AnnotationId) => AnnotationId;
   update: (id: AnnotationId, update: (a: Annotation) => Annotation) => void;
   remove: (ids: readonly AnnotationId[]) => void;
   /** Moves markup up or down the lanes (the top lane is in front). */
@@ -143,10 +146,13 @@ export const docStore = createStore<DocState>()(() => ({
     for (const a of doc.annotations) useEdit.getState().addMark(objectOf(a), 0, TEST_FRAMES, 0);
     useEdit.setState({ past: [], future: [] });
   },
-  add: (annotation) => {
+  add: (annotation, like) => {
     const edit = useEdit.getState();
-    const frame = player?.getState().frame ?? 0;
-    const length = Math.round(NEW_MARK_SECONDS * (player?.fps ?? 30));
+    const original = like && shownMarks(edit.doc).find((m) => m.id === markId(like));
+    const frame = original ? original.start : (player?.getState().frame ?? 0);
+    const length = original
+      ? original.end - original.start
+      : Math.round(NEW_MARK_SECONDS * (player?.fps ?? 30));
     player?.pause();
     const id = edit.addMark(annotation, frame, length, freeLane(edit.doc, frame, frame + length));
     return id === null ? "" : annotationId(id);
@@ -192,6 +198,18 @@ export const docStore = createStore<DocState>()(() => ({
 
   select: (ids) => useEdit.getState().selectMarks(ids.map(markId)),
 }));
+
+/**
+ * All the selected markup as annotations, showing at the playhead or not (selected on the
+ * timeline): what duplicating copies.
+ */
+export function selectedAnnotations(): Annotation[] {
+  const edit = useEdit.getState();
+  const shown = new Set(shownMarks(edit.doc).map((m) => m.id));
+  return edit.doc.marks
+    .filter((m) => edit.selectedMarks.includes(m.id) && shown.has(m.id))
+    .map((m) => annotationOf(m.id, m.object));
+}
 
 // The view follows the edit.
 useEdit.subscribe(refresh);

@@ -145,7 +145,15 @@ interface Props {
    * "pass", is left to the host (quick edit moves the selection).
    */
   emptyPress?: "marquee" | "pass";
+  /**
+   * Driveby: lines a resized box's edges snap to, in source px (the frame's edges, the
+   * picture's). Alt turns it off for a drag.
+   */
+  snapTo?: { x: number[]; y: number[] };
 }
+
+/** How near (CSS px) a resized box's edge snaps to a line in `snapTo`. */
+const EDGE_SNAP = 8;
 
 type Drag =
   | {
@@ -229,6 +237,7 @@ export function MarkupLayer({
   interactive,
   clip,
   emptyPress = "marquee",
+  snapTo,
 }: Props) {
   const doc = useDoc((s) => s.doc);
   const selection = useDoc((s) => s.selection);
@@ -237,6 +246,10 @@ export function MarkupLayer({
   const labelEditing = useToolStore((s) => s.labelEditing);
   const drawingToolsSelect = useStyleConfig((s) => s.drawingToolsSelect);
   const [ctrlHeld, setCtrlHeld] = useState(false);
+  /** Alt held: a resize doesn't snap. */
+  const altHeld = useRef(false);
+  /** Where a resized edge snapped, in stage px, for the guide lines. */
+  const [snapGuide, setSnapGuide] = useState<{ x: number | null; y: number | null } | null>(null);
   /** What the pointer last hovered, so the cursor can follow Ctrl without a move. */
   const hovered = useRef("");
   const stageRef = useRef<Konva.Stage>(null);
@@ -351,8 +364,12 @@ export function MarkupLayer({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Control") setCtrlHeld(e.type === "keydown");
+      if (e.key === "Alt") altHeld.current = e.type === "keydown";
     };
-    const reset = () => setCtrlHeld(false);
+    const reset = () => {
+      setCtrlHeld(false);
+      altHeld.current = false;
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKey);
     window.addEventListener("blur", reset);
@@ -867,6 +884,64 @@ export function MarkupLayer({
     editStepLabel(e.target.id());
   };
 
+  /**
+   * Driveby: a resize's moving edges snap to `snapTo`'s lines when they come within
+   * {@link EDGE_SNAP} of one (upright boxes only; Alt off). The boxes are in stage px.
+   */
+  const snapEdges = <
+    B extends { x: number; y: number; width: number; height: number; rotation: number },
+  >(
+    oldBox: B,
+    newBox: B,
+  ): B => {
+    const anchor = trRef.current?.getActiveAnchor() ?? "";
+    if (!snapTo || altHeld.current || anchor === "rotater" || Math.abs(newBox.rotation) > 1e-3) {
+      if (snapGuide) setSnapGuide(null);
+      return newBox;
+    }
+    const { scale: k, offset: o } = view.current;
+    const near = (v: number, lines: number[]) => lines.find((l) => Math.abs(l - v) <= EDGE_SNAP);
+    const xs = snapTo.x.map((v) => o.x + v * k);
+    const ys = snapTo.y.map((v) => o.y + v * k);
+    const b = { ...newBox };
+    let gx: number | null = null;
+    let gy: number | null = null;
+    const moved = (a: number, c: number) => Math.abs(a - c) > 1e-6;
+    // Which edges the handle moves: its name says (e.g. "middle-left", "top-right").
+    if (anchor.includes("left") && moved(b.x, oldBox.x)) {
+      const t = near(b.x, xs);
+      if (t !== undefined) {
+        b.width += b.x - t;
+        b.x = t;
+        gx = t;
+      }
+    } else if (anchor.includes("right")) {
+      const t = near(b.x + b.width, xs);
+      if (t !== undefined) {
+        b.width = t - b.x;
+        gx = t;
+      }
+    }
+    if (anchor.startsWith("top") && moved(b.y, oldBox.y)) {
+      const t = near(b.y, ys);
+      if (t !== undefined) {
+        b.height += b.y - t;
+        b.y = t;
+        gy = t;
+      }
+    } else if (anchor.startsWith("bottom")) {
+      const t = near(b.y + b.height, ys);
+      if (t !== undefined) {
+        b.height = t - b.y;
+        gy = t;
+      }
+    }
+    if (b.width < 2 || b.height < 2) return newBox;
+    if (gx !== (snapGuide?.x ?? null) || gy !== (snapGuide?.y ?? null))
+      setSnapGuide(gx === null && gy === null ? null : { x: gx, y: gy });
+    return b;
+  };
+
   /** Turn the transformer's scale into real size, so strokes keep their width. */
   const bakeTransform = () => {
     const store = docStore.getState();
@@ -1042,7 +1117,9 @@ export function MarkupLayer({
             rotationSnapTolerance={ROTATION_SNAP}
             rotateAnchorCursor={ROTATE_CURSOR}
             boundBoxFunc={(oldBox, newBox) =>
-              Math.abs(newBox.width) < 2 || Math.abs(newBox.height) < 2 ? oldBox : newBox
+              Math.abs(newBox.width) < 2 || Math.abs(newBox.height) < 2
+                ? oldBox
+                : snapEdges(oldBox, newBox)
             }
             onTransformStart={() => {
               docStore.getState().beginGesture();
@@ -1090,6 +1167,7 @@ export function MarkupLayer({
             }}
             onTransformEnd={() => {
               setDragHint(null);
+              setSnapGuide(null);
               bakeTransform();
               // The callouts are where they belong now: stand their stand-ins
               // back up, around them.
@@ -1182,6 +1260,24 @@ export function MarkupLayer({
                 offset={offset}
               />
             ) : null,
+          )}
+          {snapGuide?.x != null && (
+            <Line
+              points={[snapGuide.x, 0, snapGuide.x, height]}
+              stroke={CHROME}
+              strokeWidth={1}
+              dash={[4, 3]}
+              listening={false}
+            />
+          )}
+          {snapGuide?.y != null && (
+            <Line
+              points={[0, snapGuide.y, width, snapGuide.y]}
+              stroke={CHROME}
+              strokeWidth={1}
+              dash={[4, 3]}
+              listening={false}
+            />
           )}
           {marquee && (
             <KRect

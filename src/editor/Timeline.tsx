@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { duplicateSelection } from "../markup/objectActions";
 import type { SourceInfo, ThumbsInfo } from "../shared/ipc";
 import type { Player } from "./player";
 import { ThumbStrip } from "./thumbs";
@@ -1170,7 +1171,10 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
             setMenu({
               x: e.clientX,
               y: e.clientY,
-              items: [{ label: "Delete", hint: "Delete", run: deleteSelected }],
+              items: [
+                { label: "Duplicate", hint: "Ctrl+D", run: () => void duplicateSelection() },
+                { label: "Delete", hint: "Delete", run: deleteSelected },
+              ],
             });
             return;
           }
