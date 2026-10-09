@@ -5,6 +5,7 @@ import { useDoc } from "./docStore";
 import { fitRect, videoTransform } from "./fit";
 import { growColour, growMode, NO_GROW, outputSize, SIDES } from "./frame";
 import { GrowOverlay } from "./GrowOverlay";
+import { MarkStandIn } from "./MarkStandIn";
 import type { Player } from "./player";
 import { useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
@@ -176,6 +177,14 @@ export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Pro
           </div>
         </div>
       </div>
+      {!cropping && (
+        <div
+          className={styles.overStage}
+          style={{ left: stage.x, top: stage.y, width: stage.width, height: stage.height }}
+        >
+          <MarkStandIn player={player} />
+        </div>
+      )}
       {tool === "grow" && (
         <div
           className={styles.overStage}

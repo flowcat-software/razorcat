@@ -69,14 +69,14 @@ describe("the document store", () => {
   });
 
   it("keeps ranges in place through a whole drag, with following off", () => {
-    s().setOptions({ follow: false, deleteWithClip: true });
+    s().setOptions({ follow: false, deleteWithClip: true, splitMarks: true });
     s().addRange(60, 70);
     // A trim past the range and back again, in one drag: it's where it was.
     s().beginGesture();
     s().trim(1, 0, 50);
     s().trim(1, 5, 100);
     s().endGesture();
-    s().setOptions({ follow: true, deleteWithClip: true });
+    s().setOptions({ follow: true, deleteWithClip: true, splitMarks: true });
     const r = s().doc.ranges[0];
     expect(r.pieces).toEqual([{ clip: 1, in: 65, out: 75 }]);
   });
@@ -84,9 +84,9 @@ describe("the document store", () => {
   it("keeps ranges, hidden, when their clip is deleted, if that's set", () => {
     s().split(50);
     s().addRange(60, 70);
-    s().setOptions({ follow: true, deleteWithClip: false });
+    s().setOptions({ follow: true, deleteWithClip: false, splitMarks: true });
     s().remove(2);
-    s().setOptions({ follow: true, deleteWithClip: true });
+    s().setOptions({ follow: true, deleteWithClip: true, splitMarks: true });
     expect(s().doc.ranges).toHaveLength(1);
     s().undo();
     s().remove(2);

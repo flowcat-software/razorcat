@@ -15,6 +15,11 @@
 //   range per place (`separateRanges`).
 // - Editing a range directly re-anchors it to what's under it now.
 //
+// Markup (Phase 4: text, arrows...) is anchored by its start: a source frame of one clip, and how
+// long it lasts. Its place on the timeline is worked out from that (`markPlace`), so it follows
+// its video as ranges do, with the mockup's rule for trims: video trimmed away under its start
+// slides it along to stay in its clip (back where it was when the trim is pulled back).
+//
 // The frame (crop, and the space grown round it; frame.ts) is one for the whole project.
 
 import type { Rect, Size } from "./fit";
@@ -46,6 +51,29 @@ export interface Range {
   pieces: readonly Piece[];
 }
 
+export type MarkId = number;
+
+/** What a piece of markup is (Phase 4.5 adds Vandal's other tools). */
+export type MarkKind = "text";
+
+/** A piece of markup: what it is, and when, anchored to the video under its start. */
+export interface Mark {
+  id: MarkId;
+  kind: MarkKind;
+  /** The clip its start is on, and the source frame there. */
+  clip: ClipId;
+  at: number;
+  /** How many frames it lasts. */
+  length: number;
+  /** Its lane on the timeline, from the top. */
+  lane: number;
+  /** What it says (a stand-in for its look until Phase 4.2). */
+  text: string;
+}
+
+/** The markup lanes above the clips (the mockup's). */
+export const LANES = 2;
+
 export interface Doc {
   clips: readonly Clip[];
   /** The next clip's id. */
@@ -54,6 +82,8 @@ export interface Doc {
   sourceFrames: number;
   ranges: readonly Range[];
   nextRangeId: RangeId;
+  marks: readonly Mark[];
+  nextMarkId: MarkId;
   frame: Frame;
 }
 
@@ -65,6 +95,8 @@ export function wholeSource(frames: number, size: Size = { width: 0, height: 0 }
     sourceFrames: frames,
     ranges: [],
     nextRangeId: 1,
+    marks: [],
+    nextMarkId: 1,
     frame: fullFrame(size),
   };
 }
@@ -120,16 +152,19 @@ export function clipAt(doc: Doc, f: number): { index: number; clip: Clip; start:
 export function editPoints(doc: Doc): number[] {
   const points = new Set([...clipStarts(doc), total(doc)]);
   for (const r of shownRanges(doc)) points.add(r.a).add(r.b);
+  for (const m of shownMarks(doc)) points.add(m.start).add(m.end);
   return [...points].sort((x, y) => x - y);
 }
 
 /**
  * Splits the clip under timeline frame `f` there: the second part is a new clip. Nothing to
- * split at a clip's first frame (it's already a cut) or past the end: the same document.
+ * split at a clip's first frame (it's already a cut) or past the end: the same document. With
+ * `splitMarks`, markup over the cut is split there too, a part on each side.
  */
-export function split(doc: Doc, f: number): Doc {
+export function split(doc: Doc, f: number, splitMarks = true): Doc {
   const at = clipAt(doc, f);
   if (!at || f === at.start) return doc;
+  if (splitMarks) doc = cutMarks(doc, f, f);
   const cut = at.clip.in + (f - at.start);
   const clips = [...doc.clips];
   clips.splice(
@@ -139,7 +174,8 @@ export function split(doc: Doc, f: number): Doc {
     { id: doc.nextId, in: cut, out: at.clip.out },
   );
   const ranges = handOver(doc.ranges, at.clip.id, doc.nextId, cut);
-  return { ...doc, clips, ranges, nextId: doc.nextId + 1 };
+  const marks = handMarksOver(doc.marks, at.clip.id, doc.nextId, cut);
+  return { ...doc, clips, ranges, marks, nextId: doc.nextId + 1 };
 }
 
 /**
@@ -165,14 +201,15 @@ export function trimClip(doc: Doc, id: ClipId, inF: number, outF: number): Doc {
 }
 
 /**
- * Deletes clip `id`; the clips after it close up (ripple). `withRanges`: the ranges on it go
- * too (just the part on it, of a range that reaches other clips); otherwise they're kept,
- * hidden, and come back with the clip (undo). The last clip can't go: the same document.
+ * Deletes clip `id`; the clips after it close up (ripple). `withRanges`: the ranges and markup
+ * on it go too (just the part on it, of a range that reaches other clips); otherwise they're
+ * kept, hidden, and come back with the clip (undo). The last clip can't go: the same document.
  */
 export function deleteClip(doc: Doc, id: ClipId, withRanges = true): Doc {
   if (doc.clips.length < 2 || !doc.clips.some((c) => c.id === id)) return doc;
   const clips = doc.clips.filter((c) => c.id !== id);
   if (!withRanges) return { ...doc, clips };
+  const marks = doc.marks.filter((m) => m.clip !== id);
   const ranges = doc.ranges
     .map((r) =>
       r.pieces.some((p) => p.clip === id)
@@ -180,7 +217,7 @@ export function deleteClip(doc: Doc, id: ClipId, withRanges = true): Doc {
         : r,
     )
     .filter((r) => r.pieces.length > 0);
-  return { ...doc, clips, ranges };
+  return { ...doc, clips, ranges, marks };
 }
 
 /**
@@ -354,7 +391,7 @@ export function separateRanges(doc: Doc): Doc {
  * nothing's left there). Hidden ones stay as they are.
  */
 export function keepRangesInPlace(before: Doc, after: Doc): Doc {
-  if (after === before || before.ranges.length === 0) return after;
+  if (after === before || (before.ranges.length === 0 && before.marks.length === 0)) return after;
   const was = new Map(shownRanges(before).map((r) => [r.id, r]));
   // From `before`'s ranges, so one a drag's step dropped (no room) comes back when there's room
   // again; those the edit deleted (with their clip) stay gone.
@@ -370,18 +407,30 @@ export function keepRangesInPlace(before: Doc, after: Doc): Doc {
     const kept = within(after, place.a, place.b);
     if (kept) ranges.push({ id: old.id, pieces: anchor(after, kept.a, kept.b) });
   }
-  return { ...after, ranges };
+  // Markup the same: each shown one marks whatever is at its place now.
+  const marks = after.marks.map((m) => {
+    const old = before.marks.find((o) => o.id === m.id);
+    const place = old && markPlace(before, old);
+    if (!place) return m;
+    const start = Math.min(place.start, total(after) - 1);
+    const at = anchorAt(after, start);
+    return at ? { ...m, ...at, length: Math.max(1, Math.min(m.length, total(after) - start)) } : m;
+  });
+  return { ...after, ranges, marks };
 }
 
 /**
  * Cuts timeline stretches out of the clips (ripple), and clears the ranges. A clip cut in its
  * middle becomes two: the second part a new clip. Nothing left at all: the same document.
  */
-function cutOut(doc: Doc, places: readonly Place[]): Doc {
+function cutOut(doc: Doc, places: readonly Place[], splitMarks: boolean): Doc {
   let nextId = doc.nextId;
   let clips: readonly Clip[] = doc.clips;
+  let marks = doc.marks;
+  let nextMarkId = doc.nextMarkId;
   // From the end, so the earlier places stay where they are.
   for (const { a, b } of [...places].sort((x, y) => y.a - x.a)) {
+    if (splitMarks) ({ marks, nextMarkId } = cutMarks({ ...doc, clips, marks, nextMarkId }, a, b));
     const starts = clipStarts({ ...doc, clips });
     const out: Clip[] = [];
     clips.forEach((c, i) => {
@@ -393,24 +442,31 @@ function cutOut(doc: Doc, places: readonly Place[]): Doc {
       }
       if (a > s) out.push({ ...c, out: c.in + (a - s) });
       if (b < e) {
-        if (a > s) out.push({ id: nextId++, in: c.in + (b - s), out: c.out });
-        else out.push({ ...c, in: c.in + (b - s) });
+        if (a > s) {
+          // Cut in its middle: the markup after the cut goes with the second part.
+          const cut = c.in + (b - s);
+          marks = handMarksOver(marks, c.id, nextId, cut);
+          out.push({ id: nextId++, in: cut, out: c.out });
+        } else out.push({ ...c, in: c.in + (b - s) });
       }
     });
     clips = out;
   }
   if (clips.length === 0) return doc;
-  return { ...doc, clips, nextId, ranges: [] };
+  return { ...doc, clips, nextId, ranges: [], marks, nextMarkId };
 }
 
-/** Removes the ranges' frames (ripple), and the ranges. Not all of it: the same document. */
-export function removeRanges(doc: Doc): Doc {
+/**
+ * Removes the ranges' frames (ripple), and the ranges. Not all of it: the same document. With
+ * `splitMarks`, markup over a cut is cut there too.
+ */
+export function removeRanges(doc: Doc, splitMarks = true): Doc {
   const shown = shownRanges(doc);
-  return shown.length ? cutOut(doc, shown) : doc;
+  return shown.length ? cutOut(doc, shown, splitMarks) : doc;
 }
 
-/** Keeps only the ranges' frames (ripple), and clears the ranges. */
-export function keepRanges(doc: Doc): Doc {
+/** Keeps only the ranges' frames (ripple), and clears the ranges. `splitMarks` as above. */
+export function keepRanges(doc: Doc, splitMarks = true): Doc {
   const shown = shownRanges(doc).sort((x, y) => x.a - y.a);
   if (!shown.length) return doc;
   const gaps: Place[] = [];
@@ -420,5 +476,141 @@ export function keepRanges(doc: Doc): Doc {
     t = Math.max(t, b);
   }
   if (t < total(doc)) gaps.push({ a: t, b: total(doc) });
-  return gaps.length ? cutOut(doc, gaps) : { ...doc, ranges: [] };
+  return gaps.length ? cutOut(doc, gaps, splitMarks) : { ...doc, ranges: [] };
+}
+
+// --- markup ---
+
+/** A piece of markup as shown: where it is on the timeline. */
+export interface ShownMark {
+  id: MarkId;
+  start: number;
+  end: number;
+  lane: number;
+}
+
+/**
+ * Where markup `m` is on the timeline now: from its anchor, running on past its clip's end if it's
+ * longer. If the video under its start was trimmed away, it slides to stay in its clip: to the
+ * clip's new start, or to end with its end. Cut short at the timeline's end. Null while its clip
+ * is gone (deleted, the markup kept).
+ */
+export function markPlace(doc: Doc, m: Mark): { start: number; end: number } | null {
+  const i = doc.clips.findIndex((c) => c.id === m.clip);
+  if (i < 0) return null;
+  const c = doc.clips[i];
+  const src = m.at < c.in ? c.in : m.at >= c.out ? Math.max(c.in, c.out - m.length) : m.at;
+  const start = clipStarts(doc)[i] + src - c.in;
+  return { start, end: Math.min(total(doc), start + m.length) };
+}
+
+/** The markup on the timeline, where it is (hidden markup left out). */
+export function shownMarks(doc: Doc): ShownMark[] {
+  const shown: ShownMark[] = [];
+  for (const m of doc.marks) {
+    const place = markPlace(doc, m);
+    if (place) shown.push({ id: m.id, lane: m.lane, ...place });
+  }
+  return shown;
+}
+
+/** The video at timeline frame `f`, as an anchor: its clip and source frame. */
+function anchorAt(doc: Doc, f: number): { clip: ClipId; at: number } | null {
+  const under = clipAt(doc, f);
+  return under && { clip: under.clip.id, at: under.clip.in + f - under.start };
+}
+
+/**
+ * Markup over the edges of timeline frames `a` to `b` is cut there (a split, when they're the
+ * same): its parts outside them kept, each anchored to its video, the part between dropped.
+ * Markup wholly between them, or clear of them, is left as it is.
+ */
+function cutMarks(doc: Doc, a: number, b: number): Doc {
+  let nextMarkId = doc.nextMarkId;
+  const marks: Mark[] = [];
+  for (const m of doc.marks) {
+    const place = markPlace(doc, m);
+    const crosses = (f: number) => place !== null && place.start < f && f < place.end;
+    if (!place || !(crosses(a) || crosses(b))) {
+      marks.push(m);
+      continue;
+    }
+    const parts: Place[] = [];
+    if (place.start < a) parts.push({ a: place.start, b: a });
+    if (place.end > b) parts.push({ a: b, b: place.end });
+    parts.forEach((p, i) => {
+      const at = anchorAt(doc, p.a);
+      if (at) marks.push({ ...m, ...at, id: i === 0 ? m.id : nextMarkId++, length: p.b - p.a });
+    });
+  }
+  return { ...doc, marks, nextMarkId };
+}
+
+/** Clip `from` was cut at source frame `at`: markup starting past it now belongs to clip `to`. */
+function handMarksOver(marks: readonly Mark[], from: ClipId, to: ClipId, at: number): Mark[] {
+  return marks.map((m) => (m.clip === from && m.at >= at ? { ...m, clip: to } : m));
+}
+
+/**
+ * Adds markup of `kind` at timeline frame `start`, `length` frames long (less at the end), in
+ * `lane`. The same document if there's no video there.
+ */
+export function addMark(
+  doc: Doc,
+  kind: MarkKind,
+  text: string,
+  start: number,
+  length: number,
+  lane: number,
+): Doc {
+  const f = Math.max(0, Math.min(total(doc) - 1, Math.round(start)));
+  const at = anchorAt(doc, f);
+  if (!at) return doc;
+  const mark: Mark = {
+    id: doc.nextMarkId,
+    kind,
+    ...at,
+    length: Math.max(1, Math.min(Math.round(length), total(doc) - f)),
+    lane: Math.max(0, Math.min(LANES - 1, lane)),
+    text,
+  };
+  return { ...doc, marks: [...doc.marks, mark], nextMarkId: doc.nextMarkId + 1 };
+}
+
+/**
+ * Moves or resizes markup `id` to timeline frames `start` to `end` in `lane`: it's anchored to
+ * what's under its start now. Kept to the timeline and to a frame at least. The same document if
+ * nothing changes.
+ */
+export function setMark(doc: Doc, id: MarkId, start: number, end: number, lane: number): Doc {
+  const index = doc.marks.findIndex((m) => m.id === id);
+  if (index < 0) return doc;
+  const length = total(doc);
+  const a = Math.max(0, Math.min(length - 1, Math.round(start)));
+  const b = Math.max(a + 1, Math.min(length, Math.round(end)));
+  const at = anchorAt(doc, a);
+  if (!at) return doc;
+  const old = doc.marks[index];
+  const l = Math.max(0, Math.min(LANES - 1, lane));
+  const now = markPlace(doc, old);
+  if (now && now.start === a && now.end === b && old.lane === l) return doc;
+  const marks = [...doc.marks];
+  marks[index] = { ...old, ...at, length: b - a, lane: l };
+  return { ...doc, marks };
+}
+
+export function deleteMark(doc: Doc, id: MarkId): Doc {
+  if (!doc.marks.some((m) => m.id === id)) return doc;
+  return { ...doc, marks: doc.marks.filter((m) => m.id !== id) };
+}
+
+/**
+ * The lane for new markup from `start` to `end`: the first with nothing there, else the first.
+ */
+export function freeLane(doc: Doc, start: number, end: number): number {
+  const shown = shownMarks(doc);
+  for (let lane = 0; lane < LANES; lane++) {
+    if (!shown.some((m) => m.lane === lane && m.start < end && m.end > start)) return lane;
+  }
+  return 0;
 }

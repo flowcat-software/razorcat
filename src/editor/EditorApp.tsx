@@ -6,6 +6,7 @@ import { EmptyEditor } from "./EmptyEditor";
 import { useDoc } from "./docStore";
 import {
   addRangeAtPlayhead,
+  addTextAtPlayhead,
   deleteSelected,
   moveSelected,
   rangeIn,
@@ -31,11 +32,12 @@ const openVideo = () => void commands.openDialog();
 /** Thumbnails are made from proxies: none without them. */
 const thumbsOn = (s: Settings) => s.timeline.thumbnails && s.proxies.enabled;
 
-/** Settings › Timeline › Ranges: how ranges take edits of the clips. */
+/** Settings › Timeline › Ranges and markup: how they take edits of the clips. */
 const rangeOptions = (s: Settings) =>
   useDoc.getState().setOptions({
     follow: s.timeline.rangesFollowVideo,
     deleteWithClip: s.timeline.deleteRangesWithClip,
+    splitMarks: s.timeline.splitMarkup,
   });
 
 /** The settings the editor's stores keep (ranges, number fields). */
@@ -72,9 +74,14 @@ function transportKey(e: KeyboardEvent, player: Player): boolean {
   }
   // Held down, these would flip back and forth (or split again and again).
   if (e.shiftKey || e.repeat) {
-    return ["Space", "KeyJ", "KeyK", "KeyL", "KeyS", "KeyR", "KeyI", "KeyO"].includes(e.code);
+    return ["Space", "KeyJ", "KeyK", "KeyL", "KeyS", "KeyR", "KeyI", "KeyO", "KeyT"].includes(
+      e.code,
+    );
   }
   switch (e.code) {
+    case "KeyT":
+      addTextAtPlayhead(player);
+      return true;
     case "KeyS":
       splitAtPlayhead(player);
       return true;

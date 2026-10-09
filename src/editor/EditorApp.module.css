@@ -478,6 +478,35 @@
 /* The crop and grow tools' place: over the stage, so their handles reach past its edges. */
 .overStage {
   position: absolute;
+  pointer-events: none;
+}
+
+.overStage > * {
+  pointer-events: auto;
+}
+
+/* Markup on the preview, a stand-in until Phase 4.2 draws it. */
+.markStandIn {
+  position: absolute;
+  inset: 8% 8% auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none !important;
+}
+
+.markStandIn span {
+  padding: 4px 12px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--mark) 85%, transparent);
+  color: #fff;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.markStandIn span[data-selected] {
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
 /* The cropped picture's place in the frame; the grown space is round it. */

@@ -431,12 +431,20 @@ export type Timeline = {
 	/**  The waveform along the clip (wave.rs): the same. */
 	waveform?: boolean,
 	/**
-	 *  Ranges stay on the video they mark as clips are trimmed, deleted or moved (on by
-	 *  default); off, they stay at their place on the timeline. (Markup joins them in Phase 4.)
+	 *  Ranges and markup stay on their video as clips are trimmed, deleted or moved (on by
+	 *  default); off, they stay at their place on the timeline.
 	 */
 	rangesFollowVideo?: boolean,
-	/**  Deleting a clip deletes the ranges on it (on by default); off, they're kept, hidden. */
+	/**
+	 *  Deleting a clip deletes the ranges and markup on it (on by default); off, they're kept,
+	 *  hidden.
+	 */
 	deleteRangesWithClip?: boolean,
+	/**
+	 *  Splitting a clip (or cutting ranges out) splits the markup over the cut (on by default);
+	 *  off, it stays whole, on the clip under its start.
+	 */
+	splitMarkup?: boolean,
 };
 
 /**  Rust → editor: a source's waveform is ready. */

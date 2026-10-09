@@ -8,20 +8,24 @@ import {
   clipAt,
   clipLength,
   clipStarts,
+  LANES,
   moveSlot,
+  shownMarks,
   shownRanges,
   total,
   type Clip,
   type ClipId,
   type Doc,
+  type MarkId,
   type RangeId,
+  type ShownMark,
   type ShownRange,
 } from "./doc";
 import { useDoc } from "./docStore";
 import { deleteSelected, splitAtPlayhead } from "./edits";
 import { exportClip } from "./exports";
 import { Menu, type MenuItems } from "./Menu";
-import { rangeTargets, scrubTargets, snap, trimTargets } from "./snap";
+import { markTargets, rangeTargets, scrubTargets, snap, trimTargets } from "./snap";
 import { useTimeline } from "./timelineStore";
 import { FRAME_TICKS, HEADER, fOf, ticks, xOf, zoomAnchor, type View } from "./timelineView";
 import styles from "./EditorApp.module.css";
@@ -37,12 +41,15 @@ interface Props {
   waveUrl: string | null;
 }
 
-// The mockup's geometry (mockup/main.html). Markup lanes go between the ruler and the clip track
-// in Phase 4.
+// The mockup's geometry (mockup/main.html): the ruler, the markup lanes, the clip track.
 const RULER = 30;
 /** The strip along the ruler's top: ranges' bars; drag on it to draw one. */
 const RANGE_STRIP = 11;
-const CLIP_TOP = RULER + 10;
+const LANE_TOP = RULER + 8;
+const LANE_H = 24;
+/** A lane's top, and its height with the gap after it. */
+const laneY = (lane: number) => LANE_TOP + lane * (LANE_H + 4);
+const CLIP_TOP = laneY(LANES) + 4;
 const CLIP_H = 76;
 /** The clip's label row, above its thumbnails. */
 const LABEL_H = 18;
@@ -72,17 +79,20 @@ const TOKENS = [
   "snap",
   "range",
   "range-edge",
+  "mark",
 ];
 
 type Edge = "in" | "out";
 
 /**
  * What the pointer is on: a clip's edge (trims it) or title bar (moves it); a range's edge
- * (resizes it) or bar (moves it); the empty range strip (draws one); the pending in-point.
+ * (resizes it) or bar (moves it); the empty range strip (draws one); the pending in-point;
+ * markup's edge (when it starts or ends) or bar (moves it, along or to another lane).
  */
 type Hit =
   | { kind: Edge | "move"; clip: Clip }
   | { kind: "rangeA" | "rangeB" | "rangeMove"; range: ShownRange }
+  | { kind: "markStart" | "markEnd" | "markMove"; mark: ShownMark }
   | { kind: "rangeNew" | "pendingIn" };
 
 /** What a handle does (the mockup's tooltips). */
@@ -95,6 +105,9 @@ const TIPS: Record<Hit["kind"], [string, string]> = {
   rangeMove: ["Move the range", "drag"],
   rangeNew: ["Draw a range", "drag · or R, or I and O"],
   pendingIn: ["Pending in-point", "drag to adjust · O sets the out"],
+  markStart: ["When it starts", "drag"],
+  markEnd: ["When it ends", "drag"],
+  markMove: ["Move it in time", "drag · up or down: the other lane"],
 };
 
 const CURSORS: Record<Hit["kind"], string> = {
@@ -106,6 +119,9 @@ const CURSORS: Record<Hit["kind"], string> = {
   rangeMove: "grab",
   rangeNew: "crosshair",
   pendingIn: "ew-resize",
+  markStart: "ew-resize",
+  markEnd: "ew-resize",
+  markMove: "grab",
 };
 
 /** A trim under way: the edge, where the drag started, and the clip as it was. */
@@ -133,7 +149,27 @@ interface RangeDrag {
   orig: { a: number; b: number };
 }
 
-/** What's at (x, y): on the ruler, ranges and the pending in-point; on the clip track, clips. */
+/**
+ * A markup drag under way: an edge or the whole of it, from where, and its place when it
+ * started.
+ */
+interface MarkDrag {
+  kind: "start" | "end" | "move";
+  id: MarkId;
+  x0: number;
+  orig: { start: number; end: number; lane: number };
+  /** The playhead when the drag started: an edge drag moves it, so it snaps to where it was. */
+  playhead: number;
+}
+
+/** The lane at y (kept to the lanes). */
+const laneAt = (y: number) =>
+  Math.max(0, Math.min(LANES - 1, Math.floor((y - LANE_TOP) / (LANE_H + 4))));
+
+/**
+ * What's at (x, y): on the ruler, ranges and the pending in-point; in the lanes, markup; on the
+ * clip track, clips.
+ */
 function hitAt(doc: Doc, pendingIn: number | null, view: View, x: number, y: number): Hit | null {
   if (x < HEADER) return null;
   if (y < RULER) {
@@ -150,7 +186,27 @@ function hitAt(doc: Doc, pendingIn: number | null, view: View, x: number, y: num
     const range = ranges.find((r) => x > xOf(view, r.a) && x < xOf(view, r.b));
     return range ? { kind: "rangeMove", range } : { kind: "rangeNew" };
   }
-  if (y < CLIP_TOP || y > CLIP_TOP + CLIP_H) return null;
+  if (y < CLIP_TOP - 4) {
+    // Last drawn on top: found first.
+    for (const mark of shownMarks(doc).reverse()) {
+      const y0 = laneY(mark.lane);
+      if (y < y0 || y > y0 + LANE_H) continue;
+      const x0 = xOf(view, mark.start);
+      const x1 = xOf(view, mark.end);
+      if (x < x0 - EDGE_HIT || x > x1 + EDGE_HIT) continue;
+      // A short bar's edges leave a middle to move it by.
+      const reach = Math.min(EDGE_HIT, (x1 - x0) / 3);
+      if (Math.abs(x - x0) <= reach || (x < x0 && x >= x0 - EDGE_HIT)) {
+        return { kind: "markStart", mark };
+      }
+      if (Math.abs(x - x1) <= reach || (x > x1 && x <= x1 + EDGE_HIT)) {
+        return { kind: "markEnd", mark };
+      }
+      if (x > x0 && x < x1) return { kind: "markMove", mark };
+    }
+    return null;
+  }
+  if (y > CLIP_TOP + CLIP_H) return null;
   const starts = clipStarts(doc);
   const last = doc.clips.length - 1;
   // Edges first. The boundary between two clips belongs to whichever side the pointer is on;
@@ -171,8 +227,9 @@ function hitAt(doc: Doc, pendingIn: number | null, view: View, x: number, y: num
   return under && { kind: "move", clip: under.clip };
 }
 
-/** What a hit is on: its clip or range, for telling hits apart. */
-const hitId = (h: Hit) => ("clip" in h ? h.clip.id : "range" in h ? -h.range.id : 0);
+/** What a hit is on: its clip, range or markup, for telling hits apart. */
+const hitId = (h: Hit) =>
+  "clip" in h ? h.clip.id : "range" in h ? -h.range.id : "mark" in h ? 1e6 + h.mark.id : 0;
 
 const sameHit = (a: Hit | null, b: Hit | null) =>
   a === b || (!!a && !!b && a.kind === b.kind && hitId(a) === hitId(b));
@@ -321,6 +378,8 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
   const moving = useRef<{ id: ClipId; x0: number; start: Doc } | null>(null);
   /** A range (or the pending in-point) being dragged. */
   const ranging = useRef<RangeDrag | null>(null);
+  /** Markup being dragged. */
+  const marking = useRef<MarkDrag | null>(null);
   /** Where a drag snapped to: the guide is drawn there. */
   const guide = useRef<number | null>(null);
   const readout = useRef<HTMLDivElement>(null);
@@ -398,6 +457,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       g.textBaseline = "middle";
       g.fillStyle = c["tl-lane"];
       g.fillRect(HEADER, CLIP_TOP, W, CLIP_H);
+      for (let lane = 0; lane < LANES; lane++) g.fillRect(HEADER, laneY(lane), W, LANE_H);
 
       // Ruler: labelled ticks at least 70 px apart, minor ticks between.
       const { rateNum: num, rateDen: den } = source;
@@ -444,7 +504,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
 
       // The clips, each inset by half a pixel so a cut shows as a 1 px gap, with 8 px corners
       // notching it top and bottom.
-      const { doc, selected, selectedRange, pendingIn } = useDoc.getState();
+      const { doc, selected, selectedRange, selectedMark, pendingIn } = useDoc.getState();
       const starts = clipStarts(doc);
       g.save();
       g.beginPath();
@@ -556,6 +616,37 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         }
       });
 
+      // Markup: a bar in its lane, saying what it is (the selected one outlined).
+      const marks = new Map(doc.marks.map((m) => [m.id, m]));
+      for (const m of shownMarks(doc)) {
+        const x0 = xOf(view, m.start);
+        const x1 = xOf(view, m.end);
+        if (x1 <= HEADER || x0 >= W) continue;
+        const y0 = laneY(m.lane);
+        g.save();
+        g.beginPath();
+        g.roundRect(x0, y0, Math.max(2, x1 - x0), LANE_H, 4);
+        g.clip();
+        g.fillStyle = c["mark"];
+        g.fillRect(x0, y0, x1 - x0, LANE_H);
+        g.fillStyle = "#fff";
+        g.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
+        g.fillText(
+          `T  ${marks.get(m.id)?.text ?? ""}`,
+          Math.max(x0, HEADER) + 8,
+          y0 + LANE_H / 2 + 1,
+        );
+        g.restore();
+        if (m.id === selectedMark) {
+          g.strokeStyle = c["accent"];
+          g.lineWidth = 2;
+          g.beginPath();
+          g.roundRect(x0 + 1, y0 + 1, Math.max(2, x1 - x0 - 2), LANE_H - 2, 4);
+          g.stroke();
+          g.lineWidth = 1;
+        }
+      }
+
       // The hovered or dragged clip edge: white with a dark outline, so it reads on any
       // picture. A line along the edge and a grip on the clip's side of it.
       const t = trim.current;
@@ -619,7 +710,9 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       g.fillStyle = c["text-2"];
       g.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
       g.textAlign = "center";
-      // The clip track's picture and sound (as the mockup).
+      // The lanes' markup, and the clip track's picture and sound (as the mockup).
+      for (let lane = 0; lane < LANES; lane++)
+        g.fillText("T", HEADER / 2, laneY(lane) + LANE_H / 2);
       g.fillText("▶", HEADER / 2, THUMB_TOP + THUMB_H / 2);
       if (source.audioTracks > 0) g.fillText("♪", HEADER / 2, WAVE_MID);
       g.textAlign = "left";
@@ -858,6 +951,48 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     draw.current();
   };
 
+  /**
+   * Moves markup, or moves one of its edges, as the pointer moves. Moving, it can change lane;
+   * whichever end lands near something snaps (the start first). Dragging an edge puts the
+   * playhead on it, so the preview shows where it starts or ends.
+   */
+  const markTo = (e: React.PointerEvent<HTMLCanvasElement>, d: MarkDrag) => {
+    const { x, y, view } = at(e);
+    const store = useDoc.getState();
+    const length = total(store.doc);
+    const targets = markTargets(store.doc, d.playhead, d.id, store.pendingIn);
+    const on = snapping(e);
+    const { start, end, lane } = d.orig;
+    const len = end - start;
+    let to = { start, end, lane };
+    if (d.kind === "move") {
+      const df = (x - d.x0) / view.zoom;
+      let s = snap(start + df, targets, view.zoom, on);
+      let a = s.frame;
+      if (s.target === null) {
+        s = snap(end + df, targets, view.zoom, on);
+        a = s.target === null ? Math.round(start + df) : s.frame - len;
+      }
+      guide.current = s.target;
+      a = Math.max(0, Math.min(length - len, a));
+      to = { start: a, end: a + len, lane: laneAt(y) };
+    } else {
+      const s = snap(fOf(view, x), targets, view.zoom, on);
+      guide.current = s.target;
+      if (d.kind === "start") to.start = Math.max(0, Math.min(end - 1, s.frame));
+      else to.end = Math.max(start + 1, Math.min(length, s.frame));
+      player.seek(d.kind === "start" ? to.start : to.end - 1);
+    }
+    store.setMark(d.id, to.start, to.end, to.lane);
+    const fmt = formatter();
+    showReadout(
+      `${fmt(to.start)} → ${fmt(to.end)}\n${fmt(to.end - to.start)}`,
+      e.clientX,
+      e.clientY,
+    );
+    draw.current();
+  };
+
   /** The drag ended (or was cancelled by the system): one undo step, and back to hovering. */
   const endDrag = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const docState = useDoc.getState();
@@ -873,6 +1008,10 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     }
     if (ranging.current) {
       ranging.current = null;
+      docState.endGesture();
+    }
+    if (marking.current) {
+      marking.current = null;
       docState.endGesture();
     }
     showReadout(null);
@@ -915,6 +1054,20 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       return;
     }
     docState.beginGesture();
+    if ("mark" in hit) {
+      const { mark } = hit;
+      docState.selectMark(mark.id);
+      const kind = hit.kind === "markStart" ? "start" : hit.kind === "markEnd" ? "end" : "move";
+      marking.current = {
+        kind,
+        id: mark.id,
+        x0: x,
+        orig: { start: mark.start, end: mark.end, lane: mark.lane },
+        playhead: player.getState().frame,
+      };
+      if (kind === "move") e.currentTarget.style.cursor = "grabbing";
+      return;
+    }
     if (hit.kind === "rangeNew") {
       const { view } = at(e);
       const { doc, pendingIn } = docState;
@@ -957,6 +1110,9 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           }
           if (y >= CLIP_TOP && x >= HEADER) {
             docState.select(clipAt(docState.doc, Math.floor(fOf(view, x)))?.clip.id ?? null);
+          } else if (y >= RULER && x >= HEADER) {
+            // An empty lane: nothing selected.
+            docState.select(null);
           }
           scrubTo(e);
         }}
@@ -968,6 +1124,10 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           }
           if (ranging.current) {
             rangeTo(e, ranging.current);
+            return;
+          }
+          if (marking.current) {
+            markTo(e, marking.current);
             return;
           }
           if (moving.current !== null) {
@@ -999,6 +1159,16 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           const y = e.clientY - r.top;
           const docState = useDoc.getState();
           const view = useTimeline.getState().view;
+          const hit = hitAt(docState.doc, docState.pendingIn, view, x, y);
+          if (hit && "mark" in hit) {
+            docState.selectMark(hit.mark.id);
+            setMenu({
+              x: e.clientX,
+              y: e.clientY,
+              items: [{ label: "Delete", hint: "Delete", run: deleteSelected }],
+            });
+            return;
+          }
           if (x < HEADER || y < CLIP_TOP || y > CLIP_TOP + CLIP_H) return;
           const under = clipAt(docState.doc, Math.floor(fOf(view, x)));
           if (!under) return;
@@ -1033,7 +1203,13 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         onPointerLeave={() => {
           hideTip();
           tipFor.current = null;
-          if (trim.current || ranging.current || moving.current !== null || !hover.current) {
+          if (
+            trim.current ||
+            ranging.current ||
+            marking.current ||
+            moving.current !== null ||
+            !hover.current
+          ) {
             return;
           }
           hover.current = null;

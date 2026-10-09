@@ -6,9 +6,11 @@ import {
   clipLength,
   clipStarts,
   editPoints,
+  shownMarks,
   shownRanges,
   total,
   type Doc,
+  type MarkId,
   type RangeId,
 } from "./doc";
 
@@ -55,6 +57,7 @@ export function snap(
 export function scrubTargets(doc: Doc, pendingIn: number | null): number[] {
   const t = clipStarts(doc);
   for (const r of shownRanges(doc)) t.push(r.a, r.b);
+  for (const m of shownMarks(doc)) t.push(m.start, m.end);
   if (pendingIn !== null) t.push(pendingIn);
   return t;
 }
@@ -72,6 +75,24 @@ export function rangeTargets(
 ): number[] {
   const t = [playhead, ...clipStarts(doc), total(doc)];
   for (const r of shownRanges(doc)) if (r.id !== exclude) t.push(r.a, r.b);
+  for (const m of shownMarks(doc)) t.push(m.start, m.end);
+  if (pendingIn !== null) t.push(pendingIn);
+  return t;
+}
+
+/**
+ * What markup's edges snap to: the playhead, the cuts and the timeline's ends, the ranges' edges,
+ * the other markup's edges, and the pending in-point.
+ */
+export function markTargets(
+  doc: Doc,
+  playhead: number,
+  exclude: MarkId,
+  pendingIn: number | null,
+): number[] {
+  const t = [playhead, ...clipStarts(doc), total(doc)];
+  for (const r of shownRanges(doc)) t.push(r.a, r.b);
+  for (const m of shownMarks(doc)) if (m.id !== exclude) t.push(m.start, m.end);
   if (pendingIn !== null) t.push(pendingIn);
   return t;
 }

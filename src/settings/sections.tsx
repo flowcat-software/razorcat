@@ -50,7 +50,7 @@ export const sections: Section[] = [
     id: "timeline",
     title: "Timeline",
     icon: TimelineIcon,
-    description: "What the timeline shows, and how ranges take edits.",
+    description: "What the timeline shows, and how ranges and markup take edits.",
     groups: [
       {
         title: "Clips",
@@ -79,24 +79,43 @@ export const sections: Section[] = [
         ],
       },
       {
-        title: "Ranges",
+        title: "Ranges and markup",
         items: [
           {
             id: "rangesFollowVideo",
             kind: "toggle",
             path: "timeline.rangesFollowVideo",
-            label: "Ranges follow their video",
+            label: "Ranges and markup follow their video",
             description:
-              "When clips are trimmed, deleted or moved, ranges stay on the frames they mark. Off: they stay at their place on the timeline.",
-            keywords: ["ranges", "follow", "anchor", "stay", "move", "trim", "timeline"],
+              "When clips are trimmed, deleted or moved, ranges and markup stay on the frames they're on. Off: they stay at their place on the timeline.",
+            keywords: [
+              "ranges",
+              "markup",
+              "text",
+              "follow",
+              "anchor",
+              "stay",
+              "move",
+              "trim",
+              "timeline",
+            ],
           },
           {
             id: "deleteRangesWithClip",
             kind: "toggle",
             path: "timeline.deleteRangesWithClip",
-            label: "Deleting a clip deletes its ranges",
+            label: "Deleting a clip deletes its ranges and markup",
             description: "Off: they're kept, hidden, and come back if the clip does.",
-            keywords: ["ranges", "delete", "clip", "remove", "timeline"],
+            keywords: ["ranges", "markup", "text", "delete", "clip", "remove", "timeline"],
+          },
+          {
+            id: "splitMarkup",
+            kind: "toggle",
+            path: "timeline.splitMarkup",
+            label: "Splitting a clip splits the markup over the cut",
+            description:
+              "Each part then goes with its own clip. Removing or keeping ranges cuts it the same way. Off: it stays whole, on the clip under its start.",
+            keywords: ["markup", "text", "split", "cut", "clip", "ranges", "timeline"],
           },
         ],
       },

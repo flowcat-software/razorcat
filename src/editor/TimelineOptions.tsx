@@ -1,5 +1,5 @@
 import type { SourceInfo } from "../shared/ipc";
-import { clipLength, shownRanges, total } from "./doc";
+import { clipLength, shownMarks, shownRanges, total } from "./doc";
 import { useDoc } from "./docStore";
 import { needsHours, timecode } from "./timecode";
 import styles from "./EditorApp.module.css";
@@ -27,6 +27,7 @@ export function TimelineOptions({ source, inFrames }: Props) {
   const doc = useDoc((s) => s.doc);
   const selected = useDoc((s) => s.doc.clips.find((c) => c.id === s.selected) ?? null);
   const selectedRange = useDoc((s) => s.selectedRange);
+  const selectedMark = useDoc((s) => s.selectedMark);
   const pendingIn = useDoc((s) => s.pendingIn);
   if (!source) {
     return (
@@ -43,6 +44,7 @@ export function TimelineOptions({ source, inFrames }: Props) {
   const clips = doc.clips.length;
   const ranges = shownRanges(doc);
   const range = ranges.find((r) => r.id === selectedRange);
+  const mark = shownMarks(doc).find((m) => m.id === selectedMark);
   return (
     <div className={styles.timelineOptions}>
       {pendingIn !== null ? (
@@ -50,6 +52,13 @@ export function TimelineOptions({ source, inFrames }: Props) {
           <b>Range</b>
           <Field label="In" value={fmt(pendingIn)} />
           <span>O sets the out at the playhead · drag the dashed line to adjust · Esc cancels</span>
+        </>
+      ) : mark ? (
+        <>
+          <b>Text</b>
+          <Field label="From" value={fmt(mark.start)} />
+          <Field label="to" value={fmt(mark.end)} />
+          <Field label="Length" value={fmt(mark.end - mark.start)} />
         </>
       ) : range ? (
         <>
@@ -69,7 +78,7 @@ export function TimelineOptions({ source, inFrames }: Props) {
       ) : (
         <span>
           Drag a clip&apos;s edge to trim it · its title bar to move it · <b>S</b> splits · <b>R</b>{" "}
-          or <b>I</b>/<b>O</b> add a range
+          or <b>I</b>/<b>O</b> add a range · <b>T</b> adds text
         </span>
       )}
       <span className={styles.spacer} />

@@ -116,11 +116,15 @@ pub struct Timeline {
     pub thumbnails: bool,
     /// The waveform along the clip (wave.rs): the same.
     pub waveform: bool,
-    /// Ranges stay on the video they mark as clips are trimmed, deleted or moved (on by
-    /// default); off, they stay at their place on the timeline. (Markup joins them in Phase 4.)
+    /// Ranges and markup stay on their video as clips are trimmed, deleted or moved (on by
+    /// default); off, they stay at their place on the timeline.
     pub ranges_follow_video: bool,
-    /// Deleting a clip deletes the ranges on it (on by default); off, they're kept, hidden.
+    /// Deleting a clip deletes the ranges and markup on it (on by default); off, they're kept,
+    /// hidden.
     pub delete_ranges_with_clip: bool,
+    /// Splitting a clip (or cutting ranges out) splits the markup over the cut (on by default);
+    /// off, it stays whole, on the clip under its start.
+    pub split_markup: bool,
 }
 
 impl Default for Timeline {
@@ -130,6 +134,7 @@ impl Default for Timeline {
             waveform: true,
             ranges_follow_video: true,
             delete_ranges_with_clip: true,
+            split_markup: true,
         }
     }
 }
@@ -673,6 +678,7 @@ mod tests {
         assert_eq!(v["timeline"]["waveform"], true);
         assert_eq!(v["timeline"]["rangesFollowVideo"], true);
         assert_eq!(v["timeline"]["deleteRangesWithClip"], true);
+        assert_eq!(v["timeline"]["splitMarkup"], true);
         assert_eq!(v["editing"]["numberDragSpeed"], "normal");
         assert_eq!(v["export"]["gifFps"], 20);
         assert_eq!(v["export"]["gifSize"], 640);

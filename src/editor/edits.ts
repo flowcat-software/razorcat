@@ -1,6 +1,6 @@
 // The timeline's edits, as the keys and buttons invoke them: on the document (docStore.ts) at the
 // player's playhead.
-import { clipStarts, editPoints } from "./doc";
+import { clipStarts, editPoints, freeLane } from "./doc";
 import { useDoc } from "./docStore";
 import type { Player } from "./player";
 
@@ -10,13 +10,26 @@ export function splitAtPlayhead(player: Player) {
 }
 
 /**
- * Delete: deletes the selected range, or the selected clip (the rest close up; the last clip
- * stays).
+ * Delete: deletes the selected markup or range, or the selected clip (the rest close up; the
+ * last clip stays).
  */
 export function deleteSelected() {
-  const { selected, selectedRange, remove, removeRange } = useDoc.getState();
-  if (selectedRange !== null) removeRange(selectedRange);
+  const { selected, selectedRange, selectedMark, remove, removeRange, removeMark } =
+    useDoc.getState();
+  if (selectedMark !== null) removeMark(selectedMark);
+  else if (selectedRange !== null) removeRange(selectedRange);
   else if (selected !== null) remove(selected);
+}
+
+/**
+ * T (a stand-in until the text tool, Phase 4.2): text for 2 seconds from the playhead (less at
+ * the end), in a lane free there, selected.
+ */
+export function addTextAtPlayhead(player: Player) {
+  const f = player.getState().frame;
+  const length = Math.round(2 * player.fps);
+  const { doc, addMark } = useDoc.getState();
+  addMark("text", "Text", f, length, freeLane(doc, f, f + length));
 }
 
 /** R: adds a range of 2 seconds from the playhead (less at the end), selected. */
