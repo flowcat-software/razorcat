@@ -3,7 +3,7 @@
 // color, and what each tool remembers.
 
 import { create } from "zustand";
-import type { NumberPicker, StyleSettings } from "./styleSettings";
+import type { NumberPicker, StyleSettings } from "../shared/ipc";
 
 type FontPicker = StyleSettings["font"];
 import type {

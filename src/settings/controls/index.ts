@@ -6,10 +6,14 @@ import { AboutCard } from "./AboutCard";
 import { AccentPicker } from "./AccentPicker";
 import { Choice, NumberChoice } from "./Choice";
 import { FolderInput } from "./FolderInput";
+import { FontPickerSetting } from "./FontPickerEditor";
 import { GrowPresetsEditor } from "./GrowPresetsEditor";
+import { NumberPickerSetting } from "./NumberPickerEditor";
+import { PaletteSetting } from "./PaletteEditor";
 import { ProxyLimit } from "./ProxyLimit";
 import { TextInput } from "./TextInput";
 import { Toggle } from "./Toggle";
+import { ToolStyleSetting } from "./ToolStyleEditor";
 
 export interface ControlProps<I extends Item> {
   item: I;
@@ -38,5 +42,9 @@ export const controls: Registry = {
   folder: { component: FolderInput, layout: "stacked" },
   proxyLimit: { component: ProxyLimit, layout: "inline" },
   growPresets: { component: GrowPresetsEditor, layout: "stacked" },
+  numberPicker: { component: NumberPickerSetting, layout: "stacked" },
+  palette: { component: PaletteSetting, layout: "stacked" },
+  toolStyle: { component: ToolStyleSetting, layout: "stacked" },
+  fontPicker: { component: FontPickerSetting, layout: "stacked" },
   about: { component: AboutCard, layout: "bare" },
 };

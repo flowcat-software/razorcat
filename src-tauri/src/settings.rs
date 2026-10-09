@@ -17,6 +17,7 @@ use tauri_plugin_store::StoreExt;
 use tauri_specta::Event;
 
 use crate::state::AppState;
+use crate::styles::Styles;
 
 pub const CURRENT_VERSION: u32 = 1;
 const STORE_FILE: &str = "settings.json";
@@ -33,6 +34,10 @@ pub struct Settings {
     pub timeline: Timeline,
     /// Editing on the picture: the options bar's number fields.
     pub editing: Editing,
+    /// How the markup tools behave (Vandal's editor settings).
+    pub markup: Markup,
+    /// The markup tools' pickers: palettes, sizes, fonts (styles.rs, Vandal's).
+    pub styles: Styles,
     /// How exports come out (export.rs).
     pub export: Export,
 }
@@ -45,6 +50,8 @@ impl Default for Settings {
             proxies: Proxies::default(),
             timeline: Timeline::default(),
             editing: Editing::default(),
+            markup: Markup::default(),
+            styles: Styles::default(),
             export: Export::default(),
         }
     }
@@ -165,6 +172,37 @@ impl Default for Editing {
         Self {
             number_drag_speed: DragSpeed::default(),
             grow_presets: default_grow_presets(),
+        }
+    }
+}
+
+/// How the markup tools behave (Vandal's editor settings, the markup's part).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Markup {
+    /// Tools on the global palette share one current color; off = each tool remembers its own.
+    pub share_color: bool,
+    /// Slot-number badges and shortcut tooltips on the style pickers.
+    pub show_shortcut_hints: bool,
+    /// Number buttons in the options bar show their unit ("50%", "10px"). Off by default: it
+    /// adds clutter (Richard's call, in Vandal).
+    pub show_button_units: bool,
+    /// With a drawing tool, pressing on an object selects it (off: drawing tools always draw).
+    /// Ctrl flips this for one press.
+    pub drawing_tools_select: bool,
+    /// The tools start with their styles as last used (colors, sizes, fonts...), also after a
+    /// restart. Off: they start from the defaults.
+    pub remember_tool_styles: bool,
+}
+
+impl Default for Markup {
+    fn default() -> Self {
+        Self {
+            share_color: false,
+            show_shortcut_hints: true,
+            show_button_units: false,
+            drawing_tools_select: true,
+            remember_tool_styles: true,
         }
     }
 }
@@ -369,6 +407,7 @@ pub fn validate(mut s: Settings) -> Result<Settings, String> {
         .limit_gb
         .clamp(*PROXY_LIMIT_RANGE.start(), *PROXY_LIMIT_RANGE.end());
     s.editing.grow_presets = grow_presets(s.editing.grow_presets)?;
+    s.styles = s.styles.normalized();
     if !GIF_RATES.contains(&s.export.gif_fps) {
         s.export.gif_fps = Export::default().gif_fps;
     }

@@ -117,6 +117,25 @@ export const commands = {
 	 *  export check, check.rs).
 	 */
 	frameCheckExport: (clips: ExportClip[], frame: ExportFrame, cells: number) => typedError<number[], string>(__TAURI_INVOKE("frame_check_export", { clips, frame, cells })),
+	/**  Installed font families for the text tool's font picker (cached after the first call). */
+	listFonts: () => __TAURI_INVOKE<string[]>("list_fonts"),
+	/**
+	 *  The markup tools' styles remembered from last time (JSON text), or null: none yet, or
+	 *  `markup.rememberToolStyles` is off.
+	 */
+	getToolStyles: () => __TAURI_INVOKE<string | null>("get_tool_styles"),
+	/**  Remember the markup tools' current styles (JSON text) for next time. */
+	setToolStyles: (styles: string) => __TAURI_INVOKE<void>("set_tool_styles", { styles }),
+	/**
+	 *  Add a color to the presets the given markup tool uses (the custom color picker's "Save as
+	 *  preset"). Returns a message to show if it can't.
+	 */
+	addColorPreset: (tool: string, color: string) => typedError<null, string>(__TAURI_INVOKE("add_color_preset", { tool, color })),
+	/**
+	 *  Change (`color` given) or delete (`None`) a preset of the palette the given markup tool uses
+	 *  (right-click on a swatch). Returns a message to show if it can't.
+	 */
+	editColorPreset: (tool: string, index: number, color: string | null) => typedError<null, string>(__TAURI_INVOKE("edit_color_preset", { tool, index, color })),
 };
 
 /** Events */
@@ -163,6 +182,13 @@ export type CheckFrames = {
 	/**  Edit the timeline first, and play across the cuts. */
 	edit: boolean,
 };
+
+/**  How the options bar shows the colors (PLAN 3D.16). */
+export type ColorControl = 
+/**  The palette as a row of swatches (with the two-color chip). */
+"swatches" | 
+/**  A button per color that opens the palette. */
+"dropdown";
 
 /**
  *  Rust → editor: a conversion ended without a copy: cancelled (or replaced by another file
@@ -260,6 +286,38 @@ export type ExportProgress = {
 	done: number | null,
 };
 
+/**  How the font picker shows its fonts. */
+export type FontControl = "dropdown" | 
+/**  A stepped slider with the name under it (custom lists of up to 10). */
+"stepped";
+
+/**
+ *  A font picker (the text tool's, and the step markers'). The user's list is kept while `source` is
+ *  `System`, so switching back brings it back (Richard's call, 2C.3). Files
+ *  from before 2C.3 (`{"source":"system",...}` without `fonts`) load as is.
+ */
+export type FontPicker = {
+	source?: FontSource,
+	fonts?: string[],
+	/**
+	 *  Kept as chosen: the page shows a dropdown whenever a stepped slider
+	 *  doesn't fit (the system list, or more than 10 fonts).
+	 */
+	control?: FontControl,
+};
+
+/**  Where the font picker's fonts come from. */
+export type FontSource = 
+/**  Every installed font. */
+"system" | 
+/**  The user's own list, in their order. */
+"custom" | 
+/**
+ *  The text tool's fonts and control ("Same as Text tool"). Only the step
+ *  font offers it (PLAN 3D.13); the text tool's own picker can't.
+ */
+"text";
+
 /**  What an export makes. */
 export type Format = "mp4" | "gif";
 
@@ -291,11 +349,40 @@ export type GrowSide = {
  */
 export type GrowUnit = "px" | "percent";
 
+/**  How the markup tools behave (Vandal's editor settings, the markup's part). */
+export type Markup = {
+	/**  Tools on the global palette share one current color; off = each tool remembers its own. */
+	shareColor?: boolean,
+	/**  Slot-number badges and shortcut tooltips on the style pickers. */
+	showShortcutHints?: boolean,
+	/**
+	 *  Number buttons in the options bar show their unit ("50%", "10px"). Off by default: it
+	 *  adds clutter (Richard's call, in Vandal).
+	 */
+	showButtonUnits?: boolean,
+	/**
+	 *  With a drawing tool, pressing on an object selects it (off: drawing tools always draw).
+	 *  Ctrl flips this for one press.
+	 */
+	drawingToolsSelect?: boolean,
+	/**
+	 *  The tools start with their styles as last used (colors, sizes, fonts...), also after a
+	 *  restart. Off: they start from the defaults.
+	 */
+	rememberToolStyles?: boolean,
+};
+
 /**  The bundled tools' versions, for Settings › About. `None` when one is missing or broken. */
 export type MediaTools = {
 	ffmpeg: string | null,
 	gifski: string | null,
 };
+
+/**
+ *  A number control: a free range, or a list of presets shown as a stepped
+ *  slider, a dropdown or buttons. Lists are kept ascending.
+ */
+export type NumberPicker = { control: "slider"; min: number | null; max: number | null } | { control: "stepped"; values: (number | null)[] } | { control: "dropdown"; values: (number | null)[] } | { control: "buttons"; values: (number | null)[] };
 
 /**  Rust → editor: a file couldn't be opened; the one before (if any) stays. */
 export type OpenFailed = {
@@ -348,6 +435,10 @@ export type Settings = {
 	timeline?: Timeline,
 	/**  Editing on the picture: the options bar's number fields. */
 	editing?: Editing,
+	/**  How the markup tools behave (Vandal's editor settings). */
+	markup?: Markup,
+	/**  The markup tools' pickers: palettes, sizes, fonts (styles.rs, Vandal's). */
+	styles?: Styles,
 	/**  How exports come out (export.rs). */
 	export?: Export,
 };
@@ -403,6 +494,36 @@ export type SourceInfo = {
 /**  Rust → editor: a file was opened (it replaces the one before). */
 export type SourceOpened = SourceInfo;
 
+export type Styles = {
+	/**  Color presets in the user's order, `#rrggbb`. */
+	palette?: string[],
+	/**  How the colors show in the options bar. */
+	colorControl?: ColorControl,
+	/**  Line width in source px. */
+	width?: NumberPicker,
+	/**  The text tool's font. */
+	font?: FontPicker,
+	/**  The text tool's size in pt. */
+	fontSize?: NumberPicker,
+	/**  Redact's pixelate block size in source px (PLAN 3D.3). */
+	pixelate?: NumberPicker,
+	/**  Redact's blur radius in source px. */
+	blur?: NumberPicker,
+	/**  Spotlight's darkness outside, in % (PLAN 3D.7). */
+	spotlight?: NumberPicker,
+	/**  Step markers' size in source px (PLAN 3D.13). */
+	stepSize?: NumberPicker,
+	/**
+	 *  Rounded corners (rectangles, Spotlight's rectangle) in source px (PLAN
+	 *  3D.17): 0 is always a choice, and never buttons.
+	 */
+	cornerRadius?: NumberPicker,
+	/**  Step markers' font; by default the text tool's choices. */
+	stepFont?: FontPicker,
+	/**  Per-tool overrides, keyed by tool id (`"highlighter"`, ...). */
+	tools?: { [key in string]: ToolStyles },
+};
+
 /**  Light, dark, or following Windows. */
 export type ThemeMode = "system" | "light" | "dark";
 
@@ -445,6 +566,16 @@ export type Timeline = {
 	 *  off, it stays whole, on the clip under its start.
 	 */
 	splitMarkup?: boolean,
+};
+
+/**
+ *  A tool's own palette, width picker and/or color control, used instead of
+ *  the global ones.
+ */
+export type ToolStyles = {
+	palette?: string[] | null,
+	width?: NumberPicker | null,
+	colorControl?: ColorControl | null,
 };
 
 /**  Rust → editor: a source's waveform is ready. */

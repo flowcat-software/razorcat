@@ -1,5 +1,5 @@
 import { useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import type { NumberPicker } from "./styleSettings";
+import type { NumberPicker } from "../shared/ipc";
 import { Dropdown } from "./Dropdown";
 import { nearestValue, pickerFraction, slotKey, valueAtFraction } from "./pickers";
 import { useStyleConfig } from "./styles";

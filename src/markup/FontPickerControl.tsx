@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { FontPicker } from "./styleSettings";
+import type { FontPicker } from "../shared/ipc";
 import { Dropdown } from "./Dropdown";
 import { slotIndex, slotKey } from "./pickers";
 import { KEEPS_TEXT_EDITING, refocusTextEditor } from "./TextEditor";

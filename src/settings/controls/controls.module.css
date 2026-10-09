@@ -473,3 +473,339 @@
   align-items: center;
   justify-content: space-between;
 }
+
+/* ---- Markup styles' editors (Vandal's) ---- */
+
+/* ---- number picker: values, range, preview ---- */
+.valueList {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A value box: the number and its unit centred, then (in a list) the remove
+   button as an add-on segment on the right. */
+.valueChip {
+  display: inline-flex;
+  align-items: stretch;
+  width: 88px;
+  height: 30px;
+  border-radius: 4px;
+  background: var(--control-bg);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  overflow: hidden;
+}
+
+.chipValue {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  /* The digits sit low in the box; this lifts them 2px to look centred. */
+  padding-bottom: 4px;
+  /* A press here edits the number (see focusAtEnd). */
+  cursor: text;
+}
+
+.valueChip:focus-within {
+  box-shadow:
+    inset 0 0 0 1px var(--control-border),
+    inset 0 -2px 0 var(--accent);
+}
+
+.valueInput {
+  user-select: text;
+  /* As wide as the number, so number and unit centre together. */
+  field-sizing: content;
+  min-width: 1ch;
+  max-width: 48px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: right;
+  outline: none;
+}
+
+.unit {
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.chipRemove,
+.addValue {
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  cursor: default;
+}
+
+.chipRemove {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  padding: 0;
+  /* The add-on segment: a shade darker, set off by a line. */
+  background: var(--control-addon);
+  box-shadow: inset 1px 0 0 var(--control-border);
+}
+
+/* Red, like a window's close button: it deletes. */
+.chipRemove:hover:not(:disabled) {
+  background: var(--danger);
+  box-shadow: none;
+  color: #fff;
+}
+
+.addValue {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 4px;
+  background: var(--button-bg);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  color: var(--text);
+  font-size: 16px;
+}
+
+/* Add buttons light up in the accent (the remove buttons go red). */
+.addValue:hover:not(:disabled),
+.paletteAdd:hover:not(:disabled):not([aria-pressed="true"]) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.fieldWarning {
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--warning-bg);
+  box-shadow: 0 0 0 1px var(--warning-border);
+  font-size: 12px;
+}
+
+.pickerPreview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* It borrows the options bar's styling for its pickers, but not that bar's
+   44px height, which would add space above it. */
+.controlGroup > .pickerPreview {
+  min-height: 0;
+  padding: 0;
+}
+
+.paletteSwatch,
+.paletteAdd {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  cursor: default;
+}
+
+.paletteAdd {
+  display: grid;
+  place-items: center;
+  background: var(--button-bg);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  color: var(--text);
+  font-size: 16px;
+}
+
+.paletteAdd[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.paletteNew {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+}
+
+/* ---- per-tool overrides ---- */
+/* Each switch has its editor under it while on, so the next switch moves
+   down below it. */
+.overrides {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.override {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* An open editor gets more room below it: 25px to the next switch. */
+.override:has(> :nth-child(2)):not(:last-child) {
+  padding-bottom: 15px;
+}
+
+.overrideSwitch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text);
+}
+
+/* The same width for both labels, so the switches line up. */
+.overrideLabel {
+  min-width: 110px;
+}
+
+/* ---- fonts: installed ⇄ custom list ---- */
+.fontLists {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.fontColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fontButtons {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 38px;
+}
+
+.fontListHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+}
+
+.fontOrder {
+  display: flex;
+  gap: 4px;
+}
+
+/* Move up / down: outlined buttons like the list's other controls. */
+.orderButton {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: var(--button-bg);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  color: var(--text);
+  cursor: default;
+}
+
+.orderButton:hover:not(:disabled) {
+  background: var(--button-bg-hover);
+}
+
+.orderButton:active:not(:disabled) {
+  background: var(--button-bg-active);
+}
+
+.orderButton:disabled {
+  color: var(--text-3);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.orderButton svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.fontListBox {
+  height: 220px;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  list-style: none;
+  border-radius: 4px;
+  background: var(--control-bg);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  outline: none;
+}
+
+.fontListBox:focus-visible {
+  box-shadow:
+    inset 0 0 0 1px var(--control-border),
+    0 0 0 2px var(--focus);
+}
+
+.fontRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-size: 14px;
+  cursor: default;
+  touch-action: none;
+  transition: transform 120ms ease;
+}
+
+.fontRow:hover {
+  background: var(--hover);
+}
+
+.fontRow[aria-selected="true"] {
+  background: var(--selected);
+}
+
+.fontRow[data-dragging] {
+  position: relative;
+  z-index: 1;
+  transition: none;
+  background: var(--surface);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.3);
+}
+
+.fontSlot {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 11px;
+  text-align: right;
+}
+
+.fontMissing {
+  margin-left: auto;
+  color: var(--text-2);
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 11px;
+}
+
+.fontEmpty {
+  padding: 6px 10px;
+  color: var(--text-2);
+  font-size: 12px;
+}

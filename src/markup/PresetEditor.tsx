@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { editColorPreset } from "./styleSettings";
+import { commands } from "../shared/ipc";
 import { ColorPicker } from "./ColorPicker";
 import { hasOwnPalette } from "./styles";
 import { KEEPS_TEXT_EDITING, refocusTextEditor } from "./TextEditor";
@@ -44,7 +44,7 @@ export function PresetEditor({ palette, index, tool, color, onChange, left, onCl
   };
 
   const run = async (next: string | null) => {
-    const r = await editColorPreset(tool, index, next);
+    const r = await commands.editColorPreset(tool, index, next);
     if (r.status === "error") setError(r.error);
     else finish();
   };

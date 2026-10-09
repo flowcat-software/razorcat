@@ -21,3 +21,6 @@ type NumberNotNull<T> = [T] extends [number | null] ? (null extends T ? number :
 
 export type Settings = Complete<SettingsWire>;
 export type SourceInfo = Complete<SourceInfoWire>;
+/** The markup tools' pickers (styles.rs). */
+export type StyleSettings = Settings["styles"];
+export type NumberPicker = StyleSettings["width"];

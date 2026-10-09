@@ -252,3 +252,53 @@ pub fn frame_check_report(
 ) -> Result<String, String> {
     crate::check::report(&app, &summary, &report)
 }
+
+/// Installed font families for the text tool's font picker (cached after the first call).
+#[tauri::command]
+#[specta::specta]
+pub async fn list_fonts() -> Vec<String> {
+    tauri::async_runtime::spawn_blocking(crate::fonts::list)
+        .await
+        .unwrap_or_default()
+}
+
+/// The markup tools' styles remembered from last time (JSON text), or null: none yet, or
+/// `markup.rememberToolStyles` is off.
+#[tauri::command]
+#[specta::specta]
+pub fn get_tool_styles(app: AppHandle) -> Option<String> {
+    crate::tool_styles::load(&app)
+}
+
+/// Remember the markup tools' current styles (JSON text) for next time.
+#[tauri::command]
+#[specta::specta]
+pub fn set_tool_styles(app: AppHandle, styles: String) {
+    crate::tool_styles::save(&app, &styles);
+}
+
+/// Add a color to the presets the given markup tool uses (the custom color picker's "Save as
+/// preset"). Returns a message to show if it can't.
+#[tauri::command]
+#[specta::specta]
+pub fn add_color_preset(app: AppHandle, tool: String, color: String) -> Result<(), String> {
+    let mut s = app.state::<AppState>().settings.read().unwrap().clone();
+    s.styles.add_preset(&tool, &color)?;
+    settings::update(&app, s).map(|_| ())
+}
+
+/// Change (`color` given) or delete (`None`) a preset of the palette the given markup tool uses
+/// (right-click on a swatch). Returns a message to show if it can't.
+#[tauri::command]
+#[specta::specta]
+pub fn edit_color_preset(
+    app: AppHandle,
+    tool: String,
+    index: u32,
+    color: Option<String>,
+) -> Result<(), String> {
+    let mut s = app.state::<AppState>().settings.read().unwrap().clone();
+    s.styles
+        .edit_preset(&tool, index as usize, color.as_deref())?;
+    settings::update(&app, s).map(|_| ())
+}

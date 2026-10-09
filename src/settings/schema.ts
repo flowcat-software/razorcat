@@ -5,6 +5,7 @@
 // (TypeScript will insist on both). Vandal's settings have more kinds to copy (toggle, text...)
 // when a setting needs one.
 import type { ComponentType } from "react";
+import type { ToolId } from "../markup/toolStore";
 import type { Settings } from "../shared/ipc";
 import type { PathOf } from "./path";
 
@@ -83,6 +84,49 @@ export interface AboutItem extends BaseItem {
   kind: "about";
 }
 
+/** A number picker spec (Vandal's): its control type and values. */
+export interface NumberPickerItem extends BaseItem {
+  kind: "numberPicker";
+  /** Picker specs are objects, so these aren't typed leaf paths. */
+  path:
+    | "styles.width"
+    | "styles.fontSize"
+    | "styles.pixelate"
+    | "styles.blur"
+    | "styles.spotlight"
+    | "styles.stepSize"
+    | "styles.cornerRadius";
+  unit: "px" | "pt" | "%";
+  /** 0 is always a choice, first in the list or the slider's start. */
+  zero?: boolean;
+  /** No "Buttons" control. */
+  noButtons?: boolean;
+  /** Preview the values as lines of that thickness. */
+  lines?: boolean;
+  /** A note under the editor while any value is below `value` (allowed, but weak). */
+  warnBelow?: { value: number; message: string };
+}
+
+/** A color palette (Vandal's): up to 10 colors in the user's order. */
+export interface PaletteItem extends BaseItem {
+  kind: "palette";
+  path: PathOf<Settings, string[]>;
+}
+
+/** One markup tool's own colors and widths, instead of the shared ones (Vandal's). */
+export interface ToolStyleItem extends BaseItem {
+  kind: "toolStyle";
+  tool: ToolId;
+  /** The tool draws lines, so a width override applies. */
+  widths: boolean;
+}
+
+/** A tool's fonts (Vandal's): the text tool's, or the step markers'. */
+export interface FontPickerItem extends BaseItem {
+  kind: "fontPicker";
+  path: "styles.font" | "styles.stepFont";
+}
+
 export type Item =
   | ToggleItem
   | ChoiceItem
@@ -92,6 +136,10 @@ export type Item =
   | FolderItem
   | ProxyLimitItem
   | GrowPresetsItem
+  | NumberPickerItem
+  | PaletteItem
+  | ToolStyleItem
+  | FontPickerItem
   | AboutItem;
 export type ItemKind = Item["kind"];
 

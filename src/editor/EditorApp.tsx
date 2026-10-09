@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { startToolStylesSync } from "../markup/toolStylesSync";
 import { useMarkupKeys } from "../markup/useMarkupKeys";
+import { applyStyleSettings, loadFonts } from "../markup/useStyleSettings";
 import { commands, events, type Settings, type SourceInfo, type ThumbsInfo } from "../shared/ipc";
 import { CommandBar } from "./CommandBar";
 import { useToolKeys } from "./cropTool";
@@ -40,9 +42,10 @@ const rangeOptions = (s: Settings) =>
     splitMarks: s.timeline.splitMarkup,
   });
 
-/** The settings the editor's stores keep (ranges, number fields). */
+/** The settings the editor's stores keep (ranges, number fields, the markup's styles). */
 const applySettings = (s: Settings) => {
   rangeOptions(s);
+  applyStyleSettings(s);
   useTool.getState().setDragSpeed(s.editing.numberDragSpeed);
 };
 
@@ -373,6 +376,12 @@ export function EditorApp() {
   // The markup's own keys (Vandal's: the style digits, Enter to type, nudging...).
   const open = source !== null;
   useMarkupKeys(() => open && useTool.getState().tool !== "crop");
+
+  // The markup tools' styles: the installed fonts, and their memory kept between sessions.
+  useEffect(() => {
+    loadFonts();
+    return startToolStylesSync();
+  }, []);
 
   // Alt pressed and let go on its own (Alt+wheel scrolls the timeline) would reach the window
   // and put it in menu mode, which eats the next input: a Ctrl+wheel zoom did nothing. The page

@@ -2,7 +2,7 @@
 // key picks, and where a value sits on a picker. Pure, shared by the options
 // panel, the shortcuts and (Phase 2C) the Settings preview.
 
-import type { NumberPicker } from "./styleSettings";
+import type { NumberPicker } from "../shared/ipc";
 
 /** Most presets a picker or palette holds (`styles.rs` MAX_PRESETS). */
 export const MAX_PRESETS = 10;

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { addColorPreset } from "./styleSettings";
+import { commands } from "../shared/ipc";
 import { ColorPicker } from "./ColorPicker";
 import { hint } from "./HintLine";
 import { beginStyleDrag, cancelStyleDrag, endStyleDrag } from "./restyle";
@@ -124,7 +124,7 @@ export function CustomColor({
 
   const save = async () => {
     try {
-      await addColorPreset(tool, value).then((r) => {
+      await commands.addColorPreset(tool, value).then((r) => {
         if (r.status === "error") throw new Error(r.error);
       });
       // It's a preset now; the custom swatch doesn't need to hold it too.

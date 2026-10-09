@@ -6,6 +6,7 @@ import {
   EditingIcon,
   ExportIcon,
   GeneralIcon,
+  MarkupIcon,
   ProxiesIcon,
   TimelineIcon,
 } from "./icons";
@@ -169,6 +170,120 @@ export const sections: Section[] = [
               { value: "veryFast", label: "Very fast" },
             ],
             keywords: ["drag", "speed", "number", "field", "scrub", "sensitivity", "crop", "grow"],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "markup",
+    title: "Markup",
+    icon: MarkupIcon,
+    description: "The markup tools (Vandal's): how they behave, and the styles they offer.",
+    groups: [
+      {
+        title: "Behavior",
+        items: [
+          {
+            id: "markup-drawing-tools-select",
+            kind: "toggle",
+            path: "markup.drawingToolsSelect",
+            label: "Drawing tools select objects under the pointer",
+            description:
+              "Off: drawing tools always draw, even over other markup, and you select with the Select tool. Hold Ctrl to do the opposite for one click.",
+            keywords: ["draw over", "click", "select", "move", "ctrl", "overlap", "text"],
+          },
+          {
+            id: "markup-remember-tool-styles",
+            kind: "toggle",
+            path: "markup.rememberToolStyles",
+            label: "Remember tool styles",
+            description:
+              "The tools start with the colors, fonts and other options you last used, even after a restart. Off: they start from the defaults.",
+            keywords: ["remember", "keep", "persist", "restore", "defaults", "color", "font"],
+          },
+          {
+            id: "markup-shortcut-hints",
+            kind: "toggle",
+            path: "markup.showShortcutHints",
+            label: "Show shortcut hints on the pickers",
+            description:
+              "Slot numbers on the sizes, colors and fonts while you hold a number key, Ctrl or Alt, and the keys in their tooltips. The shortcuts work either way.",
+            keywords: ["shortcut", "hint", "badge", "number", "keyboard", "tooltip", "digit"],
+          },
+          {
+            id: "markup-button-units",
+            kind: "toggle",
+            path: "markup.showButtonUnits",
+            label: "Show units on number buttons",
+            description:
+              'Buttons for sizes show their unit after the number, like "10px". Off keeps them shorter.',
+            keywords: ["unit", "units", "px", "percent", "pt", "button", "number", "label"],
+          },
+        ],
+      },
+      {
+        title: "Colors",
+        items: [
+          {
+            id: "styles-palette",
+            kind: "palette",
+            path: "styles.palette",
+            label: "Color presets",
+            description:
+              "The colors the tools offer, in order. Ctrl+1–9 pick the first nine. Click a color to change or remove it; drag it to reorder.",
+            keywords: ["color", "colour", "palette", "preset", "swatch", "reorder"],
+          },
+          {
+            id: "styles-color-control",
+            kind: "choice",
+            path: "styles.colorControl",
+            label: "Show colors as",
+            description:
+              "Swatches show every color in the options bar. A dropdown takes less room: a button per color that opens the palette. The keys work the same either way. A tool can have its own choice under Per-tool styles.",
+            options: [
+              { value: "swatches", label: "Swatches" },
+              { value: "dropdown", label: "Dropdown" },
+            ],
+            keywords: ["color", "colour", "swatch", "dropdown", "menu", "compact", "toolbar"],
+          },
+        ],
+      },
+      {
+        title: "Text",
+        items: [
+          {
+            id: "styles-fonts",
+            kind: "fontPicker",
+            path: "styles.font",
+            label: "Fonts",
+            description:
+              "The fonts the text tool offers. With a custom list, Alt+1–9 and Alt+0 pick them while you type.",
+            keywords: ["font", "typeface", "family", "text", "list", "installed"],
+          },
+          {
+            id: "styles-font-size",
+            kind: "numberPicker",
+            path: "styles.fontSize",
+            label: "Font sizes",
+            description: "The sizes the text tool offers, in points. Keys 1–9 and 0 pick them.",
+            unit: "pt",
+            keywords: ["font", "size", "text", "points", "pt", "picker"],
+          },
+        ],
+      },
+      {
+        title: "Per-tool styles",
+        description:
+          "Give a tool its own colors or way of showing colors instead of the ones above. (The other tools join this list in Phase 4.5.)",
+        items: [
+          {
+            id: "tool-style-text",
+            kind: "toolStyle",
+            tool: "text",
+            label: "Text",
+            widths: false,
+            keywords: ["own", "custom", "override", "per tool", "palette", "color"],
           },
         ],
       },

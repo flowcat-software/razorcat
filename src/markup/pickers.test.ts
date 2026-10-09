@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { NumberPicker } from "./styleSettings";
+import type { NumberPicker } from "../shared/ipc";
 import {
   colorKey,
   digitSlot,

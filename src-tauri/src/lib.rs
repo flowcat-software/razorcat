@@ -7,6 +7,7 @@ mod editor;
 mod export;
 mod ffmpeg;
 mod folders;
+mod fonts;
 mod media;
 mod paths;
 mod placement;
@@ -17,7 +18,9 @@ mod settings_window;
 mod sidecar;
 mod source;
 mod state;
+mod styles;
 mod thumbs;
+mod tool_styles;
 mod wave;
 
 use std::path::Path;
@@ -52,6 +55,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::cancel_export,
             commands::show_in_folder,
             commands::frame_check_export,
+            commands::list_fonts,
+            commands::get_tool_styles,
+            commands::set_tool_styles,
+            commands::add_color_preset,
+            commands::edit_color_preset,
         ])
         .events(collect_events![
             editor::SourceOpened,
