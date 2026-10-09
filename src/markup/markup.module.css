@@ -1,0 +1,132 @@
+/* ---- toolbar (mockup: Toolbar board) ---- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tool {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+}
+
+.tool svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tool:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.tool[aria-pressed="true"] {
+  background: var(--selected);
+  color: var(--accent);
+}
+
+/* The active tool's accent pill. */
+.tool[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  left: 11px;
+  bottom: 2px;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.tool:disabled {
+  color: var(--text-3);
+}
+
+.toolbarDivider {
+  width: 1px;
+  height: 24px;
+  margin: 0 6px;
+  background: var(--border);
+}
+
+/* ---- drawing surface ---- */
+
+.surface {
+  position: absolute;
+  inset: 0;
+}
+
+/* Typing a step marker's label: a field in the marker's place (PLAN 3D.12). */
+.stepLabelEditor {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 1px dashed #4c8dff;
+  outline-offset: 3px;
+  font-weight: bold;
+  text-align: center;
+}
+
+/* In-place text editing: a textarea exactly over the canvas text. */
+.textEditor {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  outline: 1px dashed #4c8dff;
+  outline-offset: 3px;
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  transform-origin: 0 0;
+  min-width: 2px;
+  /* Unhinted advances, as the canvas measures them: hinting rounds each
+     character's width, which adds up along a line (a monospace font drifts
+     a character's width past the box the canvas draws). */
+  text-rendering: geometricPrecision;
+}
+
+/* ---- hint line (status bar) ---- */
+
+.hintLine {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.keys {
+  white-space: nowrap;
+}
+
+.keys kbd {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--control-border);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: var(--control-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  line-height: 14px;
+  text-align: center;
+}

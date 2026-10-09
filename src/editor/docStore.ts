@@ -15,7 +15,7 @@ import {
   addMark,
   addRange,
   deleteClip,
-  deleteMark,
+  deleteMarks,
   deleteRange,
   keepRanges,
   keepRangesInPlace,
@@ -25,6 +25,7 @@ import {
   setCrop,
   setGrow,
   setMark,
+  setMarkObject,
   setRange,
   shownMarks,
   shownRanges,
@@ -34,7 +35,7 @@ import {
   type ClipId,
   type Doc,
   type MarkId,
-  type MarkKind,
+  type MarkObject,
   type RangeId,
 } from "./doc";
 import type { Rect, Size } from "./fit";
@@ -65,7 +66,8 @@ export interface DocState {
    */
   selected: ClipId | null;
   selectedRange: RangeId | null;
-  selectedMark: MarkId | null;
+  /** The selected markup (several at once, as Vandal's selection). */
+  selectedMarks: readonly MarkId[];
   /** I pressed, O not yet: the in-point of the range to come, a timeline frame. */
   pendingIn: number | null;
   options: RangeOptions;
@@ -91,17 +93,14 @@ export interface DocState {
   removeRanges: () => boolean;
   setPendingIn: (f: number | null) => void;
 
-  /** Adds markup at timeline frame `start`, `length` frames long, and selects it; its id. */
-  addMark: (
-    kind: MarkKind,
-    text: string,
-    start: number,
-    length: number,
-    lane: number,
-  ) => MarkId | null;
+  /** Adds markup showing `object` at timeline frame `start`, `length` frames long; its id. */
+  addMark: (object: MarkObject, start: number, length: number, lane: number) => MarkId | null;
   /** Moves or resizes markup `id` to timeline frames `start` to `end`, in `lane`. */
   setMark: (id: MarkId, start: number, end: number, lane: number) => boolean;
+  /** Markup `id` shows `object` now (moved, resized or restyled on the preview). */
+  setMarkObject: (id: MarkId, object: MarkObject) => boolean;
   removeMark: (id: MarkId) => boolean;
+  removeMarks: (ids: readonly MarkId[]) => boolean;
 
   /** Crops to `crop` (kept to the source). */
   crop: (crop: Rect) => boolean;
@@ -118,7 +117,7 @@ export interface DocState {
 
   select: (id: ClipId | null) => void;
   selectRange: (id: RangeId | null) => void;
-  selectMark: (id: MarkId | null) => void;
+  selectMarks: (ids: readonly MarkId[]) => void;
   setOptions: (options: RangeOptions) => void;
 }
 
@@ -161,9 +160,11 @@ export const useDoc = create<DocState>()((set, get) => {
 
   /** The selection, if what's selected is gone (or hidden). */
   const prune = () => {
-    const { doc, selected, selectedRange, selectedMark } = get();
-    if (selectedMark !== null && !shownMarks(doc).some((m) => m.id === selectedMark)) {
-      set({ selectedMark: null });
+    const { doc, selected, selectedRange, selectedMarks } = get();
+    if (selectedMarks.length) {
+      const shown = new Set(shownMarks(doc).map((m) => m.id));
+      const kept = selectedMarks.filter((id) => shown.has(id));
+      if (kept.length !== selectedMarks.length) set({ selectedMarks: kept });
     }
     if (selected !== null && !doc.clips.some((c) => c.id === selected)) set({ selected: null });
     if (selectedRange !== null && !shownRanges(doc).some((r) => r.id === selectedRange)) {
@@ -178,7 +179,7 @@ export const useDoc = create<DocState>()((set, get) => {
     gestureStart: null,
     selected: null,
     selectedRange: null,
-    selectedMark: null,
+    selectedMarks: [],
     pendingIn: null,
     options: { follow: true, deleteWithClip: true, splitMarks: true },
 
@@ -190,7 +191,7 @@ export const useDoc = create<DocState>()((set, get) => {
         gestureStart: null,
         selected: null,
         selectedRange: null,
-        selectedMark: null,
+        selectedMarks: [],
         pendingIn: null,
       }),
 
@@ -202,7 +203,7 @@ export const useDoc = create<DocState>()((set, get) => {
     addRange: (a, b) => {
       const id = get().doc.nextRangeId;
       if (!apply((doc) => addRange(doc, a, b))) return null;
-      set({ selected: null, selectedRange: id, selectedMark: null });
+      set({ selected: null, selectedRange: id, selectedMarks: [] });
       return id;
     },
     setRange: (id, a, b) => apply((doc) => setRange(doc, id, a, b)),
@@ -211,14 +212,14 @@ export const useDoc = create<DocState>()((set, get) => {
     removeRanges: () => apply((doc) => removeRanges(doc, get().options.splitMarks)),
     setPendingIn: (f) => set({ pendingIn: f }),
 
-    addMark: (kind, text, start, length, lane) => {
+    addMark: (object, start, length, lane) => {
       const id = get().doc.nextMarkId;
-      if (!apply((doc) => addMark(doc, kind, text, start, length, lane))) return null;
-      set({ selected: null, selectedRange: null, selectedMark: id });
-      return id;
+      return apply((doc) => addMark(doc, object, start, length, lane)) ? id : null;
     },
     setMark: (id, start, end, lane) => apply((doc) => setMark(doc, id, start, end, lane)),
-    removeMark: (id) => apply((doc) => deleteMark(doc, id)),
+    setMarkObject: (id, object) => apply((doc) => setMarkObject(doc, id, object)),
+    removeMark: (id) => apply((doc) => deleteMarks(doc, [id])),
+    removeMarks: (ids) => apply((doc) => deleteMarks(doc, ids)),
     crop: (crop) => apply((doc) => setCrop(doc, crop)),
     grow: (grow) => apply((doc) => setGrow(doc, grow)),
 
@@ -256,9 +257,10 @@ export const useDoc = create<DocState>()((set, get) => {
     },
 
     // One thing selected at a time: either null selects nothing.
-    select: (id) => set({ selected: id, selectedRange: null, selectedMark: null }),
-    selectRange: (id) => set({ selectedRange: id, selected: null, selectedMark: null }),
-    selectMark: (id) => set({ selectedMark: id, selected: null, selectedRange: null }),
+    select: (id) => set({ selected: id, selectedRange: null, selectedMarks: [] }),
+    selectRange: (id) => set({ selectedRange: id, selected: null, selectedMarks: [] }),
+    selectMarks: (ids) =>
+      set({ selectedMarks: [...new Set(ids)], selected: null, selectedRange: null }),
     setOptions: (options) => set({ options }),
   };
 });

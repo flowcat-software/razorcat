@@ -10,6 +10,7 @@ import {
   clipStarts,
   LANES,
   moveSlot,
+  markLabel,
   shownMarks,
   shownRanges,
   total,
@@ -504,7 +505,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
 
       // The clips, each inset by half a pixel so a cut shows as a 1 px gap, with 8 px corners
       // notching it top and bottom.
-      const { doc, selected, selectedRange, selectedMark, pendingIn } = useDoc.getState();
+      const { doc, selected, selectedRange, selectedMarks, pendingIn } = useDoc.getState();
       const starts = clipStarts(doc);
       g.save();
       g.beginPath();
@@ -631,13 +632,10 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         g.fillRect(x0, y0, x1 - x0, LANE_H);
         g.fillStyle = "#fff";
         g.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
-        g.fillText(
-          `T  ${marks.get(m.id)?.text ?? ""}`,
-          Math.max(x0, HEADER) + 8,
-          y0 + LANE_H / 2 + 1,
-        );
+        const object = marks.get(m.id)?.object;
+        g.fillText(object ? markLabel(object) : "", Math.max(x0, HEADER) + 8, y0 + LANE_H / 2 + 1);
         g.restore();
-        if (m.id === selectedMark) {
+        if (selectedMarks.includes(m.id)) {
           g.strokeStyle = c["accent"];
           g.lineWidth = 2;
           g.beginPath();
@@ -1056,7 +1054,14 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     docState.beginGesture();
     if ("mark" in hit) {
       const { mark } = hit;
-      docState.selectMark(mark.id);
+      // Shift adds it to the selection (or takes it out); a press on one already selected keeps
+      // the others.
+      const sel = docState.selectedMarks;
+      if (e.shiftKey) {
+        docState.selectMarks(
+          sel.includes(mark.id) ? sel.filter((id) => id !== mark.id) : [...sel, mark.id],
+        );
+      } else if (!sel.includes(mark.id)) docState.selectMarks([mark.id]);
       const kind = hit.kind === "markStart" ? "start" : hit.kind === "markEnd" ? "end" : "move";
       marking.current = {
         kind,
@@ -1161,7 +1166,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           const view = useTimeline.getState().view;
           const hit = hitAt(docState.doc, docState.pendingIn, view, x, y);
           if (hit && "mark" in hit) {
-            docState.selectMark(hit.mark.id);
+            if (!docState.selectedMarks.includes(hit.mark.id)) docState.selectMarks([hit.mark.id]);
             setMenu({
               x: e.clientX,
               y: e.clientY,

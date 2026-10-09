@@ -58,7 +58,7 @@ export function ColorSwatch({ value, name, onPick, onOpen, onClose }: Props) {
       <button
         ref={swatchRef}
         type="button"
-        className={styles.swatch}
+        className={styles.colorSwatch}
         style={{ background: value } as CSSProperties}
         aria-label={name}
         title={name}

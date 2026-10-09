@@ -22,6 +22,7 @@
 //
 // The frame (crop, and the space grown round it; frame.ts) is one for the whole project.
 
+import type { NewAnnotation } from "../markup/model/types";
 import type { Rect, Size } from "./fit";
 import { fullFrame, keepCrop, sameGrow, type Frame, type Grow } from "./frame";
 
@@ -53,22 +54,44 @@ export interface Range {
 
 export type MarkId = number;
 
-/** What a piece of markup is (Phase 4.5 adds Vandal's other tools). */
-export type MarkKind = "text";
+/**
+ * What a piece of markup shows: Vandal's markup object (text, an arrow...), without its id. Its
+ * geometry is in output pixels, from the top-left of the whole frame (the grown space included).
+ */
+export type MarkObject = NewAnnotation;
 
-/** A piece of markup: what it is, and when, anchored to the video under its start. */
+/** A piece of markup: what it shows, and when, anchored to the video under its start. */
 export interface Mark {
   id: MarkId;
-  kind: MarkKind;
   /** The clip its start is on, and the source frame there. */
   clip: ClipId;
   at: number;
   /** How many frames it lasts. */
   length: number;
-  /** Its lane on the timeline, from the top. */
+  /** Its lane on the timeline, from the top. The top lane's markup is drawn over the others. */
   lane: number;
-  /** What it says (a stand-in for its look until Phase 4.2). */
-  text: string;
+  object: MarkObject;
+}
+
+/** What each kind of markup is called. */
+export const MARK_NAMES: Record<MarkObject["kind"], string> = {
+  text: "Text",
+  callout: "Callout",
+  arrow: "Arrow",
+  line: "Line",
+  rect: "Rectangle",
+  ellipse: "Ellipse",
+  highlighter: "Highlighter",
+  pen: "Pen",
+  step: "Step",
+  redact: "Redact",
+  spotlight: "Spotlight",
+};
+
+/** What markup's bar on the timeline says: its text's first line, else what it is. */
+export function markLabel(o: MarkObject): string {
+  const text = o.kind === "text" || o.kind === "callout" ? o.text.trim().split("\n")[0] : "";
+  return text || MARK_NAMES[o.kind];
 }
 
 /** The markup lanes above the clips (the mockup's). */
@@ -552,13 +575,12 @@ function handMarksOver(marks: readonly Mark[], from: ClipId, to: ClipId, at: num
 }
 
 /**
- * Adds markup of `kind` at timeline frame `start`, `length` frames long (less at the end), in
- * `lane`. The same document if there's no video there.
+ * Adds markup showing `object` at timeline frame `start`, `length` frames long (less at the end),
+ * in `lane`. The same document if there's no video there.
  */
 export function addMark(
   doc: Doc,
-  kind: MarkKind,
-  text: string,
+  object: MarkObject,
   start: number,
   length: number,
   lane: number,
@@ -568,11 +590,10 @@ export function addMark(
   if (!at) return doc;
   const mark: Mark = {
     id: doc.nextMarkId,
-    kind,
     ...at,
     length: Math.max(1, Math.min(Math.round(length), total(doc) - f)),
     lane: Math.max(0, Math.min(LANES - 1, lane)),
-    text,
+    object,
   };
   return { ...doc, marks: [...doc.marks, mark], nextMarkId: doc.nextMarkId + 1 };
 }
@@ -599,9 +620,23 @@ export function setMark(doc: Doc, id: MarkId, start: number, end: number, lane: 
   return { ...doc, marks };
 }
 
+/** Markup `id` shows `object` now. The same document if it's the same object. */
+export function setMarkObject(doc: Doc, id: MarkId, object: MarkObject): Doc {
+  const index = doc.marks.findIndex((m) => m.id === id);
+  if (index < 0 || doc.marks[index].object === object) return doc;
+  const marks = [...doc.marks];
+  marks[index] = { ...marks[index], object };
+  return { ...doc, marks };
+}
+
+/** Deletes markup `ids`. The same document if none of them is there. */
+export function deleteMarks(doc: Doc, ids: readonly MarkId[]): Doc {
+  const marks = doc.marks.filter((m) => !ids.includes(m.id));
+  return marks.length === doc.marks.length ? doc : { ...doc, marks };
+}
+
 export function deleteMark(doc: Doc, id: MarkId): Doc {
-  if (!doc.marks.some((m) => m.id === id)) return doc;
-  return { ...doc, marks: doc.marks.filter((m) => m.id !== id) };
+  return deleteMarks(doc, [id]);
 }
 
 /**

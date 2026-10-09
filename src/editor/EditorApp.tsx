@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useMarkupKeys } from "../markup/useMarkupKeys";
 import { commands, events, type Settings, type SourceInfo, type ThumbsInfo } from "../shared/ipc";
 import { CommandBar } from "./CommandBar";
 import { useToolKeys } from "./cropTool";
@@ -6,7 +7,6 @@ import { EmptyEditor } from "./EmptyEditor";
 import { useDoc } from "./docStore";
 import {
   addRangeAtPlayhead,
-  addTextAtPlayhead,
   deleteSelected,
   moveSelected,
   rangeIn,
@@ -74,14 +74,9 @@ function transportKey(e: KeyboardEvent, player: Player): boolean {
   }
   // Held down, these would flip back and forth (or split again and again).
   if (e.shiftKey || e.repeat) {
-    return ["Space", "KeyJ", "KeyK", "KeyL", "KeyS", "KeyR", "KeyI", "KeyO", "KeyT"].includes(
-      e.code,
-    );
+    return ["Space", "KeyJ", "KeyK", "KeyL", "KeyS", "KeyR", "KeyI", "KeyO"].includes(e.code);
   }
   switch (e.code) {
-    case "KeyT":
-      addTextAtPlayhead(player);
-      return true;
     case "KeyS":
       splitAtPlayhead(player);
       return true;
@@ -373,8 +368,11 @@ export function EditorApp() {
     return () => window.removeEventListener("keydown", onKey);
   }, [player]);
 
-  // V, C and G pick up the select, crop and grow tools; arrows nudge the crop box.
+  // V, C, G and T pick up the select, crop, grow and text tools; arrows nudge the crop box.
   useToolKeys(source !== null);
+  // The markup's own keys (Vandal's: the style digits, Enter to type, nudging...).
+  const open = source !== null;
+  useMarkupKeys(() => open && useTool.getState().tool !== "crop");
 
   // Alt pressed and let go on its own (Alt+wheel scrolls the timeline) would reach the window
   // and put it in menu mode, which eats the next input: a Ctrl+wheel zoom did nothing. The page

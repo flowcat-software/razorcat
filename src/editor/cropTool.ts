@@ -1,14 +1,17 @@
 // The crop and grow tools' actions, and the picture tools' keys (the options bar's and the
-// keyboard's; the boxes are CropOverlay.tsx and GrowOverlay.tsx). They change the document as
+// keyboard's; the boxes are CropOverlay.tsx and GrowOverlay.tsx; the markup's own keys are
+// markup/useMarkupKeys.ts). They change the document as
 // they go: there's nothing to apply or cancel, and undo takes each change back.
 
 import { useEffect } from "react";
+import { docStore as markupDoc } from "../markup/model/store";
+import { useToolStore as useMarkupTools } from "../markup/toolStore";
 import { isPopoverOpen } from "../markup/usePopover";
 import { isTyping } from "../shared/dom";
 import { nudgeCrop } from "./cropGeometry";
 import { useDoc } from "./docStore";
 import { cropToRatio } from "./frame";
-import { lockedRatio, useTool, type CropRatioId, type Tool } from "./toolStore";
+import { lockedRatio, MARKUP_TOOLS, useTool, type CropRatioId, type Tool } from "./toolStore";
 
 /** Hold the box to a ratio, refitting it now: the largest of that shape, where it was. */
 export function pickCropRatio(id: CropRatioId): void {
@@ -52,13 +55,21 @@ const ARROWS: Record<string, [number, number]> = {
 };
 
 /** The picture's tools by key. */
-const TOOL_KEYS: Record<string, Tool> = { KeyV: "select", KeyC: "crop", KeyG: "grow" };
+const TOOL_KEYS: Record<string, Tool> = {
+  KeyV: "select",
+  KeyC: "crop",
+  KeyG: "grow",
+  KeyT: "text",
+};
 
 /**
- * The picture's tool keys: C picks crop up (or puts it down), G grow, V the select tool. While
- * cropping, arrows nudge the box (Shift 10 px) and Ctrl+arrows resize it from the bottom-right,
- * as in Vandal, one undo step for as long as the key is held. Enter or Esc put a tool down. The
- * rest (Space, J/K/L, undo) still work. `active`: a video is open.
+ * The picture's tool keys: C picks crop up (or puts it down), G grow, T text, V the select tool.
+ * While cropping, arrows nudge the box (Shift 10 px) and Ctrl+arrows resize it from the
+ * bottom-right, as in Vandal, one undo step for as long as the key is held. Enter or Esc put the
+ * crop or grow tool down; with a markup tool, Esc first drops the markup selected (Vandal's Esc
+ * ladder: text being typed, then the selection, then the tool), and Enter is the markup's (it
+ * types into the selected text). The rest (Space, J/K/L, undo) still work. `active`: a video is
+ * open.
  */
 export function useToolKeys(active: boolean): void {
   useEffect(() => {
@@ -82,6 +93,15 @@ export function useToolKeys(active: boolean): void {
         return;
       }
       if (tool === "select") return;
+      if (MARKUP_TOOLS.includes(tool)) {
+        if (e.code !== "Escape" || e.ctrlKey || useMarkupTools.getState().editing) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const markup = markupDoc.getState();
+        if (markup.selection.length) markup.select([]);
+        else setTool("select");
+        return;
+      }
       if (!e.ctrlKey && (e.code === "Enter" || e.code === "NumpadEnter" || e.code === "Escape")) {
         e.preventDefault();
         e.stopImmediatePropagation();

@@ -1,7 +1,423 @@
-/* The color picker and its popover (Vandal's, from its options.module.css). Markup's options
-   join this file in Phase 4. */
+/* Tool options (mockup: ToolOptions board). Measurements follow the mockup. */
+
+.options {
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: center;
+  gap: 10px;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* Popovers style their own icons too: Settings hosts them outside `.options`. */
+.options svg,
+.menu svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.options svg .solid {
+  fill: currentColor;
+}
+
+/* An icon drawn filled, not stroked (the eyedropper). */
+.options svg.filledIcon,
+.menu svg.filledIcon {
+  fill: currentColor;
+  stroke: none;
+}
+
+/* Tags a picker for the hint line without affecting its layout. */
+.hintArea {
+  display: contents;
+}
+
+.sep {
+  width: 1px;
+  height: 24px;
+  flex-shrink: 0;
+  background: var(--border);
+}
+
+/* Every group but the first starts with a separator. */
+.sep:first-child {
+  display: none;
+}
+
+.group {
+  display: flex;
+  gap: 2px;
+}
+
+/* ---- sections: the options bar's groups, which wrap as units ---- */
+
+/* A bar of sections: wraps between them when narrow, a separator in each gap. */
+.options:has(> .section) {
+  gap: 8px 21px;
+  /* One row still comes to 44px (min-height); wrapped rows get room too. */
+  padding: 6px 4px;
+}
+
+.section {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Drawn in the gap, taking no space: hiding it at a line start (see
+   useLineStarts) can't reflow anything. */
+.section + .section::before {
+  content: "";
+  position: absolute;
+  left: -11px;
+  top: 50%;
+  width: 1px;
+  height: 24px;
+  margin-top: -12px;
+  background: var(--border);
+}
+
+.section[data-line-start]::before {
+  display: none;
+}
+
+/* Sections that wrap as one (a callout's styling: text, then colors): spaced
+   and separated inside like the bar's own sections. */
+.section.run {
+  gap: 21px;
+}
+
+/* A bar in lines of its own (quick edit's callout options): as wide as its
+   wider line, where a wrapping bar is sized as if all on one line. */
+.options.stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  /* Wrapping, a column is a flex line: keep it at the left. */
+  align-content: flex-start;
+}
+
+.stackedLine {
+  display: flex;
+  align-items: center;
+  gap: 21px;
+}
+
+/* ---- slot-number badges ---- */
+
+.badge,
+.stopKey {
+  position: absolute;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 2px;
+  box-sizing: border-box;
+  border-radius: 7px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.badge {
+  top: -9px;
+  right: -9px;
+}
+
+.stopKey {
+  top: -14px;
+}
+
+/* ---- colors ---- */
+
+.swatches {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.swatch {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--control-border);
+}
+
+.swatch[aria-pressed="true"] {
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--accent);
+}
+
+/* ---- toggle buttons (widths, fill) ---- */
+
+.toggle {
+  position: relative;
+  min-width: 34px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.toggle:hover {
+  background: var(--hover);
+}
+
+.toggle[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* A picker led by an icon saying what it sets (pickerIcons.tsx): a dropdown
+   or slider, which doesn't say on its own, and corner radius and darkness,
+   so two pickers side by side don't read as one. */
+.iconPicker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.options svg.pickerIcon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--text-2);
+  stroke-width: 1.5;
+}
+
+/* More detail in the same size: finer lines. */
+.options svg.cornerIcon {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.25;
+}
+
+/* A number button's unit: smaller and lighter, in the button's color (so
+   the accent on the selected one). */
+.buttonUnit {
+  margin-left: 1px;
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+/* A toggle with its name after the icon (redact's modes). */
+.toggle.labelled {
+  gap: 6px;
+  padding: 0 10px 0 8px;
+}
+
+/* Redact's Text toggle (PLAN 3J): the bar grows out behind the I-beam. */
+.options svg .textBar {
+  width: 0;
+  fill: currentColor;
+  stroke: none;
+  opacity: 0.45;
+  transition: width 200ms ease-out;
+}
+
+.toggle[aria-pressed="true"] svg .textBar {
+  width: 13px;
+}
+
+.options svg .textGlyph {
+  fill: currentColor;
+  stroke: none;
+  transition: opacity 150ms ease-out;
+}
+
+.toggle[aria-pressed="true"] svg .textGlyph {
+  opacity: 0;
+}
+
+.textStatus {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.textProblem {
+  color: var(--error-text);
+  cursor: help;
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .options svg .textBar,
+  .options svg .textGlyph {
+    transition: none;
+  }
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+.line {
+  display: block;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: currentColor;
+}
+
+/* ---- sliders ---- */
+
+.sliderRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.track {
+  position: relative;
+  height: 22px;
+  flex-shrink: 0;
+  /* The thumb hangs half its width past each end: keep that clear of the
+     controls beside the slider. */
+  margin: 0 9px;
+  touch-action: none;
+}
+
+.trackBg,
+.trackFill {
+  position: absolute;
+  left: 0;
+  top: 9px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.trackBg {
+  right: 0;
+  background: color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+.trackFill {
+  background: var(--accent);
+}
+
+.stop {
+  position: absolute;
+  top: 9px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-2);
+}
+
+.stop[data-passed="true"] {
+  background: var(--thumb-ring);
+}
+
+.thumb {
+  position: absolute;
+  top: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--thumb-ring);
+  box-shadow:
+    0 0 0 1px var(--control-border),
+    0 1px 2px rgb(0 0 0 / 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.thumbDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.value {
+  min-width: 44px;
+  white-space: nowrap;
+}
+
+/* ---- dropdowns ---- */
+
+.dropdownRoot {
+  position: relative;
+}
+
+.dropdown {
+  height: 30px;
+  min-width: 96px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--control-bg);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  color: var(--text);
+  font: inherit;
+  white-space: nowrap;
+}
+
+.dropdown:hover {
+  background: var(--control-bg-hover);
+}
+
+.options svg.chevron {
+  width: 12px;
+  height: 12px;
+  margin-left: auto;
+}
+
+.options svg.headIcon {
+  width: 22px;
+  height: 16px;
+}
 
 .menu {
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
@@ -17,38 +433,377 @@
     0 0 0 1px var(--border);
 }
 
-.menu svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
+.menuRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  margin: 0 4px;
+  padding: 0 10px 0 14px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
 }
 
-/* An icon drawn filled, not stroked (the eyedropper). */
-.menu svg.filledIcon {
+.menuRow:hover {
+  background: var(--hover);
+}
+
+.menuRow[aria-checked="true"] {
+  background: var(--accent-soft);
+}
+
+.menuRow:disabled {
+  background: transparent;
+  color: var(--text-2);
+  opacity: 0.6;
+}
+
+.menuSep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+/* A right-click menu, outside the options bar that sets the type elsewhere. */
+.contextMenu {
+  font-size: 13px;
+  user-select: none;
+}
+
+.contextMenu .menuKey {
+  margin-left: 24px;
+}
+
+.menuLabel {
+  flex-grow: 1;
+}
+
+.menuKey {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.options svg .tint {
   fill: currentColor;
   stroke: none;
+  opacity: 0.35;
 }
 
-.dropdownRoot {
+/* ---- two-color chip (PLAN 3D.14) ---- */
+
+/* Two overlapping circles: the first color top-left, the second
+   bottom-right, the one the swatches set in front with a dark (in dark
+   mode, light) edge, the other with a gray one. Circles overlap little, so
+   the back one stays easy to see and click. No accent: next to the
+   swatches' selection ring it took over. */
+.chip {
   position: relative;
-  display: inline-flex;
+  /* Room at the top right for the swap button. */
+  width: 40px;
+  height: 29px;
+  flex-shrink: 0;
+  margin-right: 4px;
 }
 
-/* A color: opens the picker. */
-.swatch {
+.chipDot {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  box-sizing: border-box;
+  box-shadow: 0 0 0 1px var(--control-border);
+}
+
+.chipFirst {
+  left: 1px;
+  top: 1px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+}
+
+.chipSecond {
+  left: 12px;
+  bottom: 1px;
+}
+
+/* A shape's border: a ring in its color. */
+.chipSecond[data-hollow] {
+  border: 5px solid;
+  box-shadow:
+    0 0 0 1px var(--control-border),
+    inset 0 0 0 1px var(--control-border);
+}
+
+.chipDot[aria-pressed="true"] {
+  z-index: 2;
+  box-shadow: 0 0 0 1px var(--text);
+}
+
+.chipSecond[data-hollow][aria-pressed="true"] {
+  box-shadow:
+    0 0 0 1px var(--text),
+    inset 0 0 0 1px var(--text);
+}
+
+/* Swap (PLAN 3D.15): top right, in the corner the circles leave free. */
+.chipSwap {
+  position: absolute;
+  right: -3px;
+  top: -3px;
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.chipSwap:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.options .chipSwap svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 1.4;
+}
+
+/* ---- colors as dropdowns (PLAN 3D.16) ---- */
+
+.colorButtons {
+  gap: 2px;
+}
+
+/* A button showing one color, opening the palette. */
+.colorButton {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+}
+
+.colorButton:hover,
+.colorButton[aria-expanded="true"] {
+  background: var(--hover);
+}
+
+/* Drawn like the chip's circles (ring for a border, "A" for text). */
+.colorDot {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--control-border);
+}
+
+.colorDot[data-hollow] {
+  border: 5px solid;
+  box-shadow:
+    0 0 0 1px var(--control-border),
+    inset 0 0 0 1px var(--control-border);
+}
+
+.swapButton {
   width: 22px;
-  height: 22px;
+  height: 30px;
+  display: grid;
+  place-items: center;
   padding: 0;
   border: 0;
   border-radius: 4px;
-  box-shadow: inset 0 0 0 1px var(--control-border);
+  background: transparent;
+  color: var(--text-2);
 }
 
-.swatch[aria-expanded="true"] {
+.swapButton:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.options .swapButton svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.4;
+}
+
+.colorGridMenu {
+  min-width: 0;
+  padding: 10px;
+}
+
+/* The palette in the menu: five to a row. */
+.swatchGrid {
+  display: grid;
+  grid-template-columns: repeat(5, 22px);
+  gap: 8px;
+  padding: 0;
+}
+
+/* Text's color: the circle is filled with it, with an "A" that reads on it. */
+.options svg.chipLetter {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+  stroke: none;
+  font-weight: 700;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* ---- fonts ---- */
+
+.fontButton {
+  width: 150px;
+  overflow: hidden;
+}
+
+.fontName,
+.fontFace {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fontName {
+  font-size: 14px;
+}
+
+.fontFace {
+  font-size: 15px;
+}
+
+.fontMenu {
+  width: 240px;
+}
+
+.filterWrap {
+  padding: 4px 8px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 10px 0 12px;
+  border-radius: 4px;
+  background: var(--control-bg);
   box-shadow:
-    0 0 0 2px var(--surface),
+    inset 0 0 0 1px var(--control-border),
+    inset 0 -2px 0 var(--accent);
+  color: var(--text-2);
+}
+
+.options .filter svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.filter input {
+  flex-grow: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.fontList {
+  max-height: 360px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.menuEmpty {
+  padding: 8px 14px;
+  color: var(--text-2);
+}
+
+.fontSlider {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 130px;
+}
+
+.fontSliderName {
+  font-size: 13px;
+  line-height: 16px;
+  white-space: nowrap;
+  margin-top: -1px;
+}
+
+/* The name takes the room; the key hint sits at the right edge. */
+.fontMenu .fontFace {
+  flex-grow: 1;
+}
+
+/* B / I: the letter is the icon. */
+.letter {
+  font-size: 15px;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+/* ---- custom color (PLAN 2A.6c) ---- */
+
+/* Lays the button out as a box, not a line of text (which left space under it). */
+.customRoot {
+  display: flex;
+}
+
+/* The picker button after the presets: a rainbow dot in a dashed ring. When
+   the color in use isn't a preset, a rainbow ring around that color. */
+.customSwatch {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 3px;
+  border: 1.5px dashed var(--text-2);
+  border-radius: 50%;
+  background: conic-gradient(#f44, #fd4, #4d4, #4dd, #44f, #d4d, #f44);
+  background-clip: content-box;
+}
+
+.customSwatch[data-custom] {
+  padding: 0;
+  border: 0;
+  background:
+    radial-gradient(closest-side, var(--custom) 0 64%, var(--bg) 66% 76%, transparent 78%),
+    conic-gradient(#f44, #fd4, #4d4, #4dd, #44f, #d4d, #f44);
+}
+
+.customSwatch[aria-pressed="true"] {
+  box-shadow:
+    0 0 0 2px var(--bg),
     0 0 0 4px var(--accent);
 }
 
@@ -148,12 +903,18 @@
   flex-grow: 1;
 }
 
+.colorError {
+  color: var(--error-text);
+  font-size: 12px;
+}
+
 .colorActions {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
 }
 
+.ghostButton,
 .accentButton {
   height: 28px;
   padding: 0 12px;
@@ -161,12 +922,33 @@
   border-radius: 4px;
   font: inherit;
   font-size: 12px;
+}
+
+.ghostButton {
+  background: var(--button-bg);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  color: var(--text);
+}
+
+.ghostButton:hover:not(:disabled) {
+  background: var(--button-bg-hover);
+}
+
+.ghostButton:disabled {
+  color: var(--text-3);
+}
+
+.accentButton {
   background: var(--accent);
   color: var(--on-accent);
 }
 
 .accentButton:hover:not(:disabled) {
   filter: brightness(1.08);
+}
+
+.accentButton:disabled {
+  opacity: 0.45;
 }
 
 .eyedropper {
@@ -187,7 +969,105 @@
   background: var(--button-bg-hover);
 }
 
+.options .eyedropper svg,
 .menu .eyedropper svg {
   width: 16px;
   height: 16px;
+}
+
+.colorCaption {
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.deleteButton {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px 0 8px;
+}
+
+.options .deleteButton svg {
+  width: 14px;
+  height: 14px;
+}
+
+.colorActions .spacer {
+  flex-grow: 1;
+}
+
+/* ---- crop options (the editor's crop mode) ---- */
+
+.optionsSpacer {
+  flex-grow: 1;
+}
+
+.sizeField {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.sizeField input {
+  width: 56px;
+}
+
+/* Aspect-ratio buttons: text, so a little padding instead of a fixed width. */
+.ratio {
+  padding: 0 8px;
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.toggle:disabled {
+  color: var(--text-3);
+  background: transparent;
+}
+
+/* ---- step markers (PLAN 3D.11) ---- */
+
+.stepFormat {
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.stepStart {
+  width: 44px;
+}
+
+/* A question asked from a button (Sync style). */
+.confirm {
+  width: 260px;
+  gap: 12px;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.confirm p {
+  margin: 0;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+/* ---- Driveby ---- */
+
+/* A colour that opens the picker (ColorSwatch: the grow's colours). */
+.colorSwatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--control-border);
+}
+
+.colorSwatch[aria-expanded="true"] {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 4px var(--accent);
 }

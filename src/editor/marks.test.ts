@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { MarkObject } from "./doc";
 import {
   addMark,
   addRange,
@@ -8,6 +9,7 @@ import {
   freeLane,
   keepRanges,
   keepRangesInPlace,
+  markLabel,
   moveClip,
   removeRanges,
   setMark,
@@ -18,17 +20,36 @@ import {
   type Doc,
 } from "./doc";
 
+/** Text saying `text`. */
+const text = (text: string): MarkObject => ({
+  kind: "text",
+  x: 0,
+  y: 0,
+  width: 0,
+  autoWidth: true,
+  text,
+  fontFamily: "Segoe UI",
+  fontSize: 20,
+  bold: false,
+  italic: false,
+  align: "left",
+  rotation: 0,
+  color: "#fff",
+  background: false,
+  backgroundColor: "#000",
+});
+
 /** Text from 40 to 60 on a 100-frame source. */
-const withText = (): Doc => addMark(wholeSource(100), "text", "Hi", 40, 20, 0);
+const withText = (): Doc => addMark(wholeSource(100), text("Hi"), 40, 20, 0);
 const place = (doc: Doc) => shownMarks(doc).map((m) => [m.start, m.end, m.lane]);
 
 describe("markup", () => {
   it("is added where it's put, kept to the timeline, anchored to its video", () => {
     const doc = withText();
     expect(place(doc)).toEqual([[40, 60, 0]]);
-    expect(doc.marks[0]).toMatchObject({ clip: 1, at: 40, length: 20, text: "Hi" });
+    expect(doc.marks[0]).toMatchObject({ clip: 1, at: 40, length: 20, object: text("Hi") });
     // Near the end: cut short.
-    expect(place(addMark(wholeSource(100), "text", "", 95, 20, 5))).toEqual([[95, 100, 1]]);
+    expect(place(addMark(wholeSource(100), text(""), 95, 20, 5))).toEqual([[95, 100, 1]]);
     expect(editPoints(doc)).toEqual([0, 40, 60, 100]);
   });
 
@@ -56,9 +77,9 @@ describe("markup", () => {
       [40, 50, 0],
       [50, 60, 0],
     ]);
-    expect(cut.marks.map((m) => [m.id, m.clip, m.at, m.length, m.text])).toEqual([
-      [1, 1, 40, 10, "Hi"],
-      [2, 2, 50, 10, "Hi"],
+    expect(cut.marks.map((m) => [m.id, m.clip, m.at, m.length, m.object])).toEqual([
+      [1, 1, 40, 10, text("Hi")],
+      [2, 2, 50, 10, text("Hi")],
     ]);
     // The second clip moved to the front: its part goes with it.
     expect(place(moveClip(cut, 2, 0))).toEqual([
@@ -122,10 +143,15 @@ describe("markup", () => {
     expect(deleteMark(doc, id).marks).toEqual([]);
   });
 
+  it("says on the timeline what it is", () => {
+    expect(markLabel(text(" Hello\nthere"))).toBe("Hello");
+    expect(markLabel(text(""))).toBe("Text");
+  });
+
   it("goes in a free lane", () => {
     const doc = withText();
     expect(freeLane(doc, 50, 70)).toBe(1);
     expect(freeLane(doc, 60, 80)).toBe(0);
-    expect(freeLane(addMark(doc, "text", "", 50, 10, 1), 55, 58)).toBe(0);
+    expect(freeLane(addMark(doc, text(""), 50, 10, 1), 55, 58)).toBe(0);
   });
 });

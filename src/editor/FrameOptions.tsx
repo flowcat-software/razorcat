@@ -1,4 +1,6 @@
 import { ColorSwatch } from "../markup/ColorSwatch";
+import { useDoc as useMarkup } from "../markup/model/store";
+import { ToolOptions } from "../markup/ToolOptions";
 import type { Settings, SourceInfo } from "../shared/ipc";
 import { pickCropRatio, resetCrop, resetGrow, toggleCropPortrait } from "./cropTool";
 import { useDoc } from "./docStore";
@@ -18,12 +20,13 @@ import {
 import { sourceFacts } from "./format";
 import { GrowPresets } from "./GrowPresets";
 import { NumberField } from "./NumberField";
-import { CROP_RATIOS, lockedRatio, ratioLabel, useTool } from "./toolStore";
+import { CROP_RATIOS, lockedRatio, MARKUP_TOOLS, ratioLabel, useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
 /**
- * The options bar above the preview (the mockup's): the picked-up tool's options, or, with
- * nothing being edited, the video's facts and its frame (output size, crop, grow).
+ * The options bar above the preview (the mockup's): the picked-up tool's options (a markup
+ * tool's, Vandal's, also for the markup selected on the preview), or, with nothing being edited,
+ * the video's facts and its frame (output size, crop, grow).
  */
 export function FrameOptions({
   source,
@@ -35,9 +38,17 @@ export function FrameOptions({
 }) {
   const tool = useTool((s) => s.tool);
   const frame = useDoc((s) => s.doc.frame);
+  const markupSelected = useMarkup((s) => s.selection.length > 0);
   if (!source) return <div className={styles.optionsBar}>No video open</div>;
   if (tool === "crop") return <CropOptions />;
   if (tool === "grow") return <GrowOptions settings={settings} />;
+  if (MARKUP_TOOLS.includes(tool) || markupSelected) {
+    return (
+      <div className={`${styles.optionsBar} ${styles.markupOptions}`}>
+        <ToolOptions />
+      </div>
+    );
+  }
   const out = outputSize(frame);
   const grow = SIDES.filter((s) => frame.grow[s] > 0)
     .map((s) => `${s} ${frame.grow[s]} px`)

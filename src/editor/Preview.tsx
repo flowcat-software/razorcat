@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { MarkupLayer } from "../markup/MarkupLayer";
+import { connectMarkup } from "../markup/model/store";
 import type { SourceInfo } from "../shared/ipc";
 import { CropOverlay } from "./CropOverlay";
 import { useDoc } from "./docStore";
 import { fitRect, videoTransform } from "./fit";
 import { growColour, growMode, NO_GROW, outputSize, SIDES } from "./frame";
 import { GrowOverlay } from "./GrowOverlay";
-import { MarkStandIn } from "./MarkStandIn";
 import type { Player } from "./player";
 import { useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
@@ -28,8 +29,9 @@ const MARGIN = 16;
 /**
  * The picture: the source's `<video>`, cropped, with the space grown round it, fitted into the
  * preview (CSS only, so it follows live, also while playing). The crop tool shows the whole
- * picture, ungrown, with the crop box over it; the grow tool, the frame with its handles. The
- * stage (the fitted frame) is where markup will sit (Phase 4).
+ * picture, ungrown, with the crop box over it; the grow tool, the frame with its handles.
+ * Markup sits over the whole frame (Vandal's markup layer, over the whole preview so its handles
+ * reach past the frame): what's at the playhead, which the select and markup tools edit.
  */
 export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Props) {
   const areaRef = useRef<HTMLDivElement>(null);
@@ -64,6 +66,9 @@ export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Pro
     player.attachProxy(proxyRef.current);
     return () => player.attachProxy(null);
   }, [player, proxyUrl]);
+
+  // The markup shows what's at the playhead.
+  useEffect(() => connectMarkup(player), [player]);
 
   const unplayable = () =>
     source.converted
@@ -178,12 +183,13 @@ export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Pro
         </div>
       </div>
       {!cropping && (
-        <div
-          className={styles.overStage}
-          style={{ left: stage.x, top: stage.y, width: stage.width, height: stage.height }}
-        >
-          <MarkStandIn player={player} />
-        </div>
+        <MarkupLayer
+          width={area.width}
+          height={area.height}
+          scale={scale}
+          offset={{ x: stage.x, y: stage.y }}
+          interactive={tool !== "grow"}
+        />
       )}
       {tool === "grow" && (
         <div

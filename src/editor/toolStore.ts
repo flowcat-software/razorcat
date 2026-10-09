@@ -2,10 +2,15 @@
 // undone, and kept while the tool is put down.
 
 import { create } from "zustand";
+import { docStore as markupDoc } from "../markup/model/store";
+import { useToolStore as useMarkupTools } from "../markup/toolStore";
 import type { DragSpeed } from "../shared/ipc";
 
-/** The picture's tools that work so far (text and arrow come in Phase 4). */
-export type Tool = "select" | "crop" | "grow";
+/** The picture's tools that work so far (Phase 4.5 adds more of Vandal's markup tools). */
+export type Tool = "select" | "crop" | "grow" | "text";
+
+/** The tools that are Vandal's markup tools (the markup layer runs them). */
+export const MARKUP_TOOLS: readonly Tool[] = ["text"];
 
 /**
  * The crop's aspect ratios, landscape, as width / height; "free" holds none. Portrait turns
@@ -58,7 +63,14 @@ export const useTool = create<ToolState>()((set) => ({
   portrait: false,
   dragSpeed: "normal",
   held: null,
-  setTool: (tool) => set({ tool }),
+  // The markup's tool follows: the select tool, or the markup tool picked (which drops the
+  // selection, so the options show that tool, as in Vandal).
+  setTool: (tool) => {
+    const markup = tool === "text" ? tool : "select";
+    if (markup !== "select") markupDoc.getState().select([]);
+    useMarkupTools.setState({ tool: markup, colorSlot: "first" });
+    set({ tool });
+  },
   setCropRatio: (cropRatio) => set({ cropRatio }),
   setPortrait: (portrait) => set({ portrait }),
   setDragSpeed: (dragSpeed) => set({ dragSpeed }),

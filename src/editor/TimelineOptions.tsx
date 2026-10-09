@@ -1,5 +1,5 @@
 import type { SourceInfo } from "../shared/ipc";
-import { clipLength, shownMarks, shownRanges, total } from "./doc";
+import { clipLength, MARK_NAMES, shownMarks, shownRanges, total } from "./doc";
 import { useDoc } from "./docStore";
 import { needsHours, timecode } from "./timecode";
 import styles from "./EditorApp.module.css";
@@ -27,7 +27,7 @@ export function TimelineOptions({ source, inFrames }: Props) {
   const doc = useDoc((s) => s.doc);
   const selected = useDoc((s) => s.doc.clips.find((c) => c.id === s.selected) ?? null);
   const selectedRange = useDoc((s) => s.selectedRange);
-  const selectedMark = useDoc((s) => s.selectedMark);
+  const selectedMarks = useDoc((s) => s.selectedMarks);
   const pendingIn = useDoc((s) => s.pendingIn);
   if (!source) {
     return (
@@ -44,7 +44,9 @@ export function TimelineOptions({ source, inFrames }: Props) {
   const clips = doc.clips.length;
   const ranges = shownRanges(doc);
   const range = ranges.find((r) => r.id === selectedRange);
-  const mark = shownMarks(doc).find((m) => m.id === selectedMark);
+  const marks = shownMarks(doc).filter((m) => selectedMarks.includes(m.id));
+  const mark = marks.length === 1 ? marks[0] : null;
+  const object = mark && doc.marks.find((m) => m.id === mark.id)?.object;
   return (
     <div className={styles.timelineOptions}>
       {pendingIn !== null ? (
@@ -53,9 +55,14 @@ export function TimelineOptions({ source, inFrames }: Props) {
           <Field label="In" value={fmt(pendingIn)} />
           <span>O sets the out at the playhead · drag the dashed line to adjust · Esc cancels</span>
         </>
+      ) : marks.length > 1 ? (
+        <>
+          <b>Markup</b>
+          <span>{marks.length} selected · Delete removes them</span>
+        </>
       ) : mark ? (
         <>
-          <b>Text</b>
+          <b>{object ? MARK_NAMES[object.kind] : "Markup"}</b>
           <Field label="From" value={fmt(mark.start)} />
           <Field label="to" value={fmt(mark.end)} />
           <Field label="Length" value={fmt(mark.end - mark.start)} />
@@ -78,7 +85,7 @@ export function TimelineOptions({ source, inFrames }: Props) {
       ) : (
         <span>
           Drag a clip&apos;s edge to trim it · its title bar to move it · <b>S</b> splits · <b>R</b>{" "}
-          or <b>I</b>/<b>O</b> add a range · <b>T</b> adds text
+          or <b>I</b>/<b>O</b> add a range
         </span>
       )}
       <span className={styles.spacer} />
