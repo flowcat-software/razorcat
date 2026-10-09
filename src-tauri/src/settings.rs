@@ -146,11 +146,132 @@ pub enum DragSpeed {
     VeryFast,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Editing {
-    /// Dragging a number field up or down (crop, grow).
+    /// Dragging a number field (crop, grow).
     pub number_drag_speed: DragSpeed,
+    /// The grow tool's presets, in the order its options bar shows them.
+    pub grow_presets: Vec<GrowPreset>,
+}
+
+impl Default for Editing {
+    fn default() -> Self {
+        Self {
+            number_drag_speed: DragSpeed::default(),
+            grow_presets: default_grow_presets(),
+        }
+    }
+}
+
+/// A grown side in a preset: pixels, or a percentage of the cropped picture's height (top,
+/// bottom) or width (left, right), so it fits any video.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum GrowUnit {
+    Px,
+    Percent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GrowAmount {
+    pub value: u32,
+    pub unit: GrowUnit,
+}
+
+impl GrowAmount {
+    const NONE: Self = Self {
+        value: 0,
+        unit: GrowUnit::Px,
+    };
+
+    const fn percent(value: u32) -> Self {
+        Self {
+            value,
+            unit: GrowUnit::Percent,
+        }
+    }
+}
+
+/// A grow preset: a named grow, each side in px or %, in one colour.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GrowPreset {
+    pub name: String,
+    pub top: GrowAmount,
+    pub bottom: GrowAmount,
+    pub left: GrowAmount,
+    pub right: GrowAmount,
+    /// `#rrggbb`.
+    pub colour: String,
+}
+
+/// The most presets the options bar shows.
+pub const MAX_GROW_PRESETS: usize = 12;
+/// The longest a preset's name may be, in characters.
+const MAX_PRESET_NAME: usize = 40;
+/// A grown side's most, in px (frame.ts's `MAX_GROW`) and in %.
+const MAX_GROW_PX: u32 = 4000;
+const MAX_GROW_PERCENT: u32 = 200;
+
+/// The mockup's: meme captions above, below, or both, 15 % of the picture, black.
+pub fn default_grow_presets() -> Vec<GrowPreset> {
+    let preset = |name: &str, top: u32, bottom: u32| GrowPreset {
+        name: name.into(),
+        top: GrowAmount::percent(top),
+        bottom: GrowAmount::percent(bottom),
+        left: GrowAmount::NONE,
+        right: GrowAmount::NONE,
+        colour: "#000000".into(),
+    };
+    vec![
+        preset("Meme top", 15, 0),
+        preset("Meme bottom", 0, 15),
+        preset("Meme top + bottom", 15, 15),
+    ]
+}
+
+/// The grow presets, checked: named (no two alike), sizes kept to what makes sense, colours as
+/// `#rrggbb`, at most [`MAX_GROW_PRESETS`].
+fn grow_presets(presets: Vec<GrowPreset>) -> Result<Vec<GrowPreset>, String> {
+    if presets.len() > MAX_GROW_PRESETS {
+        return Err(format!(
+            "There can be {MAX_GROW_PRESETS} grow presets at most: delete one first."
+        ));
+    }
+    let mut names: Vec<String> = Vec::new();
+    presets
+        .into_iter()
+        .map(|mut p| {
+            p.name = p.name.trim().to_string();
+            if p.name.is_empty() {
+                return Err("A grow preset needs a name.".to_string());
+            }
+            if p.name.chars().count() > MAX_PRESET_NAME {
+                return Err(format!(
+                    "A grow preset's name can be {MAX_PRESET_NAME} characters at most."
+                ));
+            }
+            let key = p.name.to_lowercase();
+            if names.contains(&key) {
+                return Err(format!(
+                    "There's already a grow preset called \"{}\".",
+                    p.name
+                ));
+            }
+            names.push(key);
+            for side in [&mut p.top, &mut p.bottom, &mut p.left, &mut p.right] {
+                let most = match side.unit {
+                    GrowUnit::Px => MAX_GROW_PX,
+                    GrowUnit::Percent => MAX_GROW_PERCENT,
+                };
+                side.value = side.value.min(most);
+            }
+            p.colour = normalize_color(&p.colour).unwrap_or_else(|| "#000000".into());
+            Ok(p)
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -242,6 +363,7 @@ pub fn validate(mut s: Settings) -> Result<Settings, String> {
         .proxies
         .limit_gb
         .clamp(*PROXY_LIMIT_RANGE.start(), *PROXY_LIMIT_RANGE.end());
+    s.editing.grow_presets = grow_presets(s.editing.grow_presets)?;
     if !GIF_RATES.contains(&s.export.gif_fps) {
         s.export.gif_fps = Export::default().gif_fps;
     }
@@ -317,8 +439,13 @@ pub fn migrate(stored: Option<Value>) -> (Settings, bool) {
             // Hand edits can leave values that can't work: repaired, or (a folder) reset.
             let mut checked = validate(settings.clone())
                 .or_else(|_| {
+                    // A bad folder or preset goes back to the default, not everything else.
                     validate(Settings {
                         proxies: Proxies::default(),
+                        editing: Editing {
+                            grow_presets: default_grow_presets(),
+                            ..settings.editing.clone()
+                        },
                         ..settings.clone()
                     })
                 })
@@ -561,6 +688,44 @@ mod tests {
         assert_eq!(ok.export.clip_name, "{name} part {n}");
         s.export.clip_name = "{name}/{n}".into();
         assert!(validate(s).unwrap_err().contains("can't contain /"));
+    }
+
+    #[test]
+    fn grow_presets_are_checked() {
+        let s = Settings::default();
+        assert_eq!(s.editing.grow_presets.len(), 3);
+        assert_eq!(s.editing.grow_presets[2].bottom, GrowAmount::percent(15));
+
+        let mut s = Settings::default();
+        let p = &mut s.editing.grow_presets[0];
+        p.name = "  Caption  ".into();
+        p.colour = "#FFF".into();
+        p.left = GrowAmount {
+            value: 9999,
+            unit: GrowUnit::Px,
+        };
+        p.top = GrowAmount::percent(500);
+        let ok = validate(s.clone()).unwrap();
+        let p = &ok.editing.grow_presets[0];
+        assert_eq!(p.name, "Caption");
+        assert_eq!(p.colour, "#ffffff");
+        assert_eq!(p.left.value, 4000);
+        assert_eq!(p.top.value, 200);
+
+        s.editing.grow_presets[1].name = "caption".into();
+        assert!(validate(s.clone()).unwrap_err().contains("already"));
+        s.editing.grow_presets[1].name = " ".into();
+        assert!(validate(s.clone()).unwrap_err().contains("needs a name"));
+        s.editing.grow_presets = vec![default_grow_presets()[0].clone(); 13];
+        assert!(validate(s).unwrap_err().contains("at most"));
+    }
+
+    #[test]
+    fn deleting_every_grow_preset_keeps_none() {
+        let mut s = Settings::default();
+        s.editing.grow_presets.clear();
+        let (loaded, _) = migrate(Some(serde_json::to_value(&s).unwrap()));
+        assert!(loaded.editing.grow_presets.is_empty());
     }
 
     #[test]

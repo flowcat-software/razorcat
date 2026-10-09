@@ -8,6 +8,11 @@ export interface MenuItem {
   disabled?: boolean;
   /** A toggle: shows a check when on, and picking it leaves the menu open (the mockup's). */
   checked?: boolean;
+  /**
+   * One of a set (a grow preset): `checked` is the one in use, and picking it closes the menu.
+   * The set's labels line up, the check's room kept.
+   */
+  radio?: boolean;
   /** More about it, as a tooltip (a folder's path). */
   title?: string;
   run: () => void;
@@ -68,17 +73,21 @@ export function Menu({ items, x, y, onClose }: Props) {
             disabled={it.disabled}
             title={it.title}
             {...(it.checked !== undefined && {
-              role: "menuitemcheckbox",
+              role: it.radio ? "menuitemradio" : "menuitemcheckbox",
               "aria-checked": it.checked,
             })}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
-              if (it.checked === undefined) onClose();
+              if (it.checked === undefined || it.radio) onClose();
               it.run();
             }}
           >
             <span>
-              {it.checked && <span className={styles.menuCheck}>✓</span>}
+              {(it.checked || it.radio) && (
+                <span className={styles.menuCheck} data-off={!it.checked || undefined}>
+                  ✓
+                </span>
+              )}
               {it.label}
             </span>
             {it.hint && <small>{it.hint}</small>}

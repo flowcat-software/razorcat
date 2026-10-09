@@ -64,6 +64,13 @@ pub fn default_export_folder(app: AppHandle) -> String {
         .unwrap_or_default()
 }
 
+/// The grow presets a new install has (Settings › Editing › Restore defaults).
+#[tauri::command]
+#[specta::specta]
+pub fn default_grow_presets() -> Vec<crate::settings::GrowPreset> {
+    crate::settings::default_grow_presets()
+}
+
 /// The bundled ffmpeg's and gifski's versions (Settings › About); runs each once.
 #[tauri::command]
 #[specta::specta]

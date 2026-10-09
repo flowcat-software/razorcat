@@ -81,6 +81,8 @@ export const commands = {
 	defaultProxyFolder: () => __TAURI_INVOKE<string>("default_proxy_folder"),
 	/**  Where exports go when Settings › Export › Folder is empty, as the field shows it. */
 	defaultExportFolder: () => __TAURI_INVOKE<string>("default_export_folder"),
+	/**  The grow presets a new install has (Settings › Editing › Restore defaults). */
+	defaultGrowPresets: () => __TAURI_INVOKE<GrowPreset[]>("default_grow_presets"),
 	/**  The proxy cache's size, and what lowering its limit to `limit_gb` would delete. */
 	proxyCache: (limitGb: number) => __TAURI_INVOKE<CacheReport>("proxy_cache", { limitGb }),
 	/**
@@ -191,8 +193,10 @@ export type Crop = {
 export type DragSpeed = "verySlow" | "slow" | "normal" | "fast" | "veryFast";
 
 export type Editing = {
-	/**  Dragging a number field up or down (crop, grow). */
+	/**  Dragging a number field (crop, grow). */
 	numberDragSpeed?: DragSpeed,
+	/**  The grow tool's presets, in the order its options bar shows them. */
+	growPresets?: GrowPreset[],
 };
 
 export type Export = {
@@ -237,6 +241,15 @@ export type ExportEnded = {
 /**  The project's frame, as the page sends it (the document's, frame.ts). */
 export type ExportFrame = {
 	crop: Crop,
+	grow: ExportGrow,
+};
+
+/**  The space grown round the cropped picture, each side in the colour it's drawn in. */
+export type ExportGrow = {
+	top: GrowSide,
+	bottom: GrowSide,
+	left: GrowSide,
+	right: GrowSide,
 };
 
 /**  Rust → editor: an export is this far along. */
@@ -249,6 +262,34 @@ export type ExportProgress = {
 
 /**  What an export makes. */
 export type Format = "mp4" | "gif";
+
+export type GrowAmount = {
+	value: number,
+	unit: GrowUnit,
+};
+
+/**  A grow preset: a named grow, each side in px or %, in one colour. */
+export type GrowPreset = {
+	name: string,
+	top: GrowAmount,
+	bottom: GrowAmount,
+	left: GrowAmount,
+	right: GrowAmount,
+	/**  `#rrggbb`. */
+	colour: string,
+};
+
+/**  A grown side: how much, in the picture's pixels, and its colour (`#rrggbb`). */
+export type GrowSide = {
+	size: number,
+	colour: string,
+};
+
+/**
+ *  A grown side in a preset: pixels, or a percentage of the cropped picture's height (top,
+ *  bottom) or width (left, right), so it fits any video.
+ */
+export type GrowUnit = "px" | "percent";
 
 /**  The bundled tools' versions, for Settings › About. `None` when one is missing or broken. */
 export type MediaTools = {

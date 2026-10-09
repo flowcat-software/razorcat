@@ -3,14 +3,22 @@
 import { commands } from "../shared/ipc";
 import type { ClipId, Doc } from "./doc";
 import { useDoc } from "./docStore";
+import { growColour, type Side } from "./frame";
 
 export type ExportFormat = "mp4" | "gif";
 
 /** The clips as export reads them: their numbers and source frames, in timeline order. */
 export const exportClips = (doc: Doc) => doc.clips.map((c) => ({ id: c.id, in: c.in, out: c.out }));
 
-/** The project's frame as export reads it: the crop (the grow joins in Phase 3.5). */
-export const exportFrame = (doc: Doc) => ({ crop: doc.frame.crop });
+/** The project's frame as export reads it: the crop, and each side's grow in its colour. */
+export function exportFrame(doc: Doc) {
+  const { crop, grow } = doc.frame;
+  const side = (s: Side) => ({ size: grow[s], colour: growColour(grow, s) });
+  return {
+    crop,
+    grow: { top: side("top"), bottom: side("bottom"), left: side("left"), right: side("right") },
+  };
+}
 
 /** The whole timeline, as one file (Ctrl+E: MP4). */
 export function exportTimeline(format: ExportFormat = "mp4") {

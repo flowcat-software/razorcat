@@ -8,9 +8,10 @@
 // Edited (`--check-edit`), the timeline is cut up first (split four times, a piece deleted,
 // another moved to the front), the steps and seeks cross the cuts, and a last pass plays across
 // them, reading every picture presented: none may come from anywhere but the next frames of the
-// edit (nothing cut out, nothing out of order). Then the edit is exported, whole and cropped: two
-// barcode cells off each side and the top quarter off (odd sizes, which export evens), so the
-// export must show the twelve cells between, from the frame the preview shows.
+// edit (nothing cut out, nothing out of order). Then the edit is exported whole; cropped (two
+// barcode cells off each side and the top quarter off, odd sizes, which export evens), so the
+// export must show the twelve cells between; and cropped and grown (white where the two cells
+// were on each side, and on top), so the four outer cells read white.
 import { commands } from "../shared/ipc";
 import { clipStarts, total } from "./doc";
 import { useDoc } from "./docStore";
@@ -244,7 +245,22 @@ export async function checkFrames(
       height: height - top,
     });
     await exportPass("export cropped", 12, (k) => (want(k) >> 2) & 0xfff);
+
+    // Grown back to the width in white, an odd pixel more on the right and on top (both made
+    // even): the outer two cells each side read 1.
+    progress("Checking frames: exporting the edit cropped and grown…");
+    const crop = useDoc.getState().doc.frame.crop;
+    useDoc.getState().grow({
+      top: 101,
+      bottom: 0,
+      left: crop.x,
+      right: width - crop.x - crop.width + 1,
+      colour: "#ffffff",
+      colours: {},
+    });
+    await exportPass("export grown", BITS, (k) => (want(k) & 0x3ffc) | 0xc003);
     useDoc.getState().crop({ x: 0, y: 0, width, height });
+    useDoc.getState().grow({ ...useDoc.getState().doc.frame.grow, top: 0, left: 0, right: 0 });
   }
 
   const wrongs = misses.length;

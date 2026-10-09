@@ -109,6 +109,30 @@ export const sections: Section[] = [
     description: "Editing the picture: crop, and the space grown round it.",
     groups: [
       {
+        title: "Grow presets",
+        items: [
+          {
+            id: "growPresets",
+            kind: "growPresets",
+            path: "editing.growPresets",
+            label: "Grow presets",
+            description:
+              "Shown in the grow tool's options bar. Each side in px, or in % of the picture as cropped (its height for top and bottom, its width for left and right), so a preset fits any video. Save new ones from the options bar.",
+            keywords: [
+              "grow",
+              "preset",
+              "meme",
+              "caption",
+              "bars",
+              "padding",
+              "border",
+              "colour",
+              "color",
+            ],
+          },
+        ],
+      },
+      {
         title: "Number fields",
         items: [
           {

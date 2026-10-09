@@ -166,6 +166,8 @@ export function EditorApp() {
     if (!sourceId) return;
     useDoc.getState().load(sourceFrames, { width: sourceWidth, height: sourceHeight });
     useTool.getState().setTool("select");
+    // A portrait video's crop ratios start turned (9:16).
+    useTool.getState().setPortrait(sourceHeight > sourceWidth);
   }, [sourceId, sourceFrames, sourceWidth, sourceHeight]);
 
   // The player plays the edit (after the load above, so never another source's).
@@ -417,7 +419,7 @@ export function EditorApp() {
         settings={settings}
         onOpen={openVideo}
       />
-      <FrameOptions source={source} />
+      <FrameOptions source={source} settings={settings} />
       <div className={styles.preview}>
         {source ? (
           <Preview

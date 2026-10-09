@@ -1,6 +1,6 @@
 import { ColorSwatch } from "../markup/ColorSwatch";
-import type { SourceInfo } from "../shared/ipc";
-import { pickCropRatio, resetCrop, resetGrow } from "./cropTool";
+import type { Settings, SourceInfo } from "../shared/ipc";
+import { pickCropRatio, resetCrop, resetGrow, toggleCropPortrait } from "./cropTool";
 import { useDoc } from "./docStore";
 import {
   colourGrow,
@@ -16,20 +16,28 @@ import {
   type Side,
 } from "./frame";
 import { sourceFacts } from "./format";
+import { GrowPresets } from "./GrowPresets";
 import { NumberField } from "./NumberField";
-import { CROP_RATIOS, lockedRatio, useTool } from "./toolStore";
+import { CROP_RATIOS, lockedRatio, ratioLabel, useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
 /**
  * The options bar above the preview (the mockup's): the picked-up tool's options, or, with
  * nothing being edited, the video's facts and its frame (output size, crop, grow).
  */
-export function FrameOptions({ source }: { source: SourceInfo | null }) {
+export function FrameOptions({
+  source,
+  settings,
+}: {
+  source: SourceInfo | null;
+  /** For the grow presets. */
+  settings: Settings | null;
+}) {
   const tool = useTool((s) => s.tool);
   const frame = useDoc((s) => s.doc.frame);
   if (!source) return <div className={styles.optionsBar}>No video open</div>;
   if (tool === "crop") return <CropOptions />;
-  if (tool === "grow") return <GrowOptions />;
+  if (tool === "grow") return <GrowOptions settings={settings} />;
   const out = outputSize(frame);
   const grow = SIDES.filter((s) => frame.grow[s] > 0)
     .map((s) => `${s} ${frame.grow[s]} px`)
@@ -50,6 +58,13 @@ export function FrameOptions({ source }: { source: SourceInfo | null }) {
   );
 }
 
+/** A visit to the colour picker is one undo step; Esc puts the colour back. */
+const ONE_STEP = {
+  onOpen: () => useDoc.getState().beginGesture(),
+  onClose: (keep: boolean) =>
+    keep ? useDoc.getState().endGesture() : useDoc.getState().cancelGesture(),
+};
+
 const SIDE_NAMES: Record<Side, string> = {
   top: "Top",
   bottom: "Bottom",
@@ -61,7 +76,7 @@ const SIDE_NAMES: Record<Side, string> = {
  * The grow tool's options (the mockup's): each side in px, its colour while grown sides don't
  * meet (one colour once they do), Reset.
  */
-function GrowOptions() {
+function GrowOptions({ settings }: { settings: Settings | null }) {
   const grow = useDoc((s) => s.doc.frame.grow);
   const each = growMode(grow) === "each";
   // From the document as it is now: a drag sets several values between renders.
@@ -90,6 +105,7 @@ function GrowOptions() {
               name={`${SIDE_NAMES[side]} colour`}
               value={growColour(grow, side)}
               onPick={(v) => colour(side, v)}
+              {...ONE_STEP}
             />
           )}
         </span>
@@ -97,13 +113,18 @@ function GrowOptions() {
       {!each && (
         <span className={styles.field}>
           Colour
-          <ColorSwatch name="Colour" value={grow.colour} onPick={(v) => colour(null, v)} />
+          <ColorSwatch
+            name="Colour"
+            value={grow.colour}
+            onPick={(v) => colour(null, v)}
+            {...ONE_STEP}
+          />
         </span>
       )}
       <span className={styles.optionsSep} />
       <button
         type="button"
-        className={styles.chip}
+        className={styles.ghostButton}
         title="Back to the picture alone"
         disabled={!isGrown(grow)}
         onMouseDown={(e) => e.preventDefault()}
@@ -111,10 +132,8 @@ function GrowOptions() {
       >
         Reset
       </button>
-      <span className={styles.spacer} />
-      <span className={styles.kbd}>
-        Drag a side&apos;s handle out, or its number · Shift: the opposite side too · Enter: done
-      </span>
+      <span className={styles.optionsSep} />
+      <GrowPresets settings={settings} />
     </div>
   );
 }
@@ -130,6 +149,7 @@ const FIELDS: { field: CropField; label: string; name: string }[] = [
 function CropOptions() {
   const frame = useDoc((s) => s.doc.frame);
   const ratioId = useTool((s) => s.cropRatio);
+  const portrait = useTool((s) => s.portrait);
   // From the document as it is now: a drag sets several values between renders.
   const set = (field: CropField, value: number) => {
     const doc = useDoc.getState();
@@ -159,27 +179,40 @@ function CropOptions() {
               key={r.id}
               type="button"
               role="radio"
-              className={styles.chip}
+              className={styles.toggle}
               aria-checked={ratioId === r.id}
-              title={r.ratio ? `Keep it ${r.label}` : "Any shape"}
+              title={r.ratio ? `Keep it ${ratioLabel(r, portrait)}` : "Any shape"}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pickCropRatio(r.id)}
             >
-              {r.label}
+              {ratioLabel(r, portrait)}
             </button>
           ))}
+          <button
+            type="button"
+            className={styles.toggle}
+            aria-pressed={portrait}
+            aria-label="Portrait"
+            title="Portrait: taller than wide (9:16 instead of 16:9)"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={toggleCropPortrait}
+          >
+            <svg viewBox="0 0 24 24" className={styles.toggleIcon} aria-hidden>
+              <rect x="7" y="3" width="10" height="18" rx="1.5" />
+            </svg>
+          </button>
         </span>
       </span>
       <span className={styles.optionsSep} />
       <button
         type="button"
-        className={styles.chip}
+        className={styles.ghostButton}
         title="Back to the whole picture"
         disabled={!isCropped(frame)}
         onMouseDown={(e) => e.preventDefault()}
         onClick={resetCrop}
       >
-        Reset to full frame
+        Reset
       </button>
       <span className={styles.spacer} />
       <span className={styles.kbd}>

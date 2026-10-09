@@ -8,12 +8,24 @@ import { isTyping } from "../shared/dom";
 import { nudgeCrop } from "./cropGeometry";
 import { useDoc } from "./docStore";
 import { cropToRatio } from "./frame";
-import { CROP_RATIOS, lockedRatio, useTool, type CropRatioId, type Tool } from "./toolStore";
+import { lockedRatio, useTool, type CropRatioId, type Tool } from "./toolStore";
 
 /** Hold the box to a ratio, refitting it now: the largest of that shape, where it was. */
 export function pickCropRatio(id: CropRatioId): void {
   useTool.getState().setCropRatio(id);
-  const ratio = CROP_RATIOS.find((r) => r.id === id)?.ratio;
+  refit();
+}
+
+/** Turn the ratios between landscape and portrait, refitting a held one. */
+export function toggleCropPortrait(): void {
+  const t = useTool.getState();
+  t.setPortrait(!t.portrait);
+  refit();
+}
+
+/** The box refitted to the held ratio, if there is one. */
+function refit(): void {
+  const ratio = lockedRatio();
   const doc = useDoc.getState();
   if (ratio) doc.crop(cropToRatio(doc.doc.frame.crop, doc.doc.frame.source, ratio));
 }

@@ -7,14 +7,21 @@ import type { DragSpeed } from "../shared/ipc";
 /** The picture's tools that work so far (text and arrow come in Phase 4). */
 export type Tool = "select" | "crop" | "grow";
 
-/** The crop's aspect ratios (the mockup's), as width / height; "free" holds none. */
+/**
+ * The crop's aspect ratios, landscape, as width / height; "free" holds none. Portrait turns
+ * them (16:9 to 9:16, 5:4 to 4:5), as Vandal's do.
+ */
 export const CROP_RATIOS = [
   { id: "free", label: "Free", ratio: undefined },
   { id: "16:9", label: "16:9", ratio: 16 / 9 },
-  { id: "9:16", label: "9:16", ratio: 9 / 16 },
+  { id: "4:3", label: "4:3", ratio: 4 / 3 },
   { id: "1:1", label: "1:1", ratio: 1 },
-  { id: "4:5", label: "4:5", ratio: 4 / 5 },
+  { id: "5:4", label: "5:4", ratio: 5 / 4 },
 ] as const;
+
+/** A ratio's label, turned for portrait (the square and Free stay as they are). */
+export const ratioLabel = (r: (typeof CROP_RATIOS)[number], portrait: boolean) =>
+  portrait && r.ratio && r.ratio !== 1 ? r.label.split(":").reverse().join(":") : r.label;
 
 export type CropRatioId = (typeof CROP_RATIOS)[number]["id"];
 
@@ -28,6 +35,8 @@ interface ToolState {
   tool: Tool;
   /** The crop box keeps this shape (picked in the options bar). */
   cropRatio: CropRatioId;
+  /** The ratios turned taller than wide (9:16); a portrait video starts this way. */
+  portrait: boolean;
   /** Settings › Editing › Number drag speed. */
   dragSpeed: DragSpeed;
   /**
@@ -38,6 +47,7 @@ interface ToolState {
   held: HeldView | null;
   setTool: (tool: Tool) => void;
   setCropRatio: (id: CropRatioId) => void;
+  setPortrait: (portrait: boolean) => void;
   setDragSpeed: (speed: DragSpeed) => void;
   holdView: (view: HeldView | null) => void;
 }
@@ -45,14 +55,19 @@ interface ToolState {
 export const useTool = create<ToolState>()((set) => ({
   tool: "select",
   cropRatio: "free",
+  portrait: false,
   dragSpeed: "normal",
   held: null,
   setTool: (tool) => set({ tool }),
   setCropRatio: (cropRatio) => set({ cropRatio }),
+  setPortrait: (portrait) => set({ portrait }),
   setDragSpeed: (dragSpeed) => set({ dragSpeed }),
   holdView: (held) => set({ held }),
 }));
 
-/** Width / height the crop box is held to, if any. */
-export const lockedRatio = (): number | undefined =>
-  CROP_RATIOS.find((r) => r.id === useTool.getState().cropRatio)?.ratio;
+/** Width / height the crop box is held to, if any (turned for portrait). */
+export function lockedRatio(): number | undefined {
+  const { cropRatio, portrait } = useTool.getState();
+  const r = CROP_RATIOS.find((c) => c.id === cropRatio)?.ratio;
+  return r && portrait ? 1 / r : r;
+}

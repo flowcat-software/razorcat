@@ -72,6 +72,12 @@ export interface ProxyLimitItem extends BaseItem {
   max: number;
 }
 
+/** The grow tool's presets: a list, each edited in place (GrowPresetsEditor.tsx). */
+export interface GrowPresetsItem extends BaseItem {
+  kind: "growPresets";
+  path: string;
+}
+
 /** The About card: logo, name, version, description, author. */
 export interface AboutItem extends BaseItem {
   kind: "about";
@@ -85,6 +91,7 @@ export type Item =
   | AccentItem
   | FolderItem
   | ProxyLimitItem
+  | GrowPresetsItem
   | AboutItem;
 export type ItemKind = Item["kind"];
 

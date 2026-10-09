@@ -2,6 +2,7 @@
 // the crop, a part of the source picture as shown (rotation applied), then the grow, space added
 // round it. Both in the source's pixels. Pure; the edit document holds it (doc.ts).
 
+import type { GrowAmount, GrowPreset } from "../shared/ipc";
 import { fitRatio, inFrame, resizeCrop } from "./cropGeometry";
 import type { Rect, Size } from "./fit";
 
@@ -78,6 +79,54 @@ export function growSide(g: Grow, side: Side, px: number): Grow {
 export function colourGrow(g: Grow, side: Side | null, colour: string): Grow {
   if (side === null || growMode(g) === "one") return { ...g, colour, colours: {} };
   return { ...g, colours: { ...g.colours, [side]: colour } };
+}
+
+/**
+ * Preset `p` for a picture `picture` big (the crop): each side in px, a % of the picture's height
+ * (top, bottom) or width (left, right); one colour.
+ */
+export function presetGrow(p: GrowPreset, picture: Size): Grow {
+  const px = (a: GrowAmount, base: number) =>
+    clamp(Math.round(a.unit === "percent" ? (base * a.value) / 100 : a.value), 0, MAX_GROW);
+  return {
+    top: px(p.top, picture.height),
+    bottom: px(p.bottom, picture.height),
+    left: px(p.left, picture.width),
+    right: px(p.right, picture.width),
+    colour: p.colour,
+    colours: {},
+  };
+}
+
+/** The grow is preset `p`'s, sizes and colour (its chip shows as on). */
+export function isPreset(g: Grow, p: GrowPreset, picture: Size): boolean {
+  const want = presetGrow(p, picture);
+  return (
+    isGrown(want) &&
+    SIDES.every((s) => g[s] === want[s] && (g[s] === 0 || growColour(g, s) === want.colour))
+  );
+}
+
+/** The grow as a preset named `name`: its sizes in px, in the colour of its first grown side. */
+export function growPreset(g: Grow, name: string): GrowPreset {
+  const px = (value: number): GrowAmount => ({ value, unit: "px" });
+  const first = SIDES.find((s) => g[s] > 0);
+  return {
+    name,
+    top: px(g.top),
+    bottom: px(g.bottom),
+    left: px(g.left),
+    right: px(g.right),
+    colour: first ? growColour(g, first) : g.colour,
+  };
+}
+
+/** A preset's sides, said: "top 15 %, bottom 120 px". */
+export function presetSummary(p: GrowPreset): string {
+  const said = SIDES.filter((s) => p[s].value > 0).map(
+    (s) => `${s} ${p[s].value} ${p[s].unit === "percent" ? "%" : "px"}`,
+  );
+  return said.join(", ") || "nothing grown";
 }
 
 /** The same grow: sizes and the colours as drawn. */

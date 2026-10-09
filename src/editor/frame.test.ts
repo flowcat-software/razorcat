@@ -6,11 +6,15 @@ import {
   fullFrame,
   growColour,
   growMode,
+  growPreset,
   growSide,
   isCropped,
+  isPreset,
   keepCrop,
   MAX_GROW,
   outputSize,
+  presetGrow,
+  presetSummary,
   setCropField,
   SIDES,
 } from "./frame";
@@ -103,6 +107,42 @@ describe("the grow", () => {
     const grown = setGrow(doc, growSide(doc.frame.grow, "top", 200));
     expect(outputSize(grown.frame)).toEqual({ width: 1920, height: 1280 });
     expect(setGrow(grown, { ...grown.frame.grow, colours: {} })).toBe(grown);
+  });
+});
+
+describe("grow presets", () => {
+  const memes = {
+    name: "Meme top + bottom",
+    top: { value: 15, unit: "percent" as const },
+    bottom: { value: 15, unit: "percent" as const },
+    left: { value: 0, unit: "px" as const },
+    right: { value: 40, unit: "px" as const },
+    colour: "#000000",
+  };
+  // The picture as cropped: % is of it, not the source.
+  const picture = { width: 1000, height: 801 };
+
+  it("sizes % sides to the picture as cropped, px as they are", () => {
+    const g = presetGrow(memes, picture);
+    expect([g.top, g.bottom, g.left, g.right]).toEqual([120, 120, 0, 40]);
+    expect(g.colour).toBe("#000000");
+  });
+
+  it("knows the grow in use, and a different colour isn't it", () => {
+    const g = presetGrow(memes, picture);
+    expect(isPreset(g, memes, picture)).toBe(true);
+    expect(isPreset(g, memes, { width: 1000, height: 600 })).toBe(false);
+    expect(isPreset({ ...g, colour: "#ffffff" }, memes, picture)).toBe(false);
+  });
+
+  it("saves a grow in px, in its first grown side's colour", () => {
+    const none = fullFrame(source).grow;
+    const g = colourGrow(growSide(growSide(none, "bottom", 90), "top", 0), "bottom", "#ffffff");
+    const p = growPreset(g, "Caption");
+    expect(p.bottom).toEqual({ value: 90, unit: "px" });
+    expect(p.colour).toBe("#ffffff");
+    expect(presetSummary(p)).toBe("bottom 90 px");
+    expect(presetSummary(memes)).toBe("top 15 %, bottom 15 %, right 40 px");
   });
 });
 

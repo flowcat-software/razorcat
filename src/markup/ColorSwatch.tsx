@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useDoc } from "../editor/docStore";
 import { ColorPicker } from "./ColorPicker";
 import { boxOf, useMenuPlacement } from "./menuPlacement";
 import { usePopover } from "./usePopover";
@@ -12,38 +11,46 @@ interface Props {
   name: string;
   /** Apply a colour (live, while the picker is open). */
   onPick: (hex: string) => void;
+  /** The picker opened: what follows is one change (the editor's undo step). */
+  onOpen?: () => void;
+  /** It closed: `keep` what was picked, or (Esc) put the colour back. */
+  onClose?: (keep: boolean) => void;
 }
 
 /**
- * A colour in the options bar: a swatch that opens Vandal's picker (without its presets). Colours
- * apply as they're picked, and the whole visit is one undo step: Done, Enter or a click elsewhere
- * keeps it, Esc puts it back.
+ * A colour: a swatch that opens Vandal's picker (without its presets). Colours apply as they're
+ * picked; Done, Enter or a click elsewhere keeps the colour, Esc puts it back (the host's
+ * `onClose`: the editor makes the visit one undo step).
  */
-export function ColorSwatch({ value, name, onPick }: Props) {
+export function ColorSwatch({ value, name, onPick, onOpen, onClose }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const swatchRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   useMenuPlacement(open, menuRef, () => boxOf(swatchRef.current));
   const onPickRef = useRef(onPick);
+  const onCloseRef = useRef(onClose);
   useEffect(() => {
     onPickRef.current = onPick;
+    onCloseRef.current = onClose;
   });
+  /** How it closed, for the effect below (Esc: not kept). */
+  const kept = useRef(true);
 
   const show = () => {
-    useDoc.getState().beginGesture();
+    kept.current = true;
+    onOpen?.();
     setOpen(true);
   };
   const close = (keep: boolean) => {
-    // Esc: back to the colour before, and no undo step.
-    if (!keep) useDoc.getState().cancelGesture();
+    kept.current = keep;
     setOpen(false);
   };
   usePopover(open, rootRef, close, "keep");
-  // Gone while open (the tool put down): what was picked stays, as one step.
+  // Closed, or gone while open (the tool put down: what was picked stays).
   useEffect(() => {
     if (!open) return;
-    return () => useDoc.getState().endGesture();
+    return () => onCloseRef.current?.(kept.current);
   }, [open]);
 
   return (

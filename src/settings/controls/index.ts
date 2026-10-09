@@ -6,6 +6,7 @@ import { AboutCard } from "./AboutCard";
 import { AccentPicker } from "./AccentPicker";
 import { Choice, NumberChoice } from "./Choice";
 import { FolderInput } from "./FolderInput";
+import { GrowPresetsEditor } from "./GrowPresetsEditor";
 import { ProxyLimit } from "./ProxyLimit";
 import { TextInput } from "./TextInput";
 import { Toggle } from "./Toggle";
@@ -36,5 +37,6 @@ export const controls: Registry = {
   accent: { component: AccentPicker, layout: "stacked" },
   folder: { component: FolderInput, layout: "stacked" },
   proxyLimit: { component: ProxyLimit, layout: "inline" },
+  growPresets: { component: GrowPresetsEditor, layout: "stacked" },
   about: { component: AboutCard, layout: "bare" },
 };

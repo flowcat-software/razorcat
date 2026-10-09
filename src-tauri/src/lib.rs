@@ -41,6 +41,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::open_folder,
             commands::default_proxy_folder,
             commands::default_export_folder,
+            commands::default_grow_presets,
             commands::proxy_cache,
             commands::frame_check_expected,
             commands::frame_check_report,
