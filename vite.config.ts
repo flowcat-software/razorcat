@@ -21,13 +21,14 @@ export default defineConfig(() => ({
     },
   },
 
-  // Tauri: don't obscure Rust errors; fixed port; don't watch src-tauri.
+  // Tauri: don't obscure Rust errors; fixed port; don't watch src-tauri. Not Vandal's 1420:
+  // with both in development, Vandal's window loaded Driveby's pages.
   clearScreen: false,
   server: {
-    port: 1420,
+    port: 1430,
     strictPort: true,
     host: host || false,
-    hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
+    hmr: host ? { protocol: "ws", host, port: 1431 } : undefined,
     watch: { ignored: ["**/src-tauri/**", "**/spikes/**", "**/internal/**"] },
   },
 
