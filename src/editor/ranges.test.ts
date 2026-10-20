@@ -8,6 +8,7 @@ import {
   keepRanges,
   keepRangesInPlace,
   moveClip,
+  rangeRoom,
   removeRanges,
   separateRanges,
   setRange,
@@ -94,6 +95,34 @@ describe("ranges", () => {
     expect(places(setRange(doc, 1, 700, 650))).toEqual([[650, 700]]);
     expect(setRange(doc, 1, 500, 600)).toBe(doc);
     expect(deleteRange(doc, 1).ranges).toEqual([]);
+  });
+
+  it("never overlap: a new one stops at the next, and none starts inside one", () => {
+    const doc = addRange(wholeSource(1000), 500, 600);
+    expect(places(addRange(doc, 400, 700))).toEqual([
+      [500, 600],
+      [400, 500],
+    ]);
+    expect(addRange(doc, 550, 700)).toBe(doc);
+    // Touching is fine.
+    expect(places(addRange(doc, 600, 650))).toEqual([
+      [500, 600],
+      [600, 650],
+    ]);
+    expect(rangeRoom(doc, 700, 700, null)).toEqual({ a: 600, b: 1000 });
+    expect(rangeRoom(doc, 450, 450, null)).toEqual({ a: 0, b: 500 });
+  });
+
+  it("are moved and resized only up to the ranges either side", () => {
+    const doc = addRange(addRange(wholeSource(1000), 100, 200), 500, 600);
+    expect(places(setRange(doc, 2, 150, 600))).toEqual([
+      [100, 200],
+      [200, 600],
+    ]);
+    expect(places(setRange(doc, 1, 100, 900))).toEqual([
+      [100, 500],
+      [500, 600],
+    ]);
   });
 
   it("can stay at their place on the timeline instead", () => {

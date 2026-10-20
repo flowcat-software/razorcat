@@ -12,6 +12,7 @@ import {
   LANES,
   moveSlot,
   markLabel,
+  rangeRoom,
   shownMarks,
   shownRanges,
   total,
@@ -918,6 +919,8 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       return;
     }
     const { a, b } = d.orig;
+    // Ranges don't overlap: a drag stops against the ranges either side (Richard).
+    const room = rangeRoom(store.doc, a, b, d.id);
     let to: { a: number; b: number };
     if (d.kind === "move") {
       // Whichever edge lands near something snaps, the start first.
@@ -930,13 +933,13 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         start = s.target === null ? Math.round(a + df) : s.frame - len;
       }
       guide.current = s.target;
-      start = Math.max(0, Math.min(length - len, start));
+      start = Math.max(room.a, Math.min(room.b - len, start));
       to = { a: start, b: start + len };
     } else {
       // An edge (or a new range's far end) against the edge that stays: past it, they swap.
       const s = snap(fOf(view, x), targets, view.zoom, on);
       guide.current = s.target;
-      const f = Math.max(0, Math.min(length, s.frame));
+      const f = Math.max(room.a, Math.min(room.b, s.frame));
       const fixed = d.kind === "a" ? b : a;
       if (f === fixed) {
         draw.current();

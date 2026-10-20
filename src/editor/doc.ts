@@ -350,20 +350,46 @@ function within(doc: Doc, a: number, b: number): Place | null {
   return hi > lo ? { a: lo, b: hi } : null;
 }
 
-/** Adds a range over timeline frames `a` to `b`. The same document if there's nothing there. */
+/**
+ * The free stretch of timeline round frames `a` to `b`: from the end of the range before them
+ * to the start of the one after (not counting range `exclude`). Ranges never overlap, though
+ * they may touch (Richard); one already over `a` to `b` doesn't count.
+ */
+export function rangeRoom(doc: Doc, a: number, b: number, exclude: RangeId | null): Place {
+  let lo = 0;
+  let hi = total(doc);
+  for (const r of shownRanges(doc)) {
+    if (r.id === exclude) continue;
+    if (r.b <= a) lo = Math.max(lo, r.b);
+    else if (r.a >= b) hi = Math.min(hi, r.a);
+  }
+  return { a: lo, b: hi };
+}
+
+/**
+ * Adds a range over timeline frames `a` to `b`, stopping at the next range. The same document
+ * if there's nothing there, or `a` is in a range already.
+ */
 export function addRange(doc: Doc, a: number, b: number): Doc {
-  const place = within(doc, a, b);
+  const start = Math.min(a, b);
+  if (shownRanges(doc).some((r) => r.a <= start && start < r.b)) return doc;
+  const room = rangeRoom(doc, start, start, null);
+  const place = within(doc, Math.max(start, room.a), Math.min(Math.max(a, b), room.b));
   if (!place) return doc;
   const range = { id: doc.nextRangeId, pieces: anchor(doc, place.a, place.b) };
   return { ...doc, ranges: [...doc.ranges, range], nextRangeId: doc.nextRangeId + 1 };
 }
 
-/** Moves or resizes range `id` to timeline frames `a` to `b`: it marks what's there now. */
+/**
+ * Moves or resizes range `id` to timeline frames `a` to `b`, kept clear of the ranges either
+ * side of it: it marks what's there now.
+ */
 export function setRange(doc: Doc, id: RangeId, a: number, b: number): Doc {
   const index = doc.ranges.findIndex((r) => r.id === id);
-  const place = within(doc, a, b);
-  if (index < 0 || !place) return doc;
   const now = shownRanges(doc).find((r) => r.id === id);
+  const room = now ? rangeRoom(doc, now.a, now.b, id) : { a: 0, b: total(doc) };
+  const place = within(doc, Math.max(Math.min(a, b), room.a), Math.min(Math.max(a, b), room.b));
+  if (index < 0 || !place) return doc;
   if (now && now.a === place.a && now.b === place.b) return doc;
   const ranges = [...doc.ranges];
   ranges[index] = { id, pieces: anchor(doc, place.a, place.b) };
