@@ -1,6 +1,7 @@
 // The timeline's zoom and scroll, shared by the timeline (wheel, Ctrl+0) and the status bar's
 // zoom controls. The geometry is in timelineView.ts.
 import { create } from "zustand";
+import type { ClipId } from "./doc";
 import {
   HEADER,
   clampScroll,
@@ -24,11 +25,15 @@ interface TimelineState {
   held: boolean;
   /** Snapping (the status bar's toggle; Alt held turns it off for a moment). */
   snap: boolean;
+  /** A clip lit up to show where it went (a duplicate or a paste), and when (ms). */
+  flash: { id: ClipId; at: number } | null;
   /** The timeline was measured, or its length changed (an edit): fitted stays fitted. */
   setSize: (width: number, frames: number) => void;
   /** Holds the view still (a trim starts), or lets it fit the timeline again (it ends). */
   hold: (on: boolean) => void;
   toggleSnap: () => void;
+  /** Lights clip `id` up for a moment. */
+  flashClip: (id: ClipId) => void;
   fit: () => void;
   /** Zooms by `factor`, about `anchorX` (default: the middle). */
   zoomBy: (factor: number, anchorX?: number) => void;
@@ -48,6 +53,7 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   isFitted: true,
   held: false,
   snap: true,
+  flash: null,
 
   setSize: (width, frames) => {
     const s = get();
@@ -77,6 +83,7 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   },
 
   toggleSnap: () => set({ snap: !get().snap }),
+  flashClip: (id) => set({ flash: { id, at: performance.now() } }),
 
   fit: () => {
     const { width, frames } = get();

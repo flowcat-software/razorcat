@@ -2,7 +2,13 @@ import { useState, useSyncExternalStore, type ReactNode } from "react";
 import type { SourceInfo } from "../shared/ipc";
 import { shownRanges, total as docTotal } from "./doc";
 import { useDoc } from "./docStore";
-import { addRangeAtPlayhead, deleteSelected, seekEdit, splitAtPlayhead } from "./edits";
+import {
+  addRangeAtPlayhead,
+  deleteSelected,
+  duplicateSelectedClip,
+  seekEdit,
+  splitAtPlayhead,
+} from "./edits";
 import { exportClip } from "./exports";
 import { Menu } from "./Menu";
 import type { Player, PlayerState } from "./player";
@@ -192,6 +198,21 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
             <path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" />
           </svg>
           Delete <span className={styles.kbd}>Del</span>
+        </button>
+      )}
+      {selected === "clip" && (
+        <button
+          type="button"
+          className={`${styles.barButton} ${styles.withText}`}
+          title="Put a copy of the clip straight after it (Ctrl+D); Ctrl+C and Ctrl+V copy it and paste it at the cut nearest the playhead"
+          disabled={off}
+          onMouseDown={keepFocus}
+          onClick={() => player && duplicateSelectedClip(player)}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden>
+            <path d="M9 9h11v11H9zM5 15V4h11" />
+          </svg>
+          Duplicate <span className={styles.kbd}>Ctrl+D</span>
         </button>
       )}
       {selected === "clip" && clipId !== null && (

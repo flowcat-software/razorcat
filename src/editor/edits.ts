@@ -1,8 +1,18 @@
 // The timeline's edits, as the keys and buttons invoke them: on the document (docStore.ts) at the
 // player's playhead.
-import { clipStarts, editPoints, shownRanges } from "./doc";
+import {
+  clipStarts,
+  copyClip,
+  editPoints,
+  pasteSlot,
+  shownRanges,
+  total,
+  type ClipCopy,
+  type ClipId,
+} from "./doc";
 import { useDoc } from "./docStore";
 import type { Player } from "./player";
+import { useTimeline } from "./timelineStore";
 
 /** S: splits the clip under the playhead there. */
 export function splitAtPlayhead(player: Player) {
@@ -63,6 +73,49 @@ export function moveSelected(player: Player, to: -1 | 1 | "first" | "last") {
   if (!move(doc.clips[from].id, at)) return;
   const now = useDoc.getState().doc;
   player.seek(clipStarts(now)[now.clips.findIndex((c) => c.id === selected)]);
+}
+
+/** A new clip (a duplicate or a paste): lit up for a moment, in view, the playhead at its start. */
+function showNewClip(player: Player, id: ClipId) {
+  const { doc } = useDoc.getState();
+  const start = clipStarts(doc)[doc.clips.findIndex((c) => c.id === id)];
+  player.seek(start);
+  // The view's length, before the next paint updates it, so it can scroll to the new clip.
+  const view = useTimeline.getState();
+  view.setSize(view.width, total(doc));
+  view.follow(start);
+  view.flashClip(id);
+}
+
+/** Ctrl+D: a copy of the selected clip straight after it, selected. */
+export function duplicateSelectedClip(player: Player): boolean {
+  const { selected, duplicate } = useDoc.getState();
+  const id = selected === null ? null : duplicate(selected);
+  if (id === null) return false;
+  showNewClip(player, id);
+  return true;
+}
+
+/** The clip Ctrl+C copied (the app's own clipboard: clips don't go to Windows'). */
+let copied: ClipCopy | null = null;
+
+/** Ctrl+C: copies the selected clip and its markup. False with no clip selected. */
+export function copySelectedClip(): boolean {
+  const { doc, selected } = useDoc.getState();
+  const copy = selected === null ? null : copyClip(doc, selected);
+  if (!copy) return false;
+  copied = copy;
+  return true;
+}
+
+/** Ctrl+V: the copied clip at the cut nearest the playhead, selected. False with none copied. */
+export function pasteClip(player: Player): boolean {
+  if (!copied) return false;
+  const { doc, paste } = useDoc.getState();
+  const id = paste(copied, pasteSlot(doc, player.getState().frame));
+  if (id === null) return false;
+  showNewClip(player, id);
+  return true;
 }
 
 /** ↑ / ↓: the playhead to the previous or next edit point (a cut, a range's edge, an end). */

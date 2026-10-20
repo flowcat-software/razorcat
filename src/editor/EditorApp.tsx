@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { startToolStylesSync } from "../markup/toolStylesSync";
 import { useMarkupKeys } from "../markup/useMarkupKeys";
 import { applyStyleSettings, loadFonts } from "../markup/useStyleSettings";
+import { isTyping } from "../shared/dom";
 import { commands, events, type Settings, type SourceInfo, type ThumbsInfo } from "../shared/ipc";
 import { CommandBar } from "./CommandBar";
 import { useToolKeys } from "./cropTool";
@@ -9,8 +10,11 @@ import { EmptyEditor } from "./EmptyEditor";
 import { useDoc } from "./docStore";
 import {
   addRangeAtPlayhead,
+  copySelectedClip,
   deleteSelected,
+  duplicateSelectedClip,
   moveSelected,
+  pasteClip,
   rangeIn,
   rangeOut,
   seekEdit,
@@ -321,7 +325,7 @@ export function EditorApp() {
   }, [player, source, checkFor]);
 
   // Ctrl+O opens a video, Ctrl+E exports, Ctrl+, opens Settings, Ctrl+Z undoes (as in Vandal); Ctrl+0, Ctrl+=
-  // and Ctrl+− fit and zoom the timeline.
+  // and Ctrl+− fit and zoom the timeline; Ctrl+D, C and V duplicate, copy and paste clips.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey || e.metaKey) return;
@@ -338,6 +342,20 @@ export function EditorApp() {
         return;
       }
       if (e.shiftKey) return;
+      // Ctrl+D duplicates the selected clip, Ctrl+C / Ctrl+V copy it and paste it at the cut
+      // nearest the playhead (the markup's own keys take Ctrl+D for selected markup).
+      if (player && !isTyping(e.target)) {
+        const done =
+          e.code === "KeyD"
+            ? duplicateSelectedClip(player)
+            : e.code === "KeyC"
+              ? copySelectedClip()
+              : e.code === "KeyV" && pasteClip(player);
+        if (done) {
+          e.preventDefault();
+          return;
+        }
+      }
       const zoom = {
         Digit0: 0,
         Equal: 1.5,

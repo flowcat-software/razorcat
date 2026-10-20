@@ -17,6 +17,8 @@ import {
   deleteClip,
   deleteMarks,
   deleteRange,
+  duplicateClip,
+  insertClip,
   keepRanges,
   keepRangesInPlace,
   moveClip,
@@ -32,6 +34,7 @@ import {
   split,
   trimClip,
   wholeSource,
+  type ClipCopy,
   type ClipId,
   type Doc,
   type MarkId,
@@ -82,6 +85,10 @@ export interface DocState {
   move: (id: ClipId, to: number) => boolean;
   /** Trims clip `id` to source frames `in` to `out` (ripple). */
   trim: (id: ClipId, inF: number, outF: number) => boolean;
+  /** A copy of clip `id` straight after it, selected; its id, or null. */
+  duplicate: (id: ClipId) => ClipId | null;
+  /** Inserts `copy` as a new clip at position `at`, selected; its id. */
+  paste: (copy: ClipCopy, at: number) => ClipId | null;
 
   /** Adds a range over timeline frames `a` to `b` and selects it; its id, or null. */
   addRange: (a: number, b: number) => RangeId | null;
@@ -158,6 +165,14 @@ export const useDoc = create<DocState>()((set, get) => {
       });
     });
 
+  /** A clip was added (or not): it's selected; its id. */
+  const added = (ok: boolean): ClipId | null => {
+    if (!ok) return null;
+    const id = get().doc.nextId - 1;
+    set({ selected: id, selectedRange: null, selectedMarks: [] });
+    return id;
+  };
+
   /** The selection, if what's selected is gone (or hidden). */
   const prune = () => {
     const { doc, selected, selectedRange, selectedMarks } = get();
@@ -199,6 +214,8 @@ export const useDoc = create<DocState>()((set, get) => {
     remove: (id) => applyClips((doc) => deleteClip(doc, id, get().options.deleteWithClip)),
     move: (id, to) => applyClips((doc) => moveClip(doc, id, to)),
     trim: (id, inF, outF) => applyClips((doc) => trimClip(doc, id, inF, outF)),
+    duplicate: (id) => added(applyClips((doc) => duplicateClip(doc, id))),
+    paste: (copy, at) => added(applyClips((doc) => insertClip(doc, copy, at))),
 
     addRange: (a, b) => {
       const id = get().doc.nextRangeId;

@@ -5,6 +5,7 @@ import {
   addRange,
   deleteClip,
   deleteMark,
+  duplicateClip,
   editPoints,
   freeLane,
   keepRanges,
@@ -51,6 +52,23 @@ describe("markup", () => {
     // Near the end: cut short.
     expect(place(addMark(wholeSource(100), text(""), 95, 20, 5))).toEqual([[95, 100, 1]]);
     expect(editPoints(doc)).toEqual([0, 40, 60, 100]);
+  });
+
+  it("is copied with its clip, the copy's own, as new markup", () => {
+    // Clips 1 (0-30) and 2 (30-100); the text on clip 2, at 40.
+    const cut = split(withText(), 30);
+    const dup = duplicateClip(cut, 2);
+    expect(dup.marks.map((m) => [m.id, m.clip])).toEqual([
+      [1, 2],
+      [2, 3],
+    ]);
+    expect(dup.nextMarkId).toBe(3);
+    expect(place(dup)).toEqual([
+      [40, 60, 0],
+      [110, 130, 0],
+    ]);
+    // Markup on another clip isn't.
+    expect(duplicateClip(cut, 1).marks).toHaveLength(1);
   });
 
   it("follows its video when clips move", () => {

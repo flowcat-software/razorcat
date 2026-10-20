@@ -25,7 +25,7 @@ import {
   type ShownRange,
 } from "./doc";
 import { useDoc } from "./docStore";
-import { deleteSelected, splitAtPlayhead } from "./edits";
+import { copySelectedClip, deleteSelected, duplicateSelectedClip, splitAtPlayhead } from "./edits";
 import { exportClip } from "./exports";
 import { Menu, type MenuItems } from "./Menu";
 import { markTargets, rangeTargets, scrubTargets, snap, trimTargets } from "./snap";
@@ -63,6 +63,8 @@ const THUMB_H = CLIP_H - LABEL_H - WAVE_H;
 const WAVE_MID = CLIP_TOP + CLIP_H - WAVE_H / 2;
 const CLIP_GAP = 0.5;
 const CLIP_RADIUS = 8;
+/** How long a new clip's light takes to fade (Richard: briefly). */
+const FLASH_MS = 800;
 /** How near (px, either side) a clip's edge the pointer grabs it. */
 const EDGE_HIT = 7;
 /** How far (px) the pointer must move before a title bar's press becomes a drag. */
@@ -509,6 +511,9 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       // notching it top and bottom.
       const { doc, selected, selectedRange, selectedMarks, pendingIn } = useDoc.getState();
       const starts = clipStarts(doc);
+      const { flash } = useTimeline.getState();
+      const now = performance.now();
+      let flashing = false;
       g.save();
       g.beginPath();
       g.rect(HEADER, 0, W - HEADER, H);
@@ -601,6 +606,14 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
               CLIP_TOP + 10,
             );
           }
+        }
+        // A new clip (a duplicate or a paste) lights up, fading out, to show where it went.
+        if (flash?.id === clip.id && now - flash.at < FLASH_MS) {
+          g.globalAlpha = 0.55 * (1 - (now - flash.at) / FLASH_MS) ** 2;
+          g.fillStyle = c["accent"];
+          g.fillRect(x0, CLIP_TOP, x1 - x0, CLIP_H);
+          g.globalAlpha = 1;
+          flashing = true;
         }
         g.restore();
         if (clip.id === selected) {
@@ -741,6 +754,8 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           g.globalAlpha = 1;
         }
       }
+      // Until the new clip's light has faded.
+      if (flashing) draw.current();
     };
     draw.current = () => {
       if (!queued) queued = requestAnimationFrame(paint);
@@ -1195,6 +1210,8 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
               { label: "Export clip as GIF…", run: () => exportClip(clip.id, "gif") },
               "-",
               { label: "Split at the playhead", hint: "S", run: () => splitAtPlayhead(player) },
+              { label: "Duplicate", hint: "Ctrl+D", run: () => duplicateSelectedClip(player) },
+              { label: "Copy", hint: "Ctrl+C", run: copySelectedClip },
               {
                 label: "Delete (close the gap)",
                 hint: "Delete",

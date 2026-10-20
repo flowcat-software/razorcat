@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   clipAt,
   clipStarts,
+  copyClip,
   deleteClip,
+  duplicateClip,
   editPoints,
+  insertClip,
   moveClip,
   moveSlot,
+  pasteSlot,
   split,
   total,
   trimClip,
@@ -131,5 +135,41 @@ describe("trim", () => {
   it("does nothing if nothing changes", () => {
     expect(trimClip(three, 2, 40, 70)).toBe(three);
     expect(trimClip(three, 9, 0, 10)).toBe(three);
+  });
+});
+
+describe("duplicate and paste", () => {
+  // Clips 1 (0-40) and 2 (40-100), clip 1 trimmed to 10-40: 0-30 and 30-90 on the timeline.
+  const doc = trimClip(split(wholeSource(100), 40), 1, 10, 40);
+
+  it("puts a copy straight after the clip, a new clip with the same frames", () => {
+    const dup = duplicateClip(doc, 1);
+    expect(dup.clips).toEqual([
+      { id: 1, in: 10, out: 40 },
+      { id: 3, in: 10, out: 40 },
+      { id: 2, in: 40, out: 100 },
+    ]);
+    expect(dup.nextId).toBe(4);
+    expect(clipStarts(dup)).toEqual([0, 30, 60]);
+    expect(duplicateClip(doc, 9)).toBe(doc);
+  });
+
+  it("pastes a copy at a position, even once the original is gone", () => {
+    const copy = copyClip(doc, 2)!;
+    const pasted = insertClip(deleteClip(doc, 2), copy, 0);
+    expect(pasted.clips.map((c) => [c.id, c.in, c.out])).toEqual([
+      [3, 40, 100],
+      [1, 10, 40],
+    ]);
+  });
+
+  it("pastes at the cut nearest the playhead, the right one from a clip's middle", () => {
+    // Cuts at 0, 30 and 90.
+    expect(pasteSlot(doc, 0)).toBe(0);
+    expect(pasteSlot(doc, 14)).toBe(0);
+    expect(pasteSlot(doc, 15)).toBe(1);
+    expect(pasteSlot(doc, 59)).toBe(1);
+    expect(pasteSlot(doc, 60)).toBe(2);
+    expect(pasteSlot(doc, 89)).toBe(2);
   });
 });

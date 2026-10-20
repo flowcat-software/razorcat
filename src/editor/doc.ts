@@ -263,6 +263,54 @@ export function moveSlot(doc: Doc, id: ClipId, df: number): number {
   return slot;
 }
 
+/** A clip as copied (Ctrl+C), for `insertClip`: its source frames and its markup. */
+export interface ClipCopy {
+  in: number;
+  out: number;
+  /** The markup anchored to it. */
+  marks: readonly Mark[];
+}
+
+/** Clip `id` as a copy, its markup with it (not its ranges); null if there's no such clip. */
+export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
+  const clip = doc.clips.find((c) => c.id === id);
+  if (!clip) return null;
+  return { in: clip.in, out: clip.out, marks: doc.marks.filter((m) => m.clip === id) };
+}
+
+/**
+ * Inserts `copy` as a new clip at position `at` (clamped; the clips from there move along), with
+ * copies of its markup (Richard, 2026-10-20).
+ */
+export function insertClip(doc: Doc, copy: ClipCopy, at: number): Doc {
+  const id = doc.nextId;
+  const clips = [...doc.clips];
+  clips.splice(Math.max(0, Math.min(clips.length, at)), 0, { id, in: copy.in, out: copy.out });
+  let nextMarkId = doc.nextMarkId;
+  const marks = [...doc.marks, ...copy.marks.map((m) => ({ ...m, id: nextMarkId++, clip: id }))];
+  return { ...doc, clips, nextId: id + 1, marks, nextMarkId };
+}
+
+/** Ctrl+D: a copy of clip `id` straight after it. The same document if there's no such clip. */
+export function duplicateClip(doc: Doc, id: ClipId): Doc {
+  const copy = copyClip(doc, id);
+  if (!copy) return doc;
+  return insertClip(doc, copy, doc.clips.findIndex((c) => c.id === id) + 1);
+}
+
+/**
+ * Where Ctrl+V puts a clip: the position of the cut nearest timeline frame `f` (a clip's start,
+ * or the timeline's end). From a clip's exact middle, the cut on its right (Richard).
+ */
+export function pasteSlot(doc: Doc, f: number): number {
+  const cuts = [...clipStarts(doc), total(doc)];
+  let best = 0;
+  cuts.forEach((c, i) => {
+    if (Math.abs(c - f) <= Math.abs(cuts[best] - f)) best = i;
+  });
+  return best;
+}
+
 /** Moves clip `id` to position `to` (clamped); the others close up around it. */
 export function moveClip(doc: Doc, id: ClipId, to: number): Doc {
   const from = doc.clips.findIndex((c) => c.id === id);
