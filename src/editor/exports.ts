@@ -7,8 +7,12 @@ import { growColour, type Side } from "./frame";
 
 export type ExportFormat = "mp4" | "gif";
 
-/** The clips as export reads them: their numbers and source frames, in timeline order. */
-export const exportClips = (doc: Doc) => doc.clips.map((c) => ({ id: c.id, in: c.in, out: c.out }));
+/**
+ * The clips as export reads them: their numbers, source frames and whether they're heard (the
+ * track's mute mutes them all), in timeline order.
+ */
+export const exportClips = (doc: Doc) =>
+  doc.clips.map((c) => ({ id: c.id, in: c.in, out: c.out, muted: doc.muted || !!c.muted }));
 
 /** The project's frame as export reads it: the crop, and each side's grow in its colour. */
 export function exportFrame(doc: Doc) {

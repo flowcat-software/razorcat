@@ -87,6 +87,19 @@ function showNewClip(player: Player, id: ClipId) {
   view.flashClip(id);
 }
 
+/** M: mutes the selected clip, or unmutes it. False with no clip selected. */
+export function muteSelectedClip(): boolean {
+  const { doc, selected, muteClip } = useDoc.getState();
+  const clip = doc.clips.find((c) => c.id === selected);
+  return !!clip && muteClip(clip.id, !clip.muted);
+}
+
+/** Shift+M: mutes all the sound, or unmutes it. */
+export function muteSound() {
+  const { doc, muteTrack } = useDoc.getState();
+  muteTrack(!doc.muted);
+}
+
 /** Ctrl+D: a copy of the selected clip straight after it, selected. */
 export function duplicateSelectedClip(player: Player): boolean {
   const { selected, duplicate } = useDoc.getState();

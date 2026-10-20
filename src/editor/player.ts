@@ -16,7 +16,7 @@
 // proxy (the original's next frame is quick, and the swap would show as a flicker); a held arrow
 // key, a jump and scrubbing use it. Playing uses the
 // original; playing backward (which `<video>` can't) seeks frame after frame, on the proxy when
-// there is one.
+// there is one. A muted clip (or track) plays with the original muted; the proxy always is.
 //
 // Some frames the original can't show by seeking: in open-GOP video (x265's default), the few
 // frames before a keyframe are decoded after it, and WebView2's decoder, seeking there, starts at
@@ -38,6 +38,8 @@ interface Span {
   start: number;
   in: number;
   out: number;
+  /** Silent (the clip's mute, or the track's). */
+  muted: boolean;
 }
 
 /** The speeds J and L step through. */
@@ -119,6 +121,8 @@ export class Player {
   private crossing = false;
   /** A source frame shown instead of the playhead's (a trim shows the frame under its handle). */
   private peeked: number | null = null;
+  /** The edit's mutes (the track's, then each clip's), to tell a mute alone from an edit. */
+  private mutes = [false, false].join();
 
   constructor(
     /** The source's grid frames. */
@@ -127,7 +131,7 @@ export class Player {
     readonly fps: number,
     private readonly framesUrl: string,
   ) {
-    this.spans = [{ start: 0, in: 0, out: sourceFrames }];
+    this.spans = [{ start: 0, in: 0, out: sourceFrames, muted: false }];
     this.length = sourceFrames;
   }
 
@@ -136,11 +140,29 @@ export class Player {
     return this.length;
   }
 
-  /** The edit changed: plays its clips from now on (pausing, and keeping the playhead in it). */
-  setEdit(clips: readonly { in: number; out: number }[]) {
+  /**
+   * The edit changed: plays its clips from now on (pausing, and keeping the playhead in it). A
+   * mute alone doesn't pause: the sound goes or comes back as it plays.
+   */
+  setEdit(edit: {
+    clips: readonly { in: number; out: number; muted?: boolean }[];
+    muted: boolean;
+  }) {
+    const mutes = [edit.muted, ...edit.clips.map((c) => !!c.muted)].join();
+    const onlyMuted =
+      mutes !== this.mutes &&
+      edit.clips.length === this.spans.length &&
+      edit.clips.every((c, i) => c.in === this.spans[i].in && c.out === this.spans[i].out);
+    this.mutes = mutes;
+    if (onlyMuted) {
+      edit.clips.forEach((c, i) => (this.spans[i].muted = edit.muted || !!c.muted));
+      const v = this.original?.video;
+      if (v && this.state.speed > 0) v.muted = this.spans[this.playing].muted;
+      return;
+    }
     let start = 0;
-    this.spans = clips.map((c) => {
-      const span = { start, in: c.in, out: c.out };
+    this.spans = edit.clips.map((c) => {
+      const span = { start, in: c.in, out: c.out, muted: edit.muted || !!c.muted };
       start += c.out - c.in;
       return span;
     });
@@ -301,6 +323,7 @@ export class Player {
     if (speed > 0) {
       if (this.state.frame >= this.frames - 1) this.seek(0);
       this.playing = this.spanIndex(this.state.frame);
+      v.muted = this.spans[this.playing].muted;
       v.playbackRate = speed;
       this.set({ speed });
       this.paint();
@@ -446,6 +469,7 @@ export class Player {
       return;
     }
     this.playing++;
+    o.video.muted = next.muted;
     this.crossing = true;
     o.seek(this.times.seek[next.in]);
   }

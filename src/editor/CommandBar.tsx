@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { commands, type Settings } from "../shared/ipc";
 import { canRedo, canUndo, useDoc } from "./docStore";
+import { muteSound } from "./edits";
 import { exportClip, exportEach, exportTimeline } from "./exports";
 import { Menu, type MenuItems } from "./Menu";
 import { useTool, type Tool } from "./toolStore";
@@ -11,6 +12,8 @@ interface Props {
   empty: boolean;
   /** An export is under way: another waits for it. */
   exporting: boolean;
+  /** The video has sound: the menu's Sound toggle shows. */
+  audio: boolean;
   /** For the menu's Save to default folder. */
   settings: Settings | null;
   onOpen: () => void;
@@ -44,12 +47,13 @@ const TOOLS: { id: Tool | "arrow"; label: string; icon: ReactNode }[] = [
 ];
 
 /** The editor's top row: the picture's tools on the left, file actions on the right. */
-export function CommandBar({ empty, exporting, settings, onOpen }: Props) {
+export function CommandBar({ empty, exporting, audio, settings, onOpen }: Props) {
   const tool = useTool((s) => s.tool);
   const undoable = useDoc(canUndo);
   const redoable = useDoc(canRedo);
   const selected = useDoc((s) => s.selected);
   const clips = useDoc((s) => s.doc.clips.length);
+  const muted = useDoc((s) => s.doc.muted);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const noExport = empty || exporting;
   const saveToFolder = settings?.export.saveToFolder ?? false;
@@ -74,6 +78,18 @@ export function CommandBar({ empty, exporting, settings, onOpen }: Props) {
       ];
     }),
     "-",
+    // The track's mute, here too, so a silent export isn't a surprise.
+    ...(audio
+      ? [
+          {
+            label: "Sound",
+            hint: "Shift+M",
+            checked: !muted,
+            title: "Off, the export has no sound (and the preview is muted)",
+            run: muteSound,
+          },
+        ]
+      : []),
     {
       label: "Save to default folder",
       checked: saveToFolder,

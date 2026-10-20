@@ -246,11 +246,15 @@ export type Export = {
 	gifSize?: number,
 };
 
-/**  A clip of the edit, as the page sends it: its number, and its source grid frames. */
+/**
+ *  A clip of the edit, as the page sends it: its number, its source grid frames, and whether
+ *  it's silent (its own mute, or the track's).
+ */
 export type ExportClip = {
 	id: number,
 	in: number,
 	out: number,
+	muted: boolean,
 };
 
 /**

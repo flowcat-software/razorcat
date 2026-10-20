@@ -35,6 +35,8 @@ export interface Clip {
   in: number;
   /** The source grid frame after the last one shown (exclusive). */
   out: number;
+  /** Silent, in the preview and the export. Its parts (a split, a copy) are too. */
+  muted?: boolean;
 }
 
 export type RangeId = number;
@@ -108,6 +110,8 @@ export interface Doc {
   marks: readonly Mark[];
   nextMarkId: MarkId;
   frame: Frame;
+  /** All the sound off, in the preview and the export (which then has no audio). */
+  muted: boolean;
 }
 
 /** A source `frames` long and `size` as shown, whole: one clip, the full frame. */
@@ -121,6 +125,7 @@ export function wholeSource(frames: number, size: Size = { width: 0, height: 0 }
     marks: [],
     nextMarkId: 1,
     frame: fullFrame(size),
+    muted: false,
   };
 }
 
@@ -190,12 +195,7 @@ export function split(doc: Doc, f: number, splitMarks = true): Doc {
   if (splitMarks) doc = cutMarks(doc, f, f);
   const cut = at.clip.in + (f - at.start);
   const clips = [...doc.clips];
-  clips.splice(
-    at.index,
-    1,
-    { ...at.clip, out: cut },
-    { id: doc.nextId, in: cut, out: at.clip.out },
-  );
+  clips.splice(at.index, 1, { ...at.clip, out: cut }, { ...at.clip, id: doc.nextId, in: cut });
   const ranges = handOver(doc.ranges, at.clip.id, doc.nextId, cut);
   const marks = handMarksOver(doc.marks, at.clip.id, doc.nextId, cut);
   return { ...doc, clips, ranges, marks, nextId: doc.nextId + 1 };
@@ -267,6 +267,7 @@ export function moveSlot(doc: Doc, id: ClipId, df: number): number {
 export interface ClipCopy {
   in: number;
   out: number;
+  muted?: boolean;
   /** The markup anchored to it. */
   marks: readonly Mark[];
 }
@@ -275,7 +276,8 @@ export interface ClipCopy {
 export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
   const clip = doc.clips.find((c) => c.id === id);
   if (!clip) return null;
-  return { in: clip.in, out: clip.out, marks: doc.marks.filter((m) => m.clip === id) };
+  const marks = doc.marks.filter((m) => m.clip === id);
+  return { in: clip.in, out: clip.out, ...(clip.muted && { muted: true }), marks };
 }
 
 /**
@@ -285,10 +287,26 @@ export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
 export function insertClip(doc: Doc, copy: ClipCopy, at: number): Doc {
   const id = doc.nextId;
   const clips = [...doc.clips];
-  clips.splice(Math.max(0, Math.min(clips.length, at)), 0, { id, in: copy.in, out: copy.out });
+  const clip = { id, in: copy.in, out: copy.out, ...(copy.muted && { muted: true }) };
+  clips.splice(Math.max(0, Math.min(clips.length, at)), 0, clip);
   let nextMarkId = doc.nextMarkId;
   const marks = [...doc.marks, ...copy.marks.map((m) => ({ ...m, id: nextMarkId++, clip: id }))];
   return { ...doc, clips, nextId: id + 1, marks, nextMarkId };
+}
+
+/** Mutes clip `id`, or unmutes it. The same document if nothing changes. */
+export function muteClip(doc: Doc, id: ClipId, muted: boolean): Doc {
+  const index = doc.clips.findIndex((c) => c.id === id);
+  if (index < 0 || !!doc.clips[index].muted === muted) return doc;
+  const clips = [...doc.clips];
+  const { id: clipId, in: a, out: b } = clips[index];
+  clips[index] = { id: clipId, in: a, out: b, ...(muted && { muted }) };
+  return { ...doc, clips };
+}
+
+/** Mutes all the sound, or unmutes it. The same document if nothing changes. */
+export function muteTrack(doc: Doc, muted: boolean): Doc {
+  return doc.muted === muted ? doc : { ...doc, muted };
 }
 
 /** Ctrl+D: a copy of clip `id` straight after it. The same document if there's no such clip. */
@@ -543,7 +561,7 @@ function cutOut(doc: Doc, places: readonly Place[], splitMarks: boolean): Doc {
           // Cut in its middle: the markup after the cut goes with the second part.
           const cut = c.in + (b - s);
           marks = handMarksOver(marks, c.id, nextId, cut);
-          out.push({ id: nextId++, in: cut, out: c.out });
+          out.push({ ...c, id: nextId++, in: cut });
         } else out.push({ ...c, in: c.in + (b - s) });
       }
     });

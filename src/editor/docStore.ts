@@ -22,6 +22,8 @@ import {
   keepRanges,
   keepRangesInPlace,
   moveClip,
+  muteClip,
+  muteTrack,
   removeRanges,
   separateRanges,
   setCrop,
@@ -89,6 +91,10 @@ export interface DocState {
   duplicate: (id: ClipId) => ClipId | null;
   /** Inserts `copy` as a new clip at position `at`, selected; its id. */
   paste: (copy: ClipCopy, at: number) => ClipId | null;
+  /** Mutes clip `id`, or unmutes it. */
+  muteClip: (id: ClipId, muted: boolean) => boolean;
+  /** Mutes all the sound, or unmutes it. */
+  muteTrack: (muted: boolean) => boolean;
 
   /** Adds a range over timeline frames `a` to `b` and selects it; its id, or null. */
   addRange: (a: number, b: number) => RangeId | null;
@@ -216,6 +222,8 @@ export const useDoc = create<DocState>()((set, get) => {
     trim: (id, inF, outF) => applyClips((doc) => trimClip(doc, id, inF, outF)),
     duplicate: (id) => added(applyClips((doc) => duplicateClip(doc, id))),
     paste: (copy, at) => added(applyClips((doc) => insertClip(doc, copy, at))),
+    muteClip: (id, muted) => apply((doc) => muteClip(doc, id, muted)),
+    muteTrack: (muted) => apply((doc) => muteTrack(doc, muted)),
 
     addRange: (a, b) => {
       const id = get().doc.nextRangeId;

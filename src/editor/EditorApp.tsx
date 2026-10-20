@@ -14,6 +14,8 @@ import {
   deleteSelected,
   duplicateSelectedClip,
   moveSelected,
+  muteSelectedClip,
+  muteSound,
   pasteClip,
   rangeIn,
   rangeOut,
@@ -53,9 +55,19 @@ const applySettings = (s: Settings) => {
   useTool.getState().setDragSpeed(s.editing.numberDragSpeed);
 };
 
-/** The transport's and the timeline's keys (mockup's keys table). True if the key was theirs. */
-function transportKey(e: KeyboardEvent, player: Player): boolean {
+/**
+ * The transport's and the timeline's keys (mockup's keys table), M and Shift+M only with sound
+ * to mute. True if the key was theirs.
+ */
+function transportKey(e: KeyboardEvent, player: Player, audio: boolean): boolean {
   if (e.ctrlKey || e.altKey || e.metaKey) return false;
+  // M mutes the selected clip, Shift+M all the sound (as Logic's M and modifier+M).
+  if (e.code === "KeyM" && audio) {
+    if (e.repeat) return true;
+    if (e.shiftKey) muteSound();
+    else muteSelectedClip();
+    return true;
+  }
   const second = Math.round(player.fps);
   switch (e.code) {
     // A single frame waits for the full-quality picture; held down, or a second at a time, the
@@ -131,6 +143,8 @@ function transportKey(e: KeyboardEvent, player: Player): boolean {
  */
 export function EditorApp() {
   const [source, setSource] = useState<SourceInfo | null>(null);
+  /** The video has sound, for M and Shift+M to mute. */
+  const audio = (source?.audioTracks ?? 0) > 0;
   const [notice, setNotice] = useState<Notice | null>(null);
   /** Time as frame numbers, not timecode: the readout and the ruler (a click on the readout). */
   const [inFrames, setInFrames] = useState(false);
@@ -182,9 +196,9 @@ export function EditorApp() {
   // The player plays the edit (after the load above, so never another source's).
   useEffect(() => {
     if (!player) return;
-    player.setEdit(useDoc.getState().doc.clips);
+    player.setEdit(useDoc.getState().doc);
     return useDoc.subscribe((s, before) => {
-      if (s.doc !== before.doc) player.setEdit(s.doc.clips);
+      if (s.doc !== before.doc) player.setEdit(s.doc);
     });
   }, [player]);
 
@@ -193,11 +207,11 @@ export function EditorApp() {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t?.closest("input, textarea, select, [contenteditable]")) return;
-      if (transportKey(e, player)) e.preventDefault();
+      if (transportKey(e, player, audio)) e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [player]);
+  }, [player, audio]);
 
   useEffect(() => {
     const stops: (() => void)[] = [];
@@ -447,6 +461,7 @@ export function EditorApp() {
     <div className={styles.app}>
       <CommandBar
         empty={empty}
+        audio={audio}
         exporting={exporting !== null}
         settings={settings}
         onOpen={openVideo}

@@ -5,7 +5,8 @@
 //! filter puts it on the timeline's grid (the same rule the grid and the preview follow,
 //! grid.rs), and `trim` keeps the clip's grid frames. The audio is cut at the same times (all
 //! its tracks mixed, as the waveform shows them). The clips are joined with `concat`, then the
-//! joined picture is cropped and grown (the project's frame, frame.ts).
+//! joined picture is cropped and grown (the project's frame, frame.ts). A muted clip's sound is
+//! silenced (`concat` still joins it); with every clip muted, the file has no audio at all.
 //!
 //! The encoder is the machine's best that works, found at startup by trying each in turn
 //! (`probe`): NVIDIA's, AMD's, Intel's, Windows' own (Media Foundation), then libx264, which
@@ -29,13 +30,15 @@ use crate::sidecar::{self, Tool};
 use crate::source::file_name;
 use crate::state::AppState;
 
-/// A clip of the edit, as the page sends it: its number, and its source grid frames.
+/// A clip of the edit, as the page sends it: its number, its source grid frames, and whether
+/// it's silent (its own mute, or the track's).
 #[derive(Debug, Clone, Deserialize, Type)]
 pub struct ExportClip {
     pub id: u32,
     #[serde(rename = "in")]
     pub from: u32,
     pub out: u32,
+    pub muted: bool,
 }
 
 /// A part of the picture as shown (rotation applied), in its pixels.
@@ -255,6 +258,7 @@ struct Cut {
     seek: f64,
     from: u32,
     out: u32,
+    muted: bool,
 }
 
 /// How far before a clip's first frame its input is seeked: the frame is kept whatever the
@@ -268,6 +272,7 @@ fn cuts(starts: &[f64], clips: &[ExportClip]) -> Vec<Cut> {
             seek: (starts[c.from as usize] - SEEK_EARLY).max(0.0),
             from: c.from,
             out: c.out,
+            muted: c.muted,
         })
         .collect()
 }
@@ -285,6 +290,12 @@ fn args(
     encoder: Encoder,
     bitrate: u64,
 ) -> Vec<OsString> {
+    // Nothing to hear: no audio at all.
+    let audio_tracks = if cuts.iter().all(|c| c.muted) {
+        0
+    } else {
+        audio_tracks
+    };
     // Even dimensions, as 4:2:0 needs (for a source of odd size, with no frame).
     let last = format!(
         "{}scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,format={}",
@@ -382,8 +393,9 @@ fn graph(
             // the seek put at 0.
             let start = (origin + f64::from(c.from) / fps - c.seek).max(0.0);
             let length = f64::from(c.out - c.from) / fps;
+            let silence = if c.muted { ",volume=0" } else { "" };
             f.push(format!(
-                "{tracks}{mix}atrim=start={start:.6}:duration={length:.6},asetpts=PTS-STARTPTS[a{i}]"
+                "{tracks}{mix}atrim=start={start:.6}:duration={length:.6},asetpts=PTS-STARTPTS{silence}[a{i}]"
             ));
         }
     }
@@ -1105,11 +1117,13 @@ mod tests {
                 id: 1,
                 from: 0,
                 out: 30,
+                muted: false,
             },
             ExportClip {
                 id: 2,
                 from: 240,
                 out: 270,
+                muted: false,
             },
         ];
         let c = cuts(&starts, &clips);
@@ -1124,11 +1138,13 @@ mod tests {
                 seek: 0.0,
                 from: 0,
                 out: 30,
+                muted: false,
             },
             Cut {
                 seek: 7.5,
                 from: 240,
                 out: 270,
+                muted: false,
             },
         ];
         let rate = Rate { num: 30, den: 1 };
@@ -1161,6 +1177,7 @@ mod tests {
             seek: 0.0,
             from: 0,
             out: 30,
+            muted: false,
         }];
         let rate = Rate { num: 30, den: 1 };
         let two = joined(&args(
@@ -1190,12 +1207,44 @@ mod tests {
     }
 
     #[test]
+    fn a_muted_clip_is_silenced_and_all_muted_has_no_audio() {
+        let cut = |seek: f64, from: u32, muted: bool| Cut {
+            seek,
+            from,
+            out: from + 30,
+            muted,
+        };
+        let rate = Rate { num: 30, den: 1 };
+        let mp4 = |c: &[Cut]| {
+            joined(&args(
+                Path::new("in.mp4"),
+                c,
+                rate,
+                0.0,
+                1,
+                None,
+                Encoder::X264,
+                6_000_000,
+            ))
+        };
+        let one = mp4(&[cut(0.0, 0, false), cut(7.5, 240, true)]);
+        assert!(one.contains("asetpts=PTS-STARTPTS[a0]"));
+        assert!(one.contains("asetpts=PTS-STARTPTS,volume=0[a1]"));
+        assert!(one.contains("concat=n=2:v=1:a=1[vc][ac]"));
+        let all = mp4(&[cut(0.0, 0, true), cut(7.5, 240, true)]);
+        assert!(all.contains("[v0][v1]concat=n=2:v=1:a=0[vc];"));
+        assert!(!all.contains("[ac]"));
+        assert!(!all.contains("-c:a"));
+    }
+
+    #[test]
     fn a_late_first_frame_shifts_the_clock() {
         // The first shown frame at 0.1 s: the grid counts from there.
         let c = [Cut {
             seek: 1.6,
             from: 60,
             out: 90,
+            muted: false,
         }];
         let rate = Rate { num: 30, den: 1 };
         let a = joined(&args(
@@ -1269,6 +1318,7 @@ mod tests {
             seek: 0.0,
             from: 0,
             out: 30,
+            muted: false,
         }];
         let rate = Rate { num: 30, den: 1 };
         let a = joined(&gif_args(Path::new("in.mp4"), &c, rate, 0.0, None, 20, 640));
@@ -1364,6 +1414,7 @@ mod tests {
             seek: 0.0,
             from: 0,
             out: 30,
+            muted: false,
         }];
         let rate = Rate { num: 30, den: 1 };
         let a = joined(&args(

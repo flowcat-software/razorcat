@@ -74,6 +74,7 @@ const TIP_DELAY = 600;
 
 const TOKENS = [
   "accent",
+  "error-text",
   "text-2",
   "text-3",
   "tl-bg",
@@ -341,6 +342,39 @@ function drawThumbs(
   }
 }
 
+/** A speaker centred on `x`, `y`, with sound coming out of it, or crossed out (muted). */
+function drawSpeaker(g: CanvasRenderingContext2D, x: number, y: number, crossed: boolean) {
+  g.beginPath();
+  g.moveTo(x - 6, y - 2.5);
+  g.lineTo(x - 3, y - 2.5);
+  g.lineTo(x + 0.5, y - 5.5);
+  g.lineTo(x + 0.5, y + 5.5);
+  g.lineTo(x - 3, y + 2.5);
+  g.lineTo(x - 6, y + 2.5);
+  g.closePath();
+  g.fill();
+  g.lineWidth = 1.4;
+  g.lineCap = "round";
+  g.beginPath();
+  if (crossed) {
+    g.moveTo(x + 3, y - 2.5);
+    g.lineTo(x + 8, y + 2.5);
+    g.moveTo(x + 8, y - 2.5);
+    g.lineTo(x + 3, y + 2.5);
+  } else {
+    g.arc(x + 0.5, y, 3.5, -0.9, 0.9);
+    g.moveTo(x + 0.5 + 6.5 * Math.cos(-0.9), y + 6.5 * Math.sin(-0.9));
+    g.arc(x + 0.5, y, 6.5, -0.9, 0.9);
+  }
+  g.stroke();
+  g.lineWidth = 1;
+  g.lineCap = "butt";
+}
+
+/** Whether (`x`, `y`) is on the track header's speaker, which mutes all the sound. */
+const onSpeaker = (x: number, y: number) =>
+  x < HEADER && y >= CLIP_TOP + CLIP_H - WAVE_H && y <= CLIP_TOP + CLIP_H;
+
 /**
  * A clip's waveform, in its band at the bottom: a bar per pixel, as tall as the loudest audio in
  * the frames under it (on a dB scale), centred.
@@ -587,7 +621,17 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         g.fillStyle = c["clip"];
         g.fillRect(x0, CLIP_TOP, x1 - x0, CLIP_H);
         if (strip.current) drawThumbs(g, strip.current, view, span, Math.min(x1, W));
-        if (peaks.current) drawWave(g, peaks.current, view, span, Math.min(x1, W));
+        // A muted clip's waveform is faint, and a crossed-out speaker says why.
+        const silent = doc.muted || !!clip.muted;
+        if (peaks.current) {
+          if (silent) g.globalAlpha = 0.3;
+          drawWave(g, peaks.current, view, span, Math.min(x1, W));
+          g.globalAlpha = 1;
+        }
+        if (clip.muted && source.audioTracks > 0 && x1 - Math.max(x0, HEADER) > 30) {
+          g.fillStyle = g.strokeStyle = "#fff";
+          drawSpeaker(g, Math.max(x0, HEADER) + 15, WAVE_MID, true);
+        }
         // Its name and length, kept in view as the timeline scrolls. The name is the clip's
         // id, so it stays with the clip as clips move: a reorder or a delete shows.
         const lx = Math.max(x0, HEADER) + 9;
@@ -727,8 +771,12 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       for (let lane = 0; lane < LANES; lane++)
         g.fillText("T", HEADER / 2, laneY(lane) + LANE_H / 2);
       g.fillText("▶", HEADER / 2, THUMB_TOP + THUMB_H / 2);
-      if (source.audioTracks > 0) g.fillText("♪", HEADER / 2, WAVE_MID);
       g.textAlign = "left";
+      // The sound's speaker: a click mutes it all (crossed out, in red).
+      if (source.audioTracks > 0) {
+        g.fillStyle = g.strokeStyle = doc.muted ? c["error-text"] : c["text-2"];
+        drawSpeaker(g, HEADER / 2 - 1, WAVE_MID, doc.muted);
+      }
 
       // Playhead: a line from the ruler down, a marker on the ruler, and the frame it covers
       // tinted once frames are wide enough to see.
@@ -1122,9 +1170,13 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           if (e.button !== 0) return;
           hideTip();
           tipFor.current = null;
-          e.currentTarget.setPointerCapture(e.pointerId);
           const docState = useDoc.getState();
           const { x, y, view } = at(e);
+          if (source.audioTracks > 0 && onSpeaker(x, y)) {
+            docState.muteTrack(!docState.doc.muted);
+            return;
+          }
+          e.currentTarget.setPointerCapture(e.pointerId);
           const hit = hitAt(docState.doc, docState.pendingIn, view, x, y);
           hover.current = null;
           if (hit) {
@@ -1173,7 +1225,11 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
             hover.current = hit;
             draw.current();
           }
-          canvas.style.cursor = cursorFor(hit);
+          const speaker = source.audioTracks > 0 && onSpeaker(x, y);
+          canvas.style.cursor = speaker ? "pointer" : cursorFor(hit);
+          canvas.title = speaker
+            ? `${doc.muted ? "Unmute the sound" : "Mute all the sound"} (Shift+M)`
+            : "";
           hoverTip(hit?.kind ?? null, e.clientX, e.clientY);
         }}
         onContextMenu={(e) => {
@@ -1212,6 +1268,12 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
               { label: "Split at the playhead", hint: "S", run: () => splitAtPlayhead(player) },
               { label: "Duplicate", hint: "Ctrl+D", run: () => duplicateSelectedClip(player) },
               { label: "Copy", hint: "Ctrl+C", run: copySelectedClip },
+              {
+                label: clip.muted ? "Unmute" : "Mute",
+                hint: "M",
+                disabled: source.audioTracks === 0,
+                run: () => useDoc.getState().muteClip(clip.id, !clip.muted),
+              },
               {
                 label: "Delete (close the gap)",
                 hint: "Delete",

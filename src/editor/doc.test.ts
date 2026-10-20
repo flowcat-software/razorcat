@@ -9,6 +9,8 @@ import {
   insertClip,
   moveClip,
   moveSlot,
+  muteClip,
+  muteTrack,
   pasteSlot,
   split,
   total,
@@ -171,5 +173,30 @@ describe("duplicate and paste", () => {
     expect(pasteSlot(doc, 59)).toBe(1);
     expect(pasteSlot(doc, 60)).toBe(2);
     expect(pasteSlot(doc, 89)).toBe(2);
+  });
+});
+
+describe("mute", () => {
+  const doc = split(wholeSource(100), 40);
+
+  it("mutes a clip, and unmutes it back to the same clip", () => {
+    const muted = muteClip(doc, 2, true);
+    expect(muted.clips[1]).toEqual({ id: 2, in: 40, out: 100, muted: true });
+    expect(muteClip(muted, 2, true)).toBe(muted);
+    expect(muteClip(muted, 2, false).clips[1]).toStrictEqual({ id: 2, in: 40, out: 100 });
+    expect(muteClip(doc, 9, true)).toBe(doc);
+  });
+
+  it("keeps a clip muted in its parts and copies", () => {
+    const muted = muteClip(doc, 2, true);
+    expect(split(muted, 70).clips.map((c) => c.muted)).toEqual([undefined, true, true]);
+    expect(duplicateClip(muted, 2).clips.map((c) => c.muted)).toEqual([undefined, true, true]);
+    expect(copyClip(muted, 1)).not.toHaveProperty("muted");
+  });
+
+  it("mutes the track", () => {
+    expect(doc.muted).toBe(false);
+    expect(muteTrack(doc, true).muted).toBe(true);
+    expect(muteTrack(doc, false)).toBe(doc);
   });
 });
