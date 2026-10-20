@@ -11,7 +11,7 @@ use crate::sidecar::{self, MediaTools};
 use crate::source::SourceInfo;
 use crate::state::AppState;
 
-/// The editor's page has loaded: shows the window, and opens a file Driveby was started with
+/// The editor's page has loaded: shows the window, and opens a file Razorcat was started with
 /// ([`editor::SourceOpened`] follows). Returns the open source, if the page reloaded.
 #[tauri::command]
 #[specta::specta]

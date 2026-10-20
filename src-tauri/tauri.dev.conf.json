@@ -1,5 +1,5 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Driveby Dev",
-  "identifier": "com.driveby.desktop.dev"
+  "productName": "Razorcat Dev",
+  "identifier": "com.razorcat.desktop.dev"
 }

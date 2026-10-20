@@ -25,7 +25,7 @@ mod tests {
     #[test]
     fn takes_every_path_after_the_program() {
         let got = file_paths(
-            &args(&["driveby.exe", "a.mp4", "--flag", r"D:\b.mov"]),
+            &args(&["razorcat.exe", "a.mp4", "--flag", r"D:\b.mov"]),
             Path::new(r"C:\work"),
         );
         assert_eq!(
@@ -36,7 +36,7 @@ mod tests {
 
     #[test]
     fn no_paths_without_arguments() {
-        assert!(file_paths(&args(&["driveby.exe"]), Path::new(".")).is_empty());
+        assert!(file_paths(&args(&["razorcat.exe"]), Path::new(".")).is_empty());
         assert!(file_paths(&[], Path::new(".")).is_empty());
     }
 }

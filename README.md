@@ -1,4 +1,4 @@
-# Driveby
+# Razorcat
 
 A small, fast, precise video editor for Windows: trim, cut, split, crop, grow the frame, add
 timed markup, and export MP4 or GIF. Early development; not ready to use yet.

@@ -1,4 +1,4 @@
-//! Development: the preview = export check (PLAN 1.8). `driveby --check-frames <file>` opens a
+//! Development: the preview = export check (PLAN 1.8). `razorcat --check-frames <file>` opens a
 //! barcoded test clip (`spikes/make-test-media.mjs`) and the page steps and seeks the preview
 //! over it, reading the barcode of the frame on screen; `--check-edit` does it on an edited
 //! timeline (clips cut out and moved), plays across the cuts, and exports it (export = preview),
@@ -71,7 +71,7 @@ pub fn expected(app: &AppHandle) -> Result<Vec<u32>, String> {
         let s = open.as_ref().ok_or("nothing open")?;
         (s.path.clone(), s.grid.rate, s.grid.frames, s.generation)
     };
-    let out = std::env::temp_dir().join(format!("driveby-check-{generation}.gray"));
+    let out = std::env::temp_dir().join(format!("razorcat-check-{generation}.gray"));
     let mut args: Vec<OsString> = vec!["-i".into(), path.into()];
     args.extend(["-map", "0:v:0", "-an", "-sn", "-dn", "-vf"].map(OsString::from));
     // Export's grid (as the proxy's), then the barcode strip, a pixel per cell.
@@ -107,7 +107,7 @@ pub fn exported(
         return Err("development only".into());
     }
     let dir = std::env::temp_dir();
-    let file = dir.join("driveby-check-export.mp4");
+    let file = dir.join("razorcat-check-export.mp4");
     let stop = AtomicBool::new(false);
     match crate::export::render(
         app,
@@ -121,7 +121,7 @@ pub fn exported(
         Outcome::Finished => {}
         Outcome::Stopped => return Err("stopped".into()),
     }
-    let out = dir.join("driveby-check-export.gray");
+    let out = dir.join("razorcat-check-export.gray");
     let mut args: Vec<OsString> = vec!["-i".into(), file.clone().into()];
     args.extend(["-map", "0:v:0", "-an", "-vf"].map(OsString::from));
     args.push(format!("crop=iw:ih/16:0:ih-ih/16,scale={cells}:1:flags=area,format=gray").into());
@@ -161,7 +161,7 @@ pub fn report(app: &AppHandle, summary: &str, report: &str) -> Result<String, St
         open.as_ref().map(|s| crate::source::file_name(&s.path))
     }
     .unwrap_or_default();
-    let file: PathBuf = std::env::temp_dir().join(format!("driveby-check-{name}.json"));
+    let file: PathBuf = std::env::temp_dir().join(format!("razorcat-check-{name}.json"));
     fs::write(&file, report).map_err(|e| e.to_string())?;
     eprintln!("[check] {name}: {summary} ({})", file.display());
     Ok(file.display().to_string())

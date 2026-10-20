@@ -9,7 +9,7 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	/**
-	 *  The editor's page has loaded: shows the window, and opens a file Driveby was started with
+	 *  The editor's page has loaded: shows the window, and opens a file Razorcat was started with
 	 *  ([`editor::SourceOpened`] follows). Returns the open source, if the page reloaded.
 	 */
 	editorReady: () => __TAURI_INVOKE<{
@@ -231,7 +231,7 @@ export type Export = {
 	 *  from the templates.
 	 */
 	saveToFolder?: boolean,
-	/**  Where, `%VARS%` allowed; empty: the Videos folder's Driveby folder. */
+	/**  Where, `%VARS%` allowed; empty: the Videos folder's Razorcat folder. */
 	folder?: string,
 	/**  The whole timeline's file name, without the extension: `{name}` is the video's name. */
 	timelineName?: string,

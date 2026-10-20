@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Driveby are listed here. The format follows
+All notable changes to Razorcat are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/). Each release's section becomes its release notes.
 

@@ -1,4 +1,4 @@
-# Driveby
+# Razorcat
 
 A small, fast, precise video editor for Windows: trim, cut, split, crop, grow the frame, timed
 markup, MP4/GIF export. Tauri 2 (Rust) + React/TS (Vite), the same stack as its sibling app
@@ -23,7 +23,7 @@ If the plan turns out to be wrong, update `internal/PLAN.md` at the same time (c
 
 ## Reusing Vandal
 
-Much of Driveby starts as copies of Vandal's files (PLAN §6 lists which). Copy them and adapt;
+Much of Razorcat starts as copies of Vandal's files (PLAN §6 lists which). Copy them and adapt;
 never import across the two repos, and never change Vandal from here unless Richard asks. Commit
 messages needn't say which Vandal file something came from. Vandal's `CLAUDE.md` and
 `DEVELOPMENT.md` explain the conventions being copied. Its private notes (`internal/`, e.g.

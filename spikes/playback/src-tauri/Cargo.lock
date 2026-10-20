@@ -668,7 +668,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "driveby-playback-spike"
+name = "razorcat-playback-spike"
 version = "0.0.0"
 dependencies = [
  "serde",

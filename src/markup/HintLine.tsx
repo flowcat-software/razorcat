@@ -40,7 +40,7 @@ export function HintLine() {
     return !!id && s.doc.annotations.find((a) => a.id === id)?.kind === "callout";
   });
   const labelTyping = useToolStore((s) => s.labelEditing !== null);
-  // Redact's Detect text (Vandal's) isn't in Driveby.
+  // Redact's Detect text (Vandal's) isn't in Razorcat.
   const redactText = false;
   const config = useStyleConfig();
   // For naming the second color only when there is one.

@@ -166,7 +166,7 @@ export const useToolStore = create<ToolState>((set) => ({
   editing: null,
   labelEditing: null,
   // The editor's tool (editor/toolStore.ts) is the one picked; this one follows it. Tools
-  // Driveby doesn't have yet are left alone.
+  // Razorcat doesn't have yet are left alone.
   setTool: (tool) => {
     if (tool === "select" || tool === "text") useTool.getState().setTool(tool);
   },

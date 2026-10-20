@@ -1,6 +1,6 @@
 // Local release build with a build number. Run from the repo root:
 //
-//   npm run build:local                    installer, e.g. Driveby_0.1.0+8_x64-setup.exe
+//   npm run build:local                    installer, e.g. Razorcat_0.1.0+8_x64-setup.exe
 //   npm run build:local -- --no-bundle     just the release exe
 //
 // The build number is the commit count (`git rev-list --count HEAD`) until there are release
@@ -60,7 +60,7 @@ const result = spawnSync(command, {
 if (result.status !== 0) fail(`tauri build failed (exit ${result.status ?? result.signal})`);
 
 const output = extra.includes("--no-bundle")
-  ? `${TARGET}/release/driveby.exe`
+  ? `${TARGET}/release/razorcat.exe`
   : `${TARGET}/release/bundle/nsis/${conf.productName}_${version}_x64-setup.exe`;
 if (existsSync(output))
   console.log(`\nbuild:local: ${conf.productName} ${version} built:\n  ${output}`);

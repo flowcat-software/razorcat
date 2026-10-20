@@ -1,4 +1,4 @@
-//! Conversion on open: a copy of the source that Driveby can index and the preview can play,
+//! Conversion on open: a copy of the source that Razorcat can index and the preview can play,
 //! made by ffmpeg when the original can't be. Export still reads the original.
 //!
 //! - **Before opening** (`before_open`): files the MP4 index can't read (MKV, WebM, fragmented

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Driveby playback spike",
+  "productName": "Razorcat playback spike",
   "version": "0.0.0",
-  "identifier": "com.driveby.spike.playback",
+  "identifier": "com.razorcat.spike.playback",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1430",
@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Driveby playback spike", "width": 1000, "height": 900 }
+      { "label": "main", "title": "Razorcat playback spike", "width": 1000, "height": 900 }
     ],
     "security": { "csp": null }
   },

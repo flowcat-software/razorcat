@@ -15,7 +15,7 @@ interface Props {
 }
 
 // Markup's stacking order is its lane (the top lane in front), so there are two places, and no
-// keys: Ctrl+[ / ] move clips in Driveby.
+// keys: Ctrl+[ / ] move clips in Razorcat.
 const ARRANGE: { how: Reorder; label: string; keys?: string }[] = [
   { how: "front", label: "To Front (Top Lane)" },
   { how: "back", label: "To Back (Bottom Lane)" },

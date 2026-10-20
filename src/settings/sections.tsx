@@ -1,4 +1,4 @@
-// What the settings window shows (see schema.ts). Driveby's own settings arrive with the
+// What the settings window shows (see schema.ts). Razorcat's own settings arrive with the
 // features that use them.
 import { commands } from "../shared/ipc";
 import {

@@ -22,7 +22,7 @@ export default defineConfig(() => ({
   },
 
   // Tauri: don't obscure Rust errors; fixed port; don't watch src-tauri. Not Vandal's 1420:
-  // with both in development, Vandal's window loaded Driveby's pages.
+  // with both in development, Vandal's window loaded Razorcat's pages.
   clearScreen: false,
   server: {
     port: 1430,

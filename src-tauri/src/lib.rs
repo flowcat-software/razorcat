@@ -104,7 +104,7 @@ fn export_bindings() {
     let _ = std::fs::remove_file(&fresh);
 }
 
-/// User-facing app name (`productName`), e.g. "Driveby" or, for dev builds, "Driveby Dev".
+/// User-facing app name (`productName`), e.g. "Razorcat" or, for dev builds, "Razorcat Dev".
 pub(crate) fn product_name(app: &AppHandle) -> String {
     app.config()
         .product_name
@@ -176,5 +176,5 @@ pub fn run() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("error while running Driveby");
+        .expect("error while running Razorcat");
 }

@@ -1,7 +1,7 @@
 //! The bundled media tools (ffmpeg, gifski): Tauri sidecars (`bundle.externalBin`), copied next
-//! to Driveby's exe by both the installer and dev builds (as `ffmpeg.exe`, `gifski.exe`).
+//! to Razorcat's exe by both the installer and dev builds (as `ffmpeg.exe`, `gifski.exe`).
 //! `npm run fetch-tools` downloads the pinned builds. They run as child processes with no
-//! console window, and `spawn` ties them to Driveby: they end when it does, even if it crashes.
+//! console window, and `spawn` ties them to Razorcat: they end when it does, even if it crashes.
 
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
@@ -46,12 +46,12 @@ impl Tool {
     }
 }
 
-/// Where the tool sits: beside Driveby's own exe.
+/// Where the tool sits: beside Razorcat's own exe.
 pub fn path(tool: Tool) -> Result<PathBuf, String> {
-    let exe = std::env::current_exe().map_err(|e| format!("Can't find Driveby's folder: {e}"))?;
+    let exe = std::env::current_exe().map_err(|e| format!("Can't find Razorcat's folder: {e}"))?;
     let path = exe
         .parent()
-        .ok_or("Can't find Driveby's folder")?
+        .ok_or("Can't find Razorcat's folder")?
         .join(tool.file_name());
     if path.is_file() {
         Ok(path)
@@ -78,20 +78,20 @@ pub fn background(tool: Tool) -> Result<Command, String> {
     Ok(cmd)
 }
 
-/// Starts `cmd` inside Driveby's job object, which Windows closes when Driveby exits (or
+/// Starts `cmd` inside Razorcat's job object, which Windows closes when Razorcat exits (or
 /// crashes), killing whatever is still running: no ffmpeg is left behind writing a proxy.
 pub fn spawn(cmd: &mut Command) -> std::io::Result<Child> {
     let child = cmd.spawn()?;
     if let Some(job) = job() {
         let process = HANDLE(child.as_raw_handle());
         if let Err(e) = unsafe { AssignProcessToJobObject(job, process) } {
-            eprintln!("[sidecar] couldn't tie the tool to Driveby: {e}");
+            eprintln!("[sidecar] couldn't tie the tool to Razorcat: {e}");
         }
     }
     Ok(child)
 }
 
-/// The job object, made once; it lives (open) as long as Driveby.
+/// The job object, made once; it lives (open) as long as Razorcat.
 fn job() -> Option<HANDLE> {
     // HANDLE isn't Send; the raw value is, and a job handle is usable from any thread.
     static JOB: OnceLock<Option<usize>> = OnceLock::new();

@@ -914,7 +914,7 @@ fn names(app: &AppHandle) -> Names {
     }
 }
 
-/// The default export folder: Settings › Export › Folder, or the Videos folder's Driveby folder.
+/// The default export folder: Settings › Export › Folder, or the Videos folder's Razorcat folder.
 fn export_folder(app: &AppHandle, setting: &str) -> PathBuf {
     if !setting.is_empty() {
         return crate::paths::resolve_dir(setting);
@@ -928,7 +928,7 @@ pub fn default_folder(app: &AppHandle) -> Option<PathBuf> {
         .video_dir()
         .or_else(|_| app.path().home_dir())
         .ok()
-        .map(|d| d.join("Driveby"))
+        .map(|d| d.join("Razorcat"))
 }
 
 /// Makes `folder` for a save there.

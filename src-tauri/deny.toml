@@ -2,7 +2,7 @@
 # Run: npm run security (or cargo deny check advisories sources, from here).
 
 [graph]
-# Driveby only ships for Windows. Without this, Linux-only crates under Tauri's
+# Razorcat only ships for Windows. Without this, Linux-only crates under Tauri's
 # gtk backend (glib, proc-macro-error) raise advisories for code we never build.
 targets = ["x86_64-pc-windows-msvc"]
 

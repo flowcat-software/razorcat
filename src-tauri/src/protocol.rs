@@ -235,7 +235,7 @@ fn serve(path: &PathBuf, range: Option<(u64, Option<u64>)>) -> std::io::Result<R
     f.seek(SeekFrom::Start(start))?;
     f.read_exact(&mut buf)?;
     // Always partial: the page gets the file in pieces, never whole. CORS lets the page read the
-    // video's pixels (the frame check draws them to a canvas); only Driveby's pages can reach
+    // video's pixels (the frame check draws them to a canvas); only Razorcat's pages can reach
     // this scheme at all.
     Ok(Response::builder()
         .status(StatusCode::PARTIAL_CONTENT)

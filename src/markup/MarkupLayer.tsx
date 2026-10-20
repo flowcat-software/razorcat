@@ -146,7 +146,7 @@ interface Props {
    */
   emptyPress?: "marquee" | "pass";
   /**
-   * Driveby: lines a resized box's edges snap to, in source px (the frame's edges, the
+   * Razorcat: lines a resized box's edges snap to, in source px (the frame's edges, the
    * picture's). Alt turns it off for a drag.
    */
   snapTo?: { x: number[]; y: number[] };
@@ -455,7 +455,7 @@ export function MarkupLayer({
       (a): a is CalloutAnnotation => a.id === hit && a.kind === "callout",
     );
     let drag: Drag;
-    // Vandal's redact isn't in Driveby.
+    // Vandal's redact isn't in Razorcat.
     if (tool === "redact") return;
 
     if (tool === "pen" || tool === "highlighter") {
@@ -885,7 +885,7 @@ export function MarkupLayer({
   };
 
   /**
-   * Driveby: a resize's moving edges snap to `snapTo`'s lines when they come within
+   * Razorcat: a resize's moving edges snap to `snapTo`'s lines when they come within
    * {@link EDGE_SNAP} of one (upright boxes only; Alt off). The boxes are in stage px.
    */
   const snapEdges = <

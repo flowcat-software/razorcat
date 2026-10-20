@@ -18,7 +18,7 @@ const mem = (m) => {
   const a = m?.after?.byExe;
   if (!a) return "–";
   const wv = Math.round(a["msedgewebview2.exe"] ?? 0);
-  const app = Math.round(a["driveby-playback-spike.exe"] ?? 0);
+  const app = Math.round(a["razorcat-playback-spike.exe"] ?? 0);
   const ff = Math.round(a["ffmpeg.exe"] ?? 0);
   return `${wv}${app > 20 ? ` +${app} app` : ""}${ff ? ` +${ff} ff` : ""}`;
 };

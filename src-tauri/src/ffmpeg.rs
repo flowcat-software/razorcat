@@ -1,5 +1,5 @@
 //! Running the bundled ffmpeg for background work (proxies, conversions): below-normal priority,
-//! tied to Driveby's lifetime (sidecar.rs), with progress, a way to stop it, and its error.
+//! tied to Razorcat's lifetime (sidecar.rs), with progress, a way to stop it, and its error.
 //!
 //! The output goes to a `.part` file next to where it belongs, renamed into place only once
 //! ffmpeg succeeds, so a stopped or failed run never leaves a file that looks finished.

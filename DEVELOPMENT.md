@@ -1,6 +1,6 @@
-# Developing Driveby
+# Developing Razorcat
 
-Driveby is a Tauri 2 app: a Rust core (`src-tauri/`) that owns the media (probing, the bundled
+Razorcat is a Tauri 2 app: a Rust core (`src-tauri/`) that owns the media (probing, the bundled
 ffmpeg, export) and a React + TypeScript UI (`src/`, built with Vite).
 
 [`CLAUDE.md`](CLAUDE.md) has the working conventions (commands, IPC, settings, checks).
@@ -24,8 +24,8 @@ npm run fetch-tools   # once: the bundled ffmpeg and gifski (see Media tools)
 npm run tauri:dev
 ```
 
-The dev build has its own identity (`Driveby Dev`, `com.driveby.desktop.dev`), so it runs
-alongside an installed copy. Its settings live in `%APPDATA%\com.driveby.desktop.dev\`.
+The dev build has its own identity (`Razorcat Dev`, `com.razorcat.desktop.dev`), so it runs
+alongside an installed copy. Its settings live in `%APPDATA%\com.razorcat.desktop.dev\`.
 
 ## Checks
 
@@ -47,17 +47,17 @@ the bottom, and beeps on whole seconds.
 The frame check proves the preview shows the frame export will: with the dev app running,
 
 ```powershell
-src-tauri\target\debug\driveby.exe --check-frames spikes\media\phone-h264-vfr.mp4
+src-tauri\target\debug\razorcat.exe --check-frames spikes\media\phone-h264-vfr.mp4
 ```
 
 opens the clip, steps and seeks the preview as the keys do (the original, then the proxy if
 it's ready), reads the barcode on screen and compares it with ffmpeg's `fps` output at each
 grid frame. The result shows in the status bar; the mismatches go to
-`%TEMP%\driveby-check-<file>.json`. Development builds only. Run it after changing the player,
+`%TEMP%\razorcat-check-<file>.json`. Development builds only. Run it after changing the player,
 the proxy or the frame grid.
 
 The dev app keeps proxies, converted copies, thumbnails and waveforms in
-`%LOCALAPPDATA%\com.driveby.desktop.dev\proxies\` (Settings › Proxies can move it).
+`%LOCALAPPDATA%\com.razorcat.desktop.dev\proxies\` (Settings › Proxies can move it).
 
 ## Dependencies
 
@@ -89,13 +89,13 @@ to record, not a reason to turn the setting off.
 
 When `npm run security` fails with nothing changed on our side, a new advisory has been
 published against something we use. Upgrade it (once the fix is a week old), or, if it doesn't
-apply to Driveby, add it to `ignore` in `src-tauri/deny.toml` with the reason. Yanked crates only
+apply to Razorcat, add it to `ignore` in `src-tauri/deny.toml` with the reason. Yanked crates only
 warn: run `cargo update -p <crate>` once the replacement is a week old.
 
 ## Media tools
 
-Driveby runs ffmpeg (decoding, proxies, export) and gifski (GIF export) as Tauri sidecars:
-separate programs shipped beside `driveby.exe` (`bundle.externalBin` in `tauri.conf.json`),
+Razorcat runs ffmpeg (decoding, proxies, export) and gifski (GIF export) as Tauri sidecars:
+separate programs shipped beside `razorcat.exe` (`bundle.externalBin` in `tauri.conf.json`),
 started by `src-tauri/src/sidecar.rs` with no console window. Settings › About shows their
 versions, which proves they're there and run.
 
@@ -109,7 +109,7 @@ naming the missing binary.
   checked against the release's `checksums.sha256`. Pin a dated `autobuild-…` release, never
   `latest` (it changes daily), and one at least a week old, like any dependency. BtbN prunes old
   autobuilds: the cache keeps ours. It's the full build (165 MB) for now; a build with only what
-  Driveby uses comes before the beta.
+  Razorcat uses comes before the beta.
 - **gifski:** the 1.34.0 release, checked against the SHA-256 GitHub records for the asset.
 
 To update one, change its `url` and `sha256` in the script, run it, and check About.
@@ -121,8 +121,8 @@ npm run build:local
 ```
 
 This builds a release installer with a build number: a per-user NSIS installer (no admin) in
-`src-tauri/target/release/bundle/nsis/`, for example `Driveby_0.1.0+8_x64-setup.exe`. It
-includes ffmpeg and gifski beside `driveby.exe`, and the licences (Driveby's, ffmpeg's GPL,
+`src-tauri/target/release/bundle/nsis/`, for example `Razorcat_0.1.0+8_x64-setup.exe`. It
+includes ffmpeg and gifski beside `razorcat.exe`, and the licences (Razorcat's, ffmpeg's GPL,
 gifski's AGPL) in its `licenses` folder. Settings › About shows the same version and the
 commit it was built from, for example `0.1.0+8 (2cf53f9)`, plus "modified" if there were
 uncommitted changes. For just the release exe, without an installer, use
@@ -137,7 +137,7 @@ uncommitted changes. For just the release exe, without an installer, use
 
 ## The name
 
-The product name may still change. It lives in `src-tauri/tauri.conf.json` (`productName`,
-`identifier`; the dev build's in `tauri.dev.conf.json`), and the code reads it from there: the
-window title, and the settings folder, which Windows derives from the identifier. The crate and
-package names (`driveby`, `driveby_lib`) and the docs are a find-and-replace.
+The product name lives in `src-tauri/tauri.conf.json` (`productName`, `identifier`; the dev
+build's in `tauri.dev.conf.json`), and the code reads it from there: the window title, and the
+settings folder, which Windows derives from the identifier. The crate and package names
+(`razorcat`, `razorcat_lib`) and the docs are a find-and-replace.

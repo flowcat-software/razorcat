@@ -68,7 +68,7 @@ pub struct Export {
     /// The export menu's "Save to default folder": no Save dialog; files go to `folder`, named
     /// from the templates.
     pub save_to_folder: bool,
-    /// Where, `%VARS%` allowed; empty: the Videos folder's Driveby folder.
+    /// Where, `%VARS%` allowed; empty: the Videos folder's Razorcat folder.
     pub folder: String,
     /// The whole timeline's file name, without the extension: `{name}` is the video's name.
     pub timeline_name: String,

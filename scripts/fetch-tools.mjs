@@ -1,4 +1,4 @@
-// Downloads the media tools Driveby bundles as sidecars (ffmpeg and gifski) into
+// Downloads the media tools Razorcat bundles as sidecars (ffmpeg and gifski) into
 // src-tauri/binaries/, named as Tauri's `bundle.externalBin` expects. Each download is pinned by
 // URL and SHA-256, so every machine (and later CI) builds with the same bytes; the binaries stay
 // out of git. Run once after cloning, and again when a pin changes: `npm run fetch-tools`.

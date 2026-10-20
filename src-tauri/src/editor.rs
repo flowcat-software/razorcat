@@ -1,5 +1,5 @@
 //! The main window: the editor. It opens hidden and shows once its page has loaded (no white
-//! flash), and opens the files Driveby is given: from Open, a drop, "Open with" or a second
+//! flash), and opens the files Razorcat is given: from Open, a drop, "Open with" or a second
 //! launch.
 
 use std::path::PathBuf;

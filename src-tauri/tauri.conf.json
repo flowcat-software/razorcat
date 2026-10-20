@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Driveby",
+  "productName": "Razorcat",
   "version": "../package.json",
-  "identifier": "com.driveby.desktop",
+  "identifier": "com.razorcat.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1430",
@@ -21,7 +21,7 @@
     "targets": ["nsis"],
     "externalBin": ["binaries/ffmpeg", "binaries/gifski"],
     "resources": {
-      "../LICENSE": "licenses/Driveby-LICENSE.txt",
+      "../LICENSE": "licenses/Razorcat-LICENSE.txt",
       "binaries/ffmpeg-LICENSE.txt": "licenses/ffmpeg-LICENSE.txt",
       "binaries/gifski-LICENSE.txt": "licenses/gifski-LICENSE.txt"
     },

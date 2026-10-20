@@ -166,7 +166,7 @@ pub fn open(path: &Path, playable: Option<PathBuf>) -> Result<Source, OpenError>
     let info = mp4::read(indexed).map_err(|e| match e {
         Mp4Error::NotMp4 | Mp4Error::Fragmented if playable.is_none() => OpenError::NeedsConversion,
         Mp4Error::NotMp4 | Mp4Error::Fragmented => OpenError::Failed(format!(
-            "{name} couldn't be converted into a form Driveby reads."
+            "{name} couldn't be converted into a form Razorcat reads."
         )),
         Mp4Error::NoVideo => OpenError::Failed(format!("{name} has no video.")),
         Mp4Error::Malformed(why) => {
