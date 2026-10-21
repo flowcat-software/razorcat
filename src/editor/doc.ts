@@ -128,9 +128,6 @@ export function markLabel(o: MarkObject): string {
   return text || MARK_NAMES[o.kind];
 }
 
-/** The markup lanes above the clips (the mockup's). */
-export const LANES = 2;
-
 export interface Doc {
   clips: readonly Clip[];
   /** The next clip's id. */
@@ -757,7 +754,7 @@ export function addMark(
     id: doc.nextMarkId,
     ...at,
     length: Math.max(1, Math.min(Math.round(length), total(doc) - f)),
-    lane: Math.max(0, Math.min(LANES - 1, lane)),
+    lane: keptLane(doc, lane),
     object,
   };
   return { ...doc, marks: [...doc.marks, mark], nextMarkId: doc.nextMarkId + 1 };
@@ -777,7 +774,7 @@ export function setMark(doc: Doc, id: MarkId, start: number, end: number, lane: 
   const at = anchorAt(doc, a);
   if (!at) return doc;
   const old = doc.marks[index];
-  const l = Math.max(0, Math.min(LANES - 1, lane));
+  const l = keptLane(doc, lane);
   const now = markPlace(doc, old);
   if (now && now.start === a && now.end === b && old.lane === l) return doc;
   const marks = [...doc.marks];
@@ -805,12 +802,82 @@ export function deleteMark(doc: Doc, id: MarkId): Doc {
 }
 
 /**
- * The lane for new markup from `start` to `end`: the first with nothing there, else the first.
+ * The lane for new markup from `start` to `end`: the first with nothing there, else a new one
+ * after the last.
  */
 export function freeLane(doc: Doc, start: number, end: number): number {
   const shown = shownMarks(doc);
-  for (let lane = 0; lane < LANES; lane++) {
+  const lanes = laneCount(doc);
+  for (let lane = 0; lane < lanes; lane++) {
     if (!shown.some((m) => m.lane === lane && m.start < end && m.end > start)) return lane;
   }
-  return 0;
+  return lanes;
+}
+
+// --- lanes ---
+//
+// Markup lanes grow as they're needed and close up when emptied, and two items in a lane never
+// overlap in time (Richard, 2026-10-21: with two fixed lanes, a third item at a busy moment
+// stacked over another, out of reach). The upper lane's markup is in front. `settleLanes` keeps
+// it so after every edit (docStore.ts).
+
+/** How many lanes the markup takes: one more than the lowest it's in, and one at least. */
+export function laneCount(doc: Doc): number {
+  return Math.max(1, ...shownMarks(doc).map((m) => m.lane + 1));
+}
+
+/** A lane markup can be put in: one of the lanes, or a new one above them (-1) or below. */
+function keptLane(doc: Doc, lane: number): number {
+  return Math.max(-1, Math.min(laneCount(doc), Math.round(lane)));
+}
+
+/**
+ * The markup with no two items in a lane overlapping in time, and no empty lanes: each item
+ * keeps its lane if there's room, else goes down a lane until there is (a new one at the
+ * bottom if need be). The earlier items, then the older, keep theirs; `yielding` (what was
+ * just moved or added) gives way to everything else. Then the lanes close up over empty ones
+ * (a new lane above, -1, becomes the first). Hidden markup keeps its lane. The same document if
+ * nothing moves.
+ */
+export function settleLanes(doc: Doc, yielding: readonly MarkId[] = []): Doc {
+  const gives = new Set(yielding);
+  const order = shownMarks(doc).sort(
+    (a, b) =>
+      Number(gives.has(a.id)) - Number(gives.has(b.id)) ||
+      a.lane - b.lane ||
+      a.start - b.start ||
+      a.id - b.id,
+  );
+  const taken = new Map<number, ShownMark[]>();
+  const placed = new Map<MarkId, number>();
+  for (const m of order) {
+    let lane = m.lane;
+    while ((taken.get(lane) ?? []).some((t) => t.start < m.end && m.start < t.end)) lane++;
+    taken.set(lane, [...(taken.get(lane) ?? []), m]);
+    placed.set(m.id, lane);
+  }
+  const rank = new Map([...taken.keys()].sort((a, b) => a - b).map((lane, i) => [lane, i]));
+  let changed = false;
+  const marks = doc.marks.map((m) => {
+    const lane = placed.get(m.id);
+    if (lane === undefined || rank.get(lane) === m.lane) return m;
+    changed = true;
+    return { ...m, lane: rank.get(lane)! };
+  });
+  return changed ? { ...doc, marks } : doc;
+}
+
+/**
+ * The lane that puts markup `id` in front of everything it overlaps in time (`front`), or
+ * behind it all (`back`): above the highest of them or below the lowest, a new lane if need
+ * be. Its own lane if nothing overlaps it.
+ */
+export function stackLane(doc: Doc, id: MarkId, how: "front" | "back"): number {
+  const shown = shownMarks(doc);
+  const m = shown.find((s) => s.id === id);
+  if (!m) return 0;
+  const over = shown.filter((s) => s.id !== id && s.start < m.end && m.start < s.end);
+  if (!over.length) return m.lane;
+  const lanes = over.map((s) => s.lane);
+  return how === "front" ? Math.min(...lanes) - 1 : Math.max(...lanes) + 1;
 }

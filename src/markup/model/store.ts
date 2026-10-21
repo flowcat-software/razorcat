@@ -14,10 +14,10 @@
 import { createStore, useStore } from "zustand";
 import {
   freeLane,
-  LANES,
   markFades,
   markOpacity,
   shownMarks,
+  stackLane,
   type MarkId,
   type MarkObject,
 } from "../../editor/doc";
@@ -265,8 +265,12 @@ export const docStore = createStore<DocState>()(() => ({
     for (const id of ids) {
       const m = places.get(markId(id));
       if (!m) continue;
+      // In front of or behind all it overlaps (a new lane if need be), or a lane up or down.
+      const now = useEdit.getState().doc;
       const lane =
-        how === "front" ? 0 : how === "back" ? LANES - 1 : m.lane + (how === "forward" ? -1 : 1);
+        how === "front" || how === "back"
+          ? stackLane(now, m.id, how)
+          : m.lane + (how === "forward" ? -1 : 1);
       edit.setMark(m.id, m.start, m.end, lane);
     }
     if (own) edit.endGesture();

@@ -30,6 +30,7 @@ import {
   setGrow,
   setMark,
   setMarkFades,
+  settleLanes,
   setMarkObject,
   setRange,
   shownMarks,
@@ -148,10 +149,14 @@ export function canRedo(s: DocState): boolean {
 }
 
 export const useDoc = create<DocState>()((set, get) => {
-  /** Applies a pure edit as one history step (or as part of the current gesture). */
-  const apply = (edit: (doc: Doc) => Doc): boolean => {
+  /**
+   * Applies a pure edit as one history step (or as part of the current gesture), with the
+   * markup's lanes settled after it (`settleLanes`): `yielding`, what it moved or added, gives
+   * way to the rest.
+   */
+  const apply = (edit: (doc: Doc) => Doc, yielding: readonly MarkId[] = []): boolean => {
     const s = get();
-    const doc = edit(s.doc);
+    const doc = settleLanes(edit(s.doc), yielding);
     if (doc === s.doc) return false;
     if (s.gestureStart) set({ doc });
     else set({ doc, past: pushLimited(s.past, s.doc), future: [] });
@@ -253,9 +258,9 @@ export const useDoc = create<DocState>()((set, get) => {
 
     addMark: (object, start, length, lane) => {
       const id = get().doc.nextMarkId;
-      return apply((doc) => addMark(doc, object, start, length, lane)) ? id : null;
+      return apply((doc) => addMark(doc, object, start, length, lane), [id]) ? id : null;
     },
-    setMark: (id, start, end, lane) => apply((doc) => setMark(doc, id, start, end, lane)),
+    setMark: (id, start, end, lane) => apply((doc) => setMark(doc, id, start, end, lane), [id]),
     setMarkObject: (id, object) => apply((doc) => setMarkObject(doc, id, object)),
     setMarkFades: (id, set) => apply((doc) => setMarkFades(doc, id, set)),
     removeMark: (id) => apply((doc) => deleteMarks(doc, [id])),

@@ -9,7 +9,7 @@ import {
   clipAt,
   clipLength,
   clipStarts,
-  LANES,
+  laneCount,
   moveSlot,
   markFades,
   markLabel,
@@ -51,10 +51,12 @@ const RULER = 42;
 /** The strip along the ruler's top: ranges' bars; drag on it to draw one. Tinted, to show it. */
 const RANGE_STRIP = 11;
 const LANE_TOP = RULER + 8;
-const LANE_H = 24;
-/** A lane's top, and its height with the gap after it. */
-const laneY = (lane: number) => LANE_TOP + lane * (LANE_H + 4);
-const CLIP_TOP = laneY(LANES) + 4;
+/**
+ * The markup lanes' area: two lanes, or three thin ones; more scroll in it (PLAN 4.5b2), so the
+ * clips never move.
+ */
+const LANES_H = 60;
+const CLIP_TOP = LANE_TOP + LANES_H + 4;
 const CLIP_H = 76;
 /** The clip's label row, above its thumbnails. */
 const LABEL_H = 18;
@@ -179,15 +181,47 @@ interface MarkDrag {
   playhead: number;
 }
 
-/** The lane at y (kept to the lanes). */
-const laneAt = (y: number) =>
-  Math.max(0, Math.min(LANES - 1, Math.floor((y - LANE_TOP) / (LANE_H + 4))));
+/** The markup lanes as drawn: how many, how tall, how far apart, and how far scrolled. */
+interface Lanes {
+  count: number;
+  h: number;
+  pitch: number;
+  scroll: number;
+  /** The furthest they scroll (0: they all fit). */
+  max: number;
+}
+
+/** The lanes of `doc` scrolled by `scroll` (kept in range): 24 px for two, 16 for more. */
+function lanesOf(doc: Doc, scroll: number): Lanes {
+  const count = laneCount(doc);
+  const thin = count > 2;
+  const h = thin ? 16 : 24;
+  const pitch = h + (thin ? 3 : 4);
+  const max = Math.max(0, count * pitch - (pitch - h) - LANES_H);
+  return { count, h, pitch, max, scroll: Math.max(0, Math.min(max, scroll)) };
+}
+
+/** Lane `lane`'s top. */
+const laneY = (L: Lanes, lane: number) => LANE_TOP + lane * L.pitch - L.scroll;
+
+/** The lane at y: one of them, or a new one above them (-1, over the top) or below. */
+const laneAt = (L: Lanes, y: number) =>
+  y < LANE_TOP
+    ? -1
+    : Math.max(-1, Math.min(L.count, Math.floor((y - LANE_TOP + L.scroll) / L.pitch)));
 
 /**
  * What's at (x, y): on the ruler, ranges and the pending in-point; in the lanes, markup; on the
  * clip track, clips.
  */
-function hitAt(doc: Doc, pendingIn: number | null, view: View, x: number, y: number): Hit | null {
+function hitAt(
+  doc: Doc,
+  pendingIn: number | null,
+  view: View,
+  L: Lanes,
+  x: number,
+  y: number,
+): Hit | null {
   if (x < HEADER) return null;
   if (y < RULER) {
     if (pendingIn !== null && Math.abs(x - xOf(view, pendingIn)) <= EDGE_HIT) {
@@ -204,10 +238,11 @@ function hitAt(doc: Doc, pendingIn: number | null, view: View, x: number, y: num
     return range ? { kind: "rangeMove", range } : { kind: "rangeNew" };
   }
   if (y < CLIP_TOP - 4) {
+    if (y < LANE_TOP || y >= LANE_TOP + LANES_H) return null;
     // Last drawn on top: found first.
     for (const mark of shownMarks(doc).reverse()) {
-      const y0 = laneY(mark.lane);
-      if (y < y0 || y > y0 + LANE_H) continue;
+      const y0 = laneY(L, mark.lane);
+      if (y < y0 || y > y0 + L.h) continue;
       const x0 = xOf(view, mark.start);
       const x1 = xOf(view, mark.end);
       if (x < x0 - EDGE_HIT || x > x1 + EDGE_HIT) continue;
@@ -441,6 +476,29 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
   const ranging = useRef<RangeDrag | null>(null);
   /** Markup being dragged. */
   const marking = useRef<MarkDrag | null>(null);
+  /** How far the markup lanes are scrolled (px), and the selection last kept in view. */
+  const laneScroll = useRef(0);
+  const shownSelection = useRef<readonly MarkId[]>([]);
+  /**
+   * The lanes now: scrolled as they were, unless one item was just selected (on the preview,
+   * say) whose lane is out of view, which scrolls it in.
+   */
+  const lanes = () => {
+    const { doc, selectedMarks } = useDoc.getState();
+    let L = lanesOf(doc, laneScroll.current);
+    if (selectedMarks !== shownSelection.current) {
+      shownSelection.current = selectedMarks;
+      const m =
+        selectedMarks.length === 1 && shownMarks(doc).find((k) => k.id === selectedMarks[0]);
+      if (m) {
+        const top = m.lane * L.pitch;
+        if (top < L.scroll) L = lanesOf(doc, top);
+        else if (top + L.h > L.scroll + LANES_H) L = lanesOf(doc, top + L.h - LANES_H);
+      }
+    }
+    laneScroll.current = L.scroll;
+    return L;
+  };
   /** Where a drag snapped to: the guide is drawn there. */
   const guide = useRef<number | null>(null);
   const readout = useRef<HTMLDivElement>(null);
@@ -518,7 +576,14 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       g.textBaseline = "middle";
       g.fillStyle = c["tl-lane"];
       g.fillRect(HEADER, CLIP_TOP, W, CLIP_H);
-      for (let lane = 0; lane < LANES; lane++) g.fillRect(HEADER, laneY(lane), W, LANE_H);
+      // The lanes, scrolled; one item newly selected (on the preview, say) is scrolled into view.
+      const L = lanes();
+      g.save();
+      g.beginPath();
+      g.rect(HEADER, LANE_TOP, W - HEADER, LANES_H);
+      g.clip();
+      for (let lane = 0; lane < L.count; lane++) g.fillRect(HEADER, laneY(L, lane), W, L.h);
+      g.restore();
 
       // The range strip along the ruler's top: where ranges are drawn.
       g.fillStyle = c["range-strip"];
@@ -702,13 +767,20 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         }
       });
 
-      // Markup: a bar in its lane, saying what it is (the selected one outlined).
+      // Markup: a bar in its lane, saying what it is (the selected one outlined), within the
+      // lanes' area.
       const marks = new Map(doc.marks.map((m) => [m.id, m]));
+      g.save();
+      g.beginPath();
+      g.rect(HEADER, LANE_TOP, W - HEADER, LANES_H);
+      g.clip();
       for (const m of shownMarks(doc)) {
         const x0 = xOf(view, m.start);
         const x1 = xOf(view, m.end);
         if (x1 <= HEADER || x0 >= W) continue;
-        const y0 = laneY(m.lane);
+        const y0 = laneY(L, m.lane);
+        if (y0 + L.h < LANE_TOP || y0 > LANE_TOP + LANES_H) continue;
+        const LANE_H = L.h;
         g.save();
         g.beginPath();
         g.roundRect(x0, y0, Math.max(2, x1 - x0), LANE_H, 4);
@@ -769,6 +841,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           g.lineWidth = 1;
         }
       }
+      g.restore();
 
       // The hovered or dragged clip edge: white with a dark outline, so it reads on any
       // picture. A line along the edge and a grip on the clip's side of it.
@@ -834,8 +907,17 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       g.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
       g.textAlign = "center";
       // The lanes' markup, and the clip track's picture and sound (as the mockup).
-      for (let lane = 0; lane < LANES; lane++)
-        g.fillText("T", HEADER / 2, laneY(lane) + LANE_H / 2);
+      for (let lane = 0; lane < L.count; lane++) {
+        const y = laneY(L, lane) + L.h / 2;
+        if (y > LANE_TOP && y < LANE_TOP + LANES_H) g.fillText("T", HEADER / 2, y);
+      }
+      // More lanes than fit: where in them the view is.
+      if (L.max > 0) {
+        const all = L.max + LANES_H;
+        g.fillStyle = c["text-3"];
+        g.fillRect(HEADER - 4, LANE_TOP + (L.scroll / all) * LANES_H, 2, (LANES_H * LANES_H) / all);
+        g.fillStyle = c["text-2"];
+      }
       g.fillText("▶", HEADER / 2, THUMB_TOP + THUMB_H / 2);
       g.textAlign = "left";
       // The sound's speaker: a click mutes it all (crossed out, in red).
@@ -916,10 +998,18 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const t = useTimeline.getState();
-      const x = e.clientX - canvas.getBoundingClientRect().left;
+      const r = canvas.getBoundingClientRect();
+      const x = e.clientX - r.left;
+      const y = e.clientY - r.top;
+      const L = lanes();
       if (e.ctrlKey) {
         const anchor = zoomAnchor(t.view, x, player.getState().frame);
         t.zoomBy(Math.exp(-e.deltaY * 0.0025), anchor);
+      } else if (L.max > 0 && y >= LANE_TOP && y < LANE_TOP + LANES_H) {
+        // Over the lanes, when they don't all fit: up and down them (sideways still scrolls).
+        laneScroll.current = lanesOf(useDoc.getState().doc, L.scroll + e.deltaY * 0.5).scroll;
+        if (e.deltaX) t.scrollBy(e.deltaX * 0.8);
+        draw.current();
       } else t.scrollBy((e.deltaY + e.deltaX) * 0.8);
     };
     canvas.addEventListener("wheel", onWheel, { passive: false });
@@ -1125,7 +1215,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       }
       guide.current = s.target;
       a = Math.max(0, Math.min(length - len, a));
-      to = { start: a, end: a + len, lane: laneAt(y) };
+      to = { start: a, end: a + len, lane: laneAt(lanes(), y) };
     } else {
       const s = snap(fOf(view, x), targets, view.zoom, on);
       guide.current = s.target;
@@ -1171,7 +1261,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     guide.current = null;
     const { x, y, view } = at(e);
     const now = useDoc.getState();
-    hover.current = hitAt(now.doc, now.pendingIn, view, x, y);
+    hover.current = hitAt(now.doc, now.pendingIn, view, lanes(), x, y);
     e.currentTarget.style.cursor = cursorFor(hover.current);
     draw.current();
   };
@@ -1276,7 +1366,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
             return;
           }
           e.currentTarget.setPointerCapture(e.pointerId);
-          const hit = hitAt(docState.doc, docState.pendingIn, view, x, y);
+          const hit = hitAt(docState.doc, docState.pendingIn, view, lanes(), x, y);
           hover.current = null;
           if (hit) {
             startDrag(e, hit, x);
@@ -1319,7 +1409,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           }
           const { x, y, view } = at(e);
           const { doc, pendingIn } = useDoc.getState();
-          const hit = hitAt(doc, pendingIn, view, x, y);
+          const hit = hitAt(doc, pendingIn, view, lanes(), x, y);
           if (!sameHit(hit, hover.current)) {
             hover.current = hit;
             draw.current();
@@ -1342,7 +1432,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           const y = e.clientY - r.top;
           const docState = useDoc.getState();
           const view = useTimeline.getState().view;
-          const hit = hitAt(docState.doc, docState.pendingIn, view, x, y);
+          const hit = hitAt(docState.doc, docState.pendingIn, view, lanes(), x, y);
           if (hit && "mark" in hit) {
             if (!docState.selectedMarks.includes(hit.mark.id)) docState.selectMarks([hit.mark.id]);
             setMenu({

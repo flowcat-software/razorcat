@@ -10,6 +10,7 @@ import {
   freeLane,
   keepRanges,
   keepRangesInPlace,
+  laneCount,
   markFades,
   markLabel,
   markOpacity,
@@ -17,6 +18,8 @@ import {
   removeRanges,
   setMark,
   setMarkFades,
+  settleLanes,
+  stackLane,
   shownMarks,
   split,
   trimClip,
@@ -173,7 +176,8 @@ describe("markup", () => {
     const doc = withText();
     expect(freeLane(doc, 50, 70)).toBe(1);
     expect(freeLane(doc, 60, 80)).toBe(0);
-    expect(freeLane(addMark(doc, text(""), 50, 10, 1), 55, 58)).toBe(0);
+    // Both lanes busy: a new one (they grow; Richard, 2026-10-21).
+    expect(freeLane(addMark(doc, text(""), 50, 10, 1), 55, 58)).toBe(2);
   });
 });
 
@@ -250,5 +254,59 @@ describe("fades", () => {
       [10, 15],
       [10, 15],
     ]);
+  });
+});
+
+describe("lanes", () => {
+  /** Items' lanes, by id. */
+  const lanes = (doc: Doc) => Object.fromEntries(shownMarks(doc).map((m) => [m.id, m.lane]));
+  /** A 100-frame edit with markup at `places` ([start, end, lane]), settled as an edit is. */
+  const with_ = (...places: [number, number, number][]) =>
+    settleLanes(
+      places.reduce(
+        (doc, [a, b, lane]) => addMark(doc, text("x"), a, b - a, lane),
+        wholeSource(100),
+      ),
+    );
+
+  it("never overlap in a lane: the later item goes down, a new lane if need be", () => {
+    const doc = with_([0, 20, 0], [10, 30, 0], [15, 25, 0]);
+    expect(lanes(doc)).toEqual({ 1: 0, 2: 1, 3: 2 });
+    expect(laneCount(doc)).toBe(3);
+  });
+
+  it("keep their lanes when they fit, and close up over empty ones", () => {
+    expect(lanes(with_([0, 10, 0], [20, 30, 0]))).toEqual({ 1: 0, 2: 0 });
+    expect(lanes(with_([0, 10, 2], [20, 30, 5]))).toEqual({ 1: 0, 2: 1 });
+    expect(laneCount(wholeSource(100))).toBe(1);
+  });
+
+  it("make the moved item give way, not the one it landed on", () => {
+    const doc = with_([0, 20, 0], [40, 60, 1]);
+    const moved = settleLanes(setMark(doc, 2, 10, 30, 0), [2]);
+    expect(lanes(moved)).toEqual({ 1: 0, 2: 1 });
+    // Above the first lane: a new lane on top, the others moving down.
+    const top = settleLanes(setMark(doc, 2, 10, 30, -1), [2]);
+    expect(lanes(top)).toEqual({ 1: 1, 2: 0 });
+  });
+
+  it("are sorted out when moving video pushes items into each other", () => {
+    // Clips 0-50 and 50-100; an item over 10-45 and one over 55-65, in one lane.
+    let doc = split(wholeSource(100), 50);
+    doc = settleLanes(addMark(addMark(doc, text("a"), 10, 35, 0), text("b"), 55, 10, 0));
+    expect(lanes(doc)).toEqual({ 1: 0, 2: 0 });
+    // Clip 1 trimmed to 20 frames: clip 2's item comes back to 25-35, under the first (which
+    // runs on past its clip's end); it starts later, so it moves down.
+    expect(lanes(settleLanes(trimClip(doc, 1, 0, 20)))).toEqual({ 1: 0, 2: 1 });
+  });
+
+  it("put an item in front of or behind all it overlaps", () => {
+    const doc = with_([0, 20, 0], [10, 30, 0], [50, 60, 0]);
+    expect(lanes(doc)).toEqual({ 1: 0, 2: 1, 3: 0 });
+    expect(stackLane(doc, 2, "front")).toBe(-1);
+    expect(stackLane(doc, 1, "back")).toBe(2);
+    expect(stackLane(doc, 3, "front")).toBe(0);
+    const front = settleLanes(setMark(doc, 2, 10, 30, stackLane(doc, 2, "front")), [2]);
+    expect(lanes(front)).toEqual({ 1: 1, 2: 0, 3: 1 });
   });
 });
