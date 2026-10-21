@@ -137,7 +137,7 @@ const TIPS: Record<Hit["kind"], [string, string]> = {
   pendingIn: ["Pending in-point", "drag to adjust · O sets the out"],
   markStart: ["When it starts", "drag"],
   markEnd: ["When it ends", "drag"],
-  markMove: ["Move it in time", "drag · up or down: the other lane"],
+  markMove: ["Move it in time", "drag · up or down: another lane · Ctrl/Shift+click: select more"],
   fadeIn: ["Fade in", "drag right for a longer fade"],
   fadeOut: ["Fade out", "drag left for a longer fade"],
 };
@@ -197,6 +197,9 @@ interface MarkDrag {
   orig: { start: number; end: number; lane: number; fadeIn: number; fadeOut: number };
   /** The playhead when the drag started, to snap to. */
   playhead: number;
+  y0: number;
+  /** Moving several selected: each one's place when it started (the grabbed one's too). */
+  group: { id: MarkId; start: number; end: number; lane: number }[] | null;
 }
 
 /** The markup lanes as drawn: how many, how tall, how far apart, and how far scrolled. */
@@ -524,6 +527,19 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
   const ranging = useRef<RangeDrag | null>(null);
   /** Markup being dragged. */
   const marking = useRef<MarkDrag | null>(null);
+  /**
+   * A box being dragged over the lanes from an empty spot, selecting the markup it touches
+   * (with Ctrl or Shift, added to what was selected); until the pointer moves, a click, which
+   * moves the playhead there.
+   */
+  const boxing = useRef<{
+    x0: number;
+    y0: number;
+    x: number;
+    y: number;
+    kept: readonly MarkId[];
+    moved: boolean;
+  } | null>(null);
   /** How far the markup lanes are scrolled (px), and the selection last kept in view. */
   const laneScroll = useRef(0);
   const shownSelection = useRef<readonly MarkId[]>([]);
@@ -890,6 +906,18 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           g.lineWidth = 1;
         }
       }
+      // The selection box being dragged.
+      const box = boxing.current;
+      if (box?.moved) {
+        const bx = Math.min(box.x0, box.x);
+        const by = Math.min(box.y0, box.y);
+        g.fillStyle = c["accent"];
+        g.globalAlpha = 0.15;
+        g.fillRect(bx, by, Math.abs(box.x - box.x0), Math.abs(box.y - box.y0));
+        g.globalAlpha = 1;
+        g.strokeStyle = c["accent"];
+        g.strokeRect(bx + 0.5, by + 0.5, Math.abs(box.x - box.x0), Math.abs(box.y - box.y0));
+      }
       g.restore();
 
       // The hovered or dragged clip edge: white with a dark outline, so it reads on any
@@ -1253,6 +1281,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       draw.current();
       return;
     }
+    const fmt = formatter();
     let to = { start, end, lane };
     if (d.kind === "move") {
       const df = (x - d.x0) / view.zoom;
@@ -1265,6 +1294,17 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       guide.current = s.target;
       a = Math.max(0, Math.min(length - len, a));
       to = { start: a, end: a + len, lane: laneAt(lanes(), y) };
+      if (d.group) {
+        moveGroup(d, d.group, a - start, y);
+        showReadout(
+          `${fmt(to.start)} → ${fmt(to.end)}
+${d.group.length} items`,
+          e.clientX,
+          e.clientY,
+        );
+        draw.current();
+        return;
+      }
     } else {
       const s = snap(fOf(view, x), targets, view.zoom, on);
       guide.current = s.target;
@@ -1274,12 +1314,62 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       player.peek(player.sourceFrame(d.kind === "start" ? to.start : to.end - 1));
     }
     store.setMark(d.id, to.start, to.end, to.lane);
-    const fmt = formatter();
     showReadout(
       `${fmt(to.start)} → ${fmt(to.end)}\n${fmt(to.end - to.start)}`,
       e.clientX,
       e.clientY,
     );
+    draw.current();
+  };
+
+  /**
+   * Several selected markup items moved together, by `df` frames (kept so all stay on the
+   * timeline) and by as many lanes as the pointer has gone up or down (kept so none goes past a
+   * new lane above or below), each from its place when the drag started.
+   */
+  const moveGroup = (d: MarkDrag, group: NonNullable<MarkDrag["group"]>, df: number, y: number) => {
+    const length = total(useDoc.getState().doc);
+    const lo = Math.min(...group.map((m) => m.start));
+    const hi = Math.max(...group.map((m) => m.end));
+    const dt = Math.max(-lo, Math.min(length - hi, df));
+    // From a new lane above them all (-1) to a new one below.
+    const top = Math.min(...group.map((m) => m.lane));
+    const bottom = Math.max(...group.map((m) => m.lane));
+    const { gestureStart, doc } = useDoc.getState();
+    const rows = Math.round((y - d.y0) / lanes().pitch);
+    const dl = Math.max(-1 - top, Math.min(laneCount(gestureStart ?? doc) - bottom, rows));
+    useDoc
+      .getState()
+      .placeMarks(
+        group.map((m) => ({ id: m.id, start: m.start + dt, end: m.end + dt, lane: m.lane + dl })),
+      );
+  };
+
+  /** The selection box follows the pointer: the markup it touches is selected. */
+  const boxTo = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+    box: NonNullable<typeof boxing.current>,
+  ) => {
+    const { x, y, view } = at(e);
+    if (!box.moved && Math.hypot(x - box.x0, y - box.y0) < DRAG_PX) return;
+    Object.assign(box, { x, y, moved: true });
+    const L = lanes();
+    const [x0, x1] = [Math.min(box.x0, x), Math.max(box.x0, x)];
+    const [y0, y1] = [Math.min(box.y0, y), Math.max(box.y0, y)];
+    const { doc } = useDoc.getState();
+    const touched = shownMarks(doc)
+      .filter((m) => {
+        const top = laneY(L, m.lane);
+        return xOf(view, m.start) < x1 && xOf(view, m.end) > x0 && top < y1 && top + L.h > y0;
+      })
+      .map((m) => m.id);
+    const ids = [...new Set([...box.kept, ...touched])];
+    const now = useDoc.getState().selectedMarks;
+    if (ids.length !== now.length || ids.some((id, i) => id !== now[i])) {
+      useDoc.getState().selectMarks(ids);
+      // Not scrolled to: the box is where the pointer is.
+      shownSelection.current = useDoc.getState().selectedMarks;
+    }
     draw.current();
   };
 
@@ -1305,6 +1395,16 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       marking.current = null;
       docState.endGesture();
       player.peek(null);
+    }
+    if (boxing.current) {
+      // Not dragged: a click on an empty lane, which selects nothing (with Ctrl or Shift, keeps
+      // the selection) and moves the playhead there.
+      const box = boxing.current;
+      boxing.current = null;
+      if (!box.moved && e.type === "pointerup") {
+        if (!box.kept.length) docState.select(null);
+        scrubTo(e);
+      }
     }
     showReadout(null);
     guide.current = null;
@@ -1345,17 +1445,19 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       ranging.current = { kind: "pendingIn", id: null, x0: x, orig: { a: 0, b: 0 } };
       return;
     }
-    docState.beginGesture();
     if ("mark" in hit) {
       const { mark } = hit;
-      // Shift adds it to the selection (or takes it out); a press on one already selected keeps
-      // the others.
+      // Ctrl or Shift adds it to the selection or takes it out (taken out, there's nothing to
+      // drag); a press on one already selected keeps the others, to drag them all.
       const sel = docState.selectedMarks;
-      if (e.shiftKey) {
-        docState.selectMarks(
-          sel.includes(mark.id) ? sel.filter((id) => id !== mark.id) : [...sel, mark.id],
-        );
-      } else if (!sel.includes(mark.id)) docState.selectMarks([mark.id]);
+      const adding = e.ctrlKey || e.shiftKey;
+      if (adding && sel.includes(mark.id)) {
+        docState.selectMarks(sel.filter((id) => id !== mark.id));
+        return;
+      }
+      if (adding) docState.selectMarks([...sel, mark.id]);
+      else if (!sel.includes(mark.id)) docState.selectMarks([mark.id]);
+      docState.beginGesture();
       const kind =
         hit.kind === "markStart"
           ? "start"
@@ -1368,16 +1470,26 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         docState.doc.marks.find((m) => m.id === mark.id) ?? {},
         mark.end - mark.start,
       );
+      const picked = useDoc.getState().selectedMarks;
+      const group =
+        kind === "move" && picked.length > 1
+          ? shownMarks(docState.doc)
+              .filter((m) => picked.includes(m.id))
+              .map(({ id, start, end, lane }) => ({ id, start, end, lane }))
+          : null;
       marking.current = {
         kind,
         id: mark.id,
         x0: x,
+        y0: at(e).y,
         orig: { start: mark.start, end: mark.end, lane: mark.lane, ...fades },
         playhead: player.getState().frame,
+        group,
       };
       if (kind === "move") e.currentTarget.style.cursor = "grabbing";
       return;
     }
+    docState.beginGesture();
     if (hit.kind === "rangeNew") {
       const { view } = at(e);
       const { doc, pendingIn } = docState;
@@ -1422,6 +1534,11 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
             draw.current();
             return;
           }
+          if (x >= HEADER && y >= LANE_TOP && y < LANE_TOP + LANES_H) {
+            const kept = e.ctrlKey || e.shiftKey ? docState.selectedMarks : [];
+            boxing.current = { x0: x, y0: y, x, y, kept, moved: false };
+            return;
+          }
           if (y >= CLIP_TOP && x >= HEADER) {
             docState.select(clipAt(docState.doc, Math.floor(fOf(view, x)))?.clip.id ?? null);
           } else if (y >= RULER && x >= HEADER) {
@@ -1442,6 +1559,10 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           }
           if (marking.current) {
             markTo(e, marking.current);
+            return;
+          }
+          if (boxing.current) {
+            boxTo(e, boxing.current);
             return;
           }
           if (moving.current !== null) {

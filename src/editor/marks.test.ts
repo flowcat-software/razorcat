@@ -15,6 +15,7 @@ import {
   markLabel,
   markOpacity,
   moveClip,
+  placeMarks,
   removeRanges,
   setMark,
   setMarkFades,
@@ -324,6 +325,26 @@ describe("lanes", () => {
     // Nothing to pass at the top or bottom: stays.
     expect(stepLane(doc, 1, -1)).toBe(doc);
     expect(stepLane(doc, 2, 1)).toBe(doc);
+  });
+
+  it("move a group as one block, keeping its order front to back", () => {
+    // Three in lanes 0-2 over 0-20, one in lane 3 over 3-23; the group: 4 in lane 2 over 23-40
+    // in front of 5 in lane 3 over 33-52.
+    const doc = with_([0, 20, 0], [0, 20, 1], [0, 20, 2], [3, 23, 3], [23, 40, 2], [33, 52, 3]);
+    expect(lanes(doc)).toEqual({ 1: 0, 2: 1, 3: 2, 4: 3, 5: 2, 6: 3 });
+    // Ten frames earlier: 5 lands on 3 and 6 on 4, so the block goes down two lanes, 5 still
+    // over 6 (one by one, 5 went below 6).
+    const moved = placeMarks(doc, [
+      { id: 5, start: 13, end: 30, lane: 2 },
+      { id: 6, start: 23, end: 42, lane: 3 },
+    ]);
+    expect(lanes(moved)).toEqual({ 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5 });
+    // Where it fits, it stays.
+    const fits = placeMarks(doc, [
+      { id: 5, start: 60, end: 77, lane: 2 },
+      { id: 6, start: 70, end: 89, lane: 3 },
+    ]);
+    expect(lanes(fits)).toEqual({ 1: 0, 2: 1, 3: 2, 4: 3, 5: 2, 6: 3 });
   });
 
   it("step past one lane into a free one beyond", () => {

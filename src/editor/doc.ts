@@ -880,6 +880,34 @@ export function stackLane(doc: Doc, id: MarkId, how: "front" | "back"): number {
 }
 
 /**
+ * Several markup items moved together, each to its place (lanes as they were numbered before:
+ * -1 a new lane above them all), as one block: if any of them lands on other markup, the block
+ * goes down a lane at a time, all of it, until none does, so their order front to back and the
+ * lanes between them stay as they were (Richard, 2026-10-21: settled one by one, a group's items
+ * got reordered). Settled (`settleLanes`).
+ */
+export function placeMarks(
+  doc: Doc,
+  places: readonly { id: MarkId; start: number; end: number; lane: number }[],
+): Doc {
+  const lanes = new Map(places.map((p) => [p.id, p.lane]));
+  const timed = places.reduce((d, p) => setMark(d, p.id, p.start, p.end, 0), doc);
+  const shown = shownMarks(timed);
+  const group = shown.filter((m) => lanes.has(m.id));
+  const rest = shown.filter((m) => !lanes.has(m.id));
+  const lands = (k: number) =>
+    group.some((g) =>
+      rest.some((o) => o.lane === lanes.get(g.id)! + k && o.start < g.end && g.start < o.end),
+    );
+  let k = 0;
+  while (lands(k)) k++;
+  const marks = timed.marks.map((m) =>
+    lanes.has(m.id) ? { ...m, lane: lanes.get(m.id)! + k } : m,
+  );
+  return settleLanes({ ...timed, marks }, [...lanes.keys()]);
+}
+
+/**
  * Markup `id` a lane up (`-1`, forward) or down (`1`, backward). Into that lane if it's free
  * there; else past what's in it, into the lane beyond if that's free, or a new lane between
  * them, so it passes exactly one lane's worth of what it overlaps. Never a new lane past the

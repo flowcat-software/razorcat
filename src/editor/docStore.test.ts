@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { shownMarks } from "./doc";
 import { canRedo, canUndo, HISTORY_LIMIT, useDoc } from "./docStore";
 
 const s = () => useDoc.getState();
@@ -97,5 +98,46 @@ describe("the document store", () => {
     s().load(1000);
     for (let f = 1; f <= HISTORY_LIMIT + 10; f++) s().split(f);
     expect(s().past).toHaveLength(HISTORY_LIMIT);
+  });
+});
+
+describe("moving several markup items", () => {
+  beforeEach(() => s().load(100));
+  const text = { kind: "text", text: "x" } as never;
+  const places = () => shownMarks(s().doc).map((m) => [m.id, m.start, m.end, m.lane]);
+
+  it("places each from where they all were when the drag began, as one undo step", () => {
+    s().addMark(text, 0, 10, 0);
+    s().addMark(text, 20, 10, 0);
+    s().beginGesture();
+    // Two steps of one drag: the second from the start, not from the first.
+    s().placeMarks([
+      { id: 1, start: 5, end: 15, lane: 0 },
+      { id: 2, start: 25, end: 35, lane: 0 },
+    ]);
+    s().placeMarks([
+      { id: 1, start: 10, end: 20, lane: 0 },
+      { id: 2, start: 30, end: 40, lane: 0 },
+    ]);
+    s().endGesture();
+    expect(places()).toEqual([
+      [1, 10, 20, 0],
+      [2, 30, 40, 0],
+    ]);
+    s().undo();
+    expect(places()).toEqual([
+      [1, 0, 10, 0],
+      [2, 20, 30, 0],
+    ]);
+  });
+
+  it("gives way to markup left where it was", () => {
+    s().addMark(text, 0, 10, 0);
+    s().addMark(text, 40, 10, 0);
+    s().placeMarks([{ id: 2, start: 5, end: 15, lane: 0 }]);
+    expect(places()).toEqual([
+      [1, 0, 10, 0],
+      [2, 5, 15, 1],
+    ]);
   });
 });

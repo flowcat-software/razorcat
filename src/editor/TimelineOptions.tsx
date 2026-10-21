@@ -155,7 +155,10 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
       ) : marks.length > 1 ? (
         <>
           <b>Markup</b>
-          <span>{marks.length} selected · Delete removes them</span>
+          <span>
+            {marks.length} selected · drag one to move them all · Ctrl or Shift+click adds or takes
+            one out · Delete removes them
+          </span>
         </>
       ) : mark ? (
         <>
