@@ -55,19 +55,34 @@ const RULER = 42;
 const RANGE_STRIP = 11;
 const LANE_TOP = RULER + 8;
 /**
- * The markup lanes' area: two lanes; more scroll in it (PLAN 4.5b2), so the clips never move.
- * (Thinner lanes to fit three felt tight: Richard, 2026-10-21.)
+ * The markup lanes' area at the timeline's own height: two lanes; more scroll in it (PLAN
+ * 4.5b2), so the clips never move as lanes come and go. (Thinner lanes to fit three felt
+ * tight: Richard, 2026-10-21.)
  */
-const LANES_H = 60;
-const CLIP_TOP = LANE_TOP + LANES_H + 4;
+const LANES_MIN = 60;
+/** The timeline's own height (EditorApp.module.css's .timeline): taller, the lanes get it all. */
+export const TIMELINE_H = 232;
 const CLIP_H = 76;
 /** The clip's label row, above its thumbnails. */
 const LABEL_H = 18;
 /** The waveform's band, below them. */
 const WAVE_H = 20;
-const THUMB_TOP = CLIP_TOP + LABEL_H;
 const THUMB_H = CLIP_H - LABEL_H - WAVE_H;
-const WAVE_MID = CLIP_TOP + CLIP_H - WAVE_H / 2;
+// The lanes' area and the clip track under it, fitted to the timeline's height (it can be
+// dragged taller, EditorApp.tsx) by `fitHeight` at each paint: there's one timeline, and every
+// press, drag and wheel lands after a paint.
+let LANES_H = LANES_MIN;
+let CLIP_TOP = 0;
+let THUMB_TOP = 0;
+let WAVE_MID = 0;
+/** The geometry for a timeline `h` px tall. */
+function fitHeight(h: number): void {
+  LANES_H = Math.max(LANES_MIN, LANES_MIN + Math.round(h) - TIMELINE_H);
+  CLIP_TOP = LANE_TOP + LANES_H + 4;
+  THUMB_TOP = CLIP_TOP + LABEL_H;
+  WAVE_MID = CLIP_TOP + CLIP_H - WAVE_H / 2;
+}
+fitHeight(TIMELINE_H);
 const CLIP_GAP = 0.5;
 const CLIP_RADIUS = 8;
 /** How long a new clip's light takes to fade (Richard: briefly). */
@@ -592,6 +607,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       const dpr = devicePixelRatio;
       const W = canvas.clientWidth;
       const H = canvas.clientHeight;
+      fitHeight(H);
       // The store must know the size it fits to (in development a reload of its module
       // empties it).
       const store = useTimeline.getState();

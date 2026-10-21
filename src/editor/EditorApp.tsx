@@ -29,7 +29,7 @@ import { FrameOptions } from "./FrameOptions";
 import { Player } from "./player";
 import { Preview } from "./Preview";
 import { StatusBar, type Notice } from "./StatusBar";
-import { Timeline } from "./Timeline";
+import { TIMELINE_H, Timeline } from "./Timeline";
 import { TimelineBar } from "./TimelineBar";
 import { TimelineOptions } from "./TimelineOptions";
 import { useTimeline } from "./timelineStore";
@@ -150,6 +150,8 @@ export function EditorApp() {
   const [notice, setNotice] = useState<Notice | null>(null);
   /** Time as frame numbers, not timecode: the readout and the ruler (a click on the readout). */
   const [inFrames, setInFrames] = useState(false);
+  /** The timeline's height, the resizer above it dragged (its own, to start). */
+  const [timelineH, setTimelineH] = useState(TIMELINE_H);
   /** The source the preview last asked to convert: asked once, however many errors. */
   const convertAsked = useRef<string | null>(null);
   /** An export under way (export.rs): the file being written and how far along, over all. */
@@ -498,6 +500,7 @@ export function EditorApp() {
           <EmptyEditor onOpen={openVideo} />
         )}
       </div>
+      <Resizer height={timelineH} onHeight={setTimelineH} />
       <TimelineBar
         source={source}
         player={player}
@@ -505,7 +508,7 @@ export function EditorApp() {
         onToggleFrames={() => setInFrames((f) => !f)}
       />
       <TimelineOptions source={source} inFrames={inFrames} player={player} />
-      <div className={styles.timeline}>
+      <div className={styles.timeline} style={{ height: timelineH }}>
         {source && player && (
           <Timeline
             source={source}
@@ -518,5 +521,39 @@ export function EditorApp() {
       </div>
       <StatusBar notice={exportNotice ?? conversion ?? notice ?? making} empty={empty} />
     </div>
+  );
+}
+
+/** The least the preview keeps when the timeline is dragged taller (EditorApp.module.css). */
+const PREVIEW_MIN = 160;
+
+/**
+ * The line between the preview and the timeline: dragged up, the timeline grows (its markup
+ * lanes taking the room, Timeline.tsx), down to its own height at least; a double-click puts it
+ * back.
+ */
+function Resizer({ height, onHeight }: { height: number; onHeight: (h: number) => void }) {
+  const drag = useRef<{ y: number; h: number; max: number } | null>(null);
+  return (
+    <div
+      className={styles.resizer}
+      title="Drag to resize the timeline · double-click to reset"
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        const preview = e.currentTarget.previousElementSibling as HTMLElement | null;
+        const room = Math.max(0, (preview?.clientHeight ?? 0) - PREVIEW_MIN);
+        drag.current = { y: e.clientY, h: height, max: height + room };
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d) return;
+        onHeight(Math.round(Math.max(TIMELINE_H, Math.min(d.max, d.h + d.y - e.clientY))));
+      }}
+      onPointerUp={() => (drag.current = null)}
+      onPointerCancel={() => (drag.current = null)}
+      onDoubleClick={() => onHeight(TIMELINE_H)}
+    />
   );
 }

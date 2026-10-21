@@ -786,6 +786,36 @@
   font: 12px var(--mono);
 }
 
+/* ---- the resizer: drag it to resize the timeline (EditorApp.tsx) ---- */
+
+/* No height of its own: its grab area straddles the line under the preview. */
+.resizer {
+  position: relative;
+  z-index: 5;
+  height: 0;
+  flex-shrink: 0;
+}
+
+.resizer::before {
+  content: "";
+  position: absolute;
+  inset: -4px 0;
+  cursor: row-resize;
+}
+
+/* The line lit while it's under the pointer or dragged. */
+.resizer::after {
+  content: "";
+  position: absolute;
+  inset: -1px 0;
+  pointer-events: none;
+}
+
+.resizer:hover::after,
+.resizer:active::after {
+  background: var(--accent);
+}
+
 /* ---- the timeline bar: time readout, transport, edits ---- */
 
 .timelineBar {
