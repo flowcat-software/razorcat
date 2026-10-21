@@ -296,6 +296,9 @@ export type ExportMark = {
 	/**  The timeline frames it shows on, `start` to `end` (exclusive). */
 	start: number,
 	end: number,
+	/**  How many of its frames it fades in over, and out over (fitted to its length). */
+	fadeIn: number,
+	fadeOut: number,
 };
 
 /**  Rust → editor: an export is this far along. */

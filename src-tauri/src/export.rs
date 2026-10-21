@@ -270,7 +270,7 @@ struct Cut {
 const SEEK_EARLY: f64 = 0.5;
 
 /// An item of markup as ffmpeg lays it over the frame: its pixels' file (raw RGBA), its size and
-/// place, and the export's frames it shows on, as `[from, to)` stretches.
+/// place, the export's stretches it shows on, and its fades (over its own `length` frames).
 #[derive(Debug, Clone, PartialEq)]
 struct Overlay {
     path: PathBuf,
@@ -278,7 +278,19 @@ struct Overlay {
     y: u32,
     width: u32,
     height: u32,
-    shows: Vec<(u32, u32)>,
+    shows: Vec<Show>,
+    length: u32,
+    fade_in: u32,
+    fade_out: u32,
+}
+
+/// A stretch of the export an item shows on: export frames `from` to `to` (exclusive), which
+/// show its own frames from `at` on (0 is its first).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Show {
+    from: u32,
+    to: u32,
+    at: u32,
 }
 
 /// The markup over `clips` (in the export's order), with the export's frames each item shows
@@ -298,24 +310,35 @@ fn overlays(clips: &[ExportClip], markup: &Markup) -> Vec<Overlay> {
                 width: m.width,
                 height: m.height,
                 shows,
+                length: m.end - m.start,
+                fade_in: m.fade_in,
+                fade_out: m.fade_out,
             })
         })
         .collect()
 }
 
-/// The export's frames on which timeline frames `start` to `end` show, as `[from, to)`
-/// stretches, joined where they meet.
-fn shown(clips: &[ExportClip], start: u32, end: u32) -> Vec<(u32, u32)> {
-    let mut shows: Vec<(u32, u32)> = Vec::new();
+/// The export's stretches on which timeline frames `start` to `end` show, joined where they
+/// meet in both the export and the item.
+fn shown(clips: &[ExportClip], start: u32, end: u32) -> Vec<Show> {
+    let mut shows: Vec<Show> = Vec::new();
     let mut at = 0;
     for c in clips {
         let length = c.out - c.from;
         let (a, b) = (start.max(c.start), end.min(c.start + length));
         if a < b {
-            let (from, to) = (at + a - c.start, at + b - c.start);
+            let show = Show {
+                from: at + a - c.start,
+                to: at + b - c.start,
+                at: a - start,
+            };
             match shows.last_mut() {
-                Some(last) if last.1 == from => last.1 = to,
-                _ => shows.push((from, to)),
+                Some(last)
+                    if last.to == show.from && last.at + (last.to - last.from) == show.at =>
+                {
+                    last.to = show.to;
+                }
+                _ => shows.push(show),
             }
         }
         at += length;
@@ -496,19 +519,60 @@ fn graph(
         at = "vf".into();
     }
     for (k, o) in overlays.iter().enumerate() {
-        let shows: Vec<String> = o
-            .shows
-            .iter()
-            .map(|(from, to)| format!("between(n,{from},{})", to - 1))
-            .collect();
+        let place = format!("x={}:y={}:format=yuv444", o.x, o.y);
         f.push(format!("[{}:v:0]format=yuva444p[m{k}]", n + k));
-        f.push(format!(
-            "[{at}][m{k}]overlay=x={}:y={}:format=yuv444:enable='{}'[o{k}]",
-            o.x,
-            o.y,
-            shows.join("+")
-        ));
-        at = format!("o{k}");
+        if o.fade_in == 0 && o.fade_out == 0 {
+            // Unfaded: the one picture, on between its frames.
+            let shows: Vec<String> = o
+                .shows
+                .iter()
+                .map(|s| format!("between(n,{},{})", s.from, s.to - 1))
+                .collect();
+            f.push(format!(
+                "[{at}][m{k}]overlay={place}:enable='{}'[o{k}]",
+                shows.join("+")
+            ));
+            at = format!("o{k}");
+            continue;
+        }
+        // Faded: the picture once per frame of the item, faded by frame count (the preview's
+        // ramp: the fade-in's first frame clear), then each stretch's frames timed to the
+        // export's. A fine time base first, or the frame times round to the input's 1/25 s.
+        let mut chain = format!("[m{k}]loop=loop={}:size=1:start=0", o.length - 1);
+        if o.fade_in > 0 {
+            chain += &format!(",fade=t=in:s=0:n={}:alpha=1", o.fade_in);
+        }
+        if o.fade_out > 0 {
+            chain += &format!(
+                ",fade=t=out:s={}:n={}:alpha=1",
+                o.length - o.fade_out,
+                o.fade_out
+            );
+        }
+        let parts = o.shows.len();
+        if parts > 1 {
+            chain += &format!(",split={parts}");
+        }
+        chain += &(0..parts)
+            .map(|j| format!("[f{k}_{j}]"))
+            .collect::<String>();
+        f.push(chain);
+        for (j, s) in o.shows.iter().enumerate() {
+            f.push(format!(
+                "[f{k}_{j}]trim=start_frame={}:end_frame={},settb=AVTB,setpts=(N+{})/({}/{}*TB)[g{k}_{j}]",
+                s.at,
+                s.at + s.to - s.from,
+                s.from,
+                rate.num,
+                rate.den
+            ));
+            f.push(format!(
+                "[{at}][g{k}_{j}]overlay={place}:eof_action=pass:enable='between(n,{},{})'[o{k}_{j}]",
+                s.from,
+                s.to - 1
+            ));
+            at = format!("o{k}_{j}");
+        }
     }
     f.push(format!("[{at}]{last}[vout]"));
     a.extend(["-filter_complex".into(), f.join(";").into()]);
@@ -1616,18 +1680,23 @@ mod tests {
             clip(2, 100, 120, 30),
             clip(3, 500, 550, 50),
         ];
+        let show = |from, to, at| Show { from, to, at };
         // The whole timeline: as it is, across cuts in one stretch.
-        assert_eq!(shown(&all, 20, 60), [(20, 60)]);
-        // One clip: cut to it, from its own first frame.
-        assert_eq!(shown(&all[1..2], 20, 60), [(0, 20)]);
-        assert_eq!(shown(&all[2..], 20, 60), [(0, 10)]);
+        assert_eq!(shown(&all, 20, 60), [show(20, 60, 0)]);
+        // One clip: cut to it, from its own first frame, the item's frames from where it was.
+        assert_eq!(shown(&all[1..2], 20, 60), [show(0, 20, 10)]);
+        assert_eq!(shown(&all[2..], 20, 60), [show(0, 10, 30)]);
         // Over none of the clips: nowhere.
         assert!(shown(&all[..1], 30, 40).is_empty());
-        // Clips not next to each other on the timeline: a stretch over each, joined where they
-        // meet in the export.
-        assert_eq!(shown(&[all[0].clone(), all[2].clone()], 20, 60), [(20, 40)]);
+        // Clips not next to each other on the timeline: a stretch over each. Meeting in the
+        // export but not in the item (its frames 10 to 29 are cut out), they stay two, so its
+        // fades keep its own time.
+        assert_eq!(
+            shown(&[all[0].clone(), all[2].clone()], 20, 60),
+            [show(20, 30, 0), show(30, 40, 30)]
+        );
         let apart = [all[2].clone(), all[0].clone()];
-        assert_eq!(shown(&apart, 20, 60), [(0, 10), (70, 80)]);
+        assert_eq!(shown(&apart, 20, 60), [show(0, 10, 30), show(70, 80, 0)]);
     }
 
     #[test]
@@ -1639,13 +1708,19 @@ mod tests {
             muted: false,
         }];
         let rate = Rate { num: 30, den: 1 };
-        let mark = |x, shows| Overlay {
+        let mark = |x, shows: Vec<(u32, u32)>| Overlay {
             path: PathBuf::from("m.rgba"),
             x,
             y: 4,
             width: 10,
             height: 6,
-            shows,
+            shows: shows
+                .into_iter()
+                .map(|(from, to)| Show { from, to, at: 0 })
+                .collect(),
+            length: 10,
+            fade_in: 0,
+            fade_out: 0,
         };
         let marks = [mark(2, vec![(5, 10)]), mark(3, vec![(0, 2), (40, 41)])];
         let a = joined(&args(
@@ -1693,5 +1768,65 @@ mod tests {
             640,
         ));
         assert!(g.contains("[o1]fps=20,"));
+    }
+
+    #[test]
+    fn faded_markup_is_repeated_faded_and_timed_to_its_stretches() {
+        let c = [Cut {
+            seek: 0.0,
+            from: 0,
+            out: 90,
+            muted: false,
+        }];
+        let rate = Rate {
+            num: 30000,
+            den: 1001,
+        };
+        let faded = Overlay {
+            path: PathBuf::from("m.rgba"),
+            x: 2,
+            y: 4,
+            width: 10,
+            height: 6,
+            shows: vec![
+                Show {
+                    from: 5,
+                    to: 15,
+                    at: 0,
+                },
+                Show {
+                    from: 20,
+                    to: 25,
+                    at: 3,
+                },
+            ],
+            length: 10,
+            fade_in: 4,
+            fade_out: 2,
+        };
+        let a = joined(&args(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            0,
+            None,
+            &[faded],
+            Encoder::X264,
+            6_000_000,
+        ));
+        assert!(a.contains(
+            "[m0]loop=loop=9:size=1:start=0,fade=t=in:s=0:n=4:alpha=1,\
+             fade=t=out:s=8:n=2:alpha=1,split=2[f0_0][f0_1];"
+        ));
+        assert!(a.contains(
+            "[f0_1]trim=start_frame=3:end_frame=8,settb=AVTB,\
+             setpts=(N+20)/(30000/1001*TB)[g0_1];"
+        ));
+        assert!(a.contains(
+            "[vc][g0_0]overlay=x=2:y=4:format=yuv444:eof_action=pass:\
+             enable='between(n,5,14)'[o0_0];"
+        ));
+        assert!(a.contains("[o0_1]scale="));
     }
 }

@@ -16,6 +16,7 @@ use crate::state::AppState;
 
 /// An item of markup, as the page names it for an export.
 #[derive(Debug, Clone, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct ExportMark {
     pub id: u32,
     /// What it covers of the output frame, in its pixels.
@@ -26,6 +27,9 @@ pub struct ExportMark {
     /// The timeline frames it shows on, `start` to `end` (exclusive).
     pub start: u32,
     pub end: u32,
+    /// How many of its frames it fades in over, and out over (fitted to its length).
+    pub fade_in: u32,
+    pub fade_out: u32,
 }
 
 /// An item ready for ffmpeg: its pixels' file, and where and when it goes.
@@ -121,6 +125,8 @@ mod tests {
             height,
             start: 0,
             end: 10,
+            fade_in: 0,
+            fade_out: 0,
         }
     }
 

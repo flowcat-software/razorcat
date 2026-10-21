@@ -14,9 +14,11 @@
 // were on each side, and on top), so the four outer cells read white. Last, with markup (PLAN
 // 4.3c): two solid magenta items, one over a cut, sent as an export sends them; each item's
 // corner pixels must be magenta on its frames and, on every other frame, not magenta unless
-// the export without them is there too (the picture under them is anything).
+// the export without them is there too (the picture under them is anything). A third fades in
+// and out (4.4c): on each of its frames, its corners must be magenta laid over the export
+// without it at the ramp's opacity (`markOpacity`, the preview's).
 import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
-import { clipStarts, total } from "./doc";
+import { clipStarts, markOpacity, total } from "./doc";
 import { useDoc } from "./docStore";
 import { exportClips, exportFrame } from "./exports";
 import type { Player } from "./player";
@@ -31,6 +33,8 @@ const SEEKS = 150;
 const PATIENCE = 5000;
 /** Playing, how many frames may be dropped between two presented (a slow moment). */
 const DROPS = 12;
+/** How far (0–255) a faded item's pixel may be from its blend: two lossy encodes differ. */
+const FADE_NOISE = 32;
 
 /** The number in a row of RGBA pixels across the barcode: each cell's middle, white = 1. */
 export function readBarcode(row: Uint8ClampedArray, width: number): number {
@@ -284,9 +288,28 @@ export async function checkFrames(
     const even = (v: number) => Math.round(v / 2) * 2;
     const cut = clipStarts(useDoc.getState().doc)[1];
     const size = { width: even(width / 10), height: even(height / 10) };
+    const still = { fadeIn: 0, fadeOut: 0 };
     const marks: ExportMark[] = [
-      { id: 1, x: even(width / 4), y: even(height / 3), ...size, start: cut - 5, end: cut + 5 },
-      { id: 2, x: even(width * 0.6), y: even(height / 5), ...size, start: 10, end: 20 },
+      {
+        id: 1,
+        x: even(width / 4),
+        y: even(height / 3),
+        ...size,
+        start: cut - 5,
+        end: cut + 5,
+        ...still,
+      },
+      { id: 2, x: even(width * 0.6), y: even(height / 5), ...size, start: 10, end: 20, ...still },
+      {
+        id: 3,
+        x: even(width * 0.6),
+        y: even(height * 0.6),
+        ...size,
+        start: 40,
+        end: 52,
+        fadeIn: 4,
+        fadeOut: 4,
+      },
     ];
     const probes = marks.flatMap((m) => [
       { x: m.x, y: m.y },
@@ -306,17 +329,29 @@ export async function checkFrames(
         const on = m.start <= k && k < m.end;
         const [r, g, b] = marked[k]?.slice(p * 3, p * 3 + 3) ?? [];
         const [r0, g0, b0] = bare[k]?.slice(p * 3, p * 3 + 3) ?? [];
-        // Off its frames, an item shows as magenta where the export without it isn't (a pixel of
-        // two encodes can differ more than a little anywhere: the encoder spends its bits
-        // differently).
+        // Off its frames, an item shows as magenta where the export without it isn't, and isn't
+        // close to it (a pixel of two encodes can differ a little anywhere: the encoder spends
+        // its bits differently; purple in the picture can pass for magenta).
         const magenta = (r: number, g: number, b: number) => r > 180 && g < 80 && b > 180;
-        const right = on ? magenta(r, g, b) : !magenta(r, g, b) || magenta(r0, g0, b0);
+        const length = m.end - m.start;
+        const a = on ? markOpacity(m, length, k - m.start) : 0;
+        // Fading: magenta over what's under it, at its opacity (within the encodes' noise).
+        const over = (c0: number, top: number) => a * top + (1 - a) * c0;
+        const near = Math.max(Math.abs(r - r0), Math.abs(g - g0), Math.abs(b - b0)) <= FADE_NOISE;
+        const right = !on
+          ? !magenta(r, g, b) || magenta(r0, g0, b0) || near
+          : a === 1
+            ? magenta(r, g, b)
+            : Math.abs(r - over(r0, 255)) <= FADE_NOISE &&
+              Math.abs(g - over(g0, 0)) <= FADE_NOISE &&
+              Math.abs(b - over(b0, 255)) <= FADE_NOISE;
         if (right) return;
         wrongMarks++;
         misses.push({
           pass: `markup ${m.id} ${p % 2 ? "end" : "start"} corner`,
           frame: k,
-          expected: on ? 1 : 0,
+          // Off its frames, what the export without it shows there.
+          expected: on ? 1 : (r0 << 16) | (g0 << 8) | b0,
           shown: (r << 16) | (g << 8) | b,
         });
       });

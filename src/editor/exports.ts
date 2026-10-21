@@ -4,7 +4,7 @@
 import { drawMarks } from "../markup/drawMarks";
 import { playheadFrame } from "../markup/model/store";
 import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
-import { clipStarts, type ClipId, type Doc } from "./doc";
+import { clipStarts, markFades, type ClipId, type Doc } from "./doc";
 import { useDoc } from "./docStore";
 import { growColour, outputSize, type Side } from "./frame";
 import { checkMarkup } from "./markupCheck";
@@ -52,15 +52,10 @@ async function sendMarkup(doc: Doc): Promise<ExportMark[]> {
       console.error("[markup check]", e),
     );
   }
-  return drawn.map(({ id, x, y, width, height, start, end }) => ({
-    id,
-    x,
-    y,
-    width,
-    height,
-    start,
-    end,
-  }));
+  return drawn.map(({ id, x, y, width, height, start, end }) => {
+    const mark = doc.marks.find((m) => m.id === id);
+    return { id, x, y, width, height, start, end, ...markFades(mark ?? {}, end - start) };
+  });
 }
 
 /** Told when an export can't start here, before Rust has it (the editor's status bar). */
