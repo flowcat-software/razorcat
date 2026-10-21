@@ -76,7 +76,8 @@ function objectOf(a: Annotation): MarkObject {
   return object as MarkObject;
 }
 
-function annotationOf(id: MarkId, object: MarkObject): Annotation {
+/** Markup `id`'s annotation (the same one while its object is). */
+export function annotationOf(id: MarkId, object: MarkObject): Annotation {
   const kept = annotations.get(id);
   if (kept?.object === object) return kept.annotation;
   const annotation = { ...object, id: annotationId(id) } as Annotation;
@@ -219,6 +220,9 @@ useEdit.subscribe(refresh);
  * markup there. (The tools are subscribed to here, not as the module loads: toolStore.ts imports
  * this module.)
  */
+/** The playhead, whose markup shows. */
+export const playheadFrame = () => player?.getState().frame ?? 0;
+
 export function connectMarkup(p: Player): () => void {
   player = p;
   annotations.clear();

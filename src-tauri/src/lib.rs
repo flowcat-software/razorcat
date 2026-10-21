@@ -8,6 +8,7 @@ mod export;
 mod ffmpeg;
 mod folders;
 mod fonts;
+mod markup;
 mod media;
 mod paths;
 mod placement;

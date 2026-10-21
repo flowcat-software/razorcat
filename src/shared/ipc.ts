@@ -24,3 +24,19 @@ export type SourceInfo = Complete<SourceInfoWire>;
 /** The markup tools' pickers (styles.rs). */
 export type StyleSettings = Settings["styles"];
 export type NumberPicker = StyleSettings["width"];
+
+/**
+ * Sends raw pixels to Rust through the media protocol (not JSON IPC, PLAN §1): an item of
+ * markup for the next export (protocol.rs, markup.rs). Vandal's.
+ */
+export async function uploadPixels(
+  url: string,
+  rgba: Uint8ClampedArray<ArrayBuffer>,
+): Promise<void> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream" },
+    body: rgba,
+  });
+  if (!res.ok) throw new Error(`Couldn't send the markup (HTTP ${res.status}).`);
+}

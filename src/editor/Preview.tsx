@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { MarkupDrawing } from "../markup/MarkupDrawing";
 import { MarkupLayer } from "../markup/MarkupLayer";
 import { connectMarkup } from "../markup/model/store";
 import type { SourceInfo } from "../shared/ipc";
@@ -182,6 +183,8 @@ export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Pro
           </div>
         </div>
       </div>
+      {/* Every item, out of sight, for the export to draw from. */}
+      <MarkupDrawing />
       {!cropping && (
         <MarkupLayer
           width={area.width}

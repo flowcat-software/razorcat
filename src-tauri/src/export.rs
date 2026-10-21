@@ -25,6 +25,7 @@ use tauri_specta::Event;
 
 use crate::editor::LABEL;
 use crate::ffmpeg::{self, Outcome};
+use crate::markup::{self, ExportMark, Markup};
 use crate::media::grid::{self, Rate};
 use crate::sidecar::{self, Tool};
 use crate::source::file_name;
@@ -778,6 +779,9 @@ fn y4m_size(header: &str) -> Option<(usize, usize)> {
 pub struct Job {
     pub clips: Vec<ExportClip>,
     pub frame: ExportFrame,
+    /// The markup, shared by the jobs of one export (PLAN 4.3a; overlaid from 4.3b).
+    #[expect(dead_code, reason = "overlaid from PLAN 4.3b")]
+    pub markup: Arc<Markup>,
     pub output: PathBuf,
     pub format: Format,
 }
@@ -986,12 +990,17 @@ pub fn ask_and_export(
     app: &AppHandle,
     clips: Vec<ExportClip>,
     frame: ExportFrame,
+    marks: Vec<ExportMark>,
     clip: Option<u32>,
     format: Format,
 ) -> bool {
     use tauri_plugin_dialog::DialogExt;
     let Some((stem, source_folder)) = stem(app).filter(|_| !busy(app)) else {
         return false;
+    };
+    let markup = match markup::take(app, marks) {
+        Ok(m) => Arc::new(m),
+        Err(e) => return refuse(app, e),
     };
     let names = names(app);
     let file = export_name(&names, &stem, clip, format);
@@ -1006,6 +1015,7 @@ pub fn ask_and_export(
             vec![Job {
                 clips,
                 frame,
+                markup,
                 output,
                 format,
             }],
@@ -1045,6 +1055,7 @@ pub fn ask_and_export(
         vec![Job {
             clips,
             frame,
+            markup,
             output,
             format,
         }],
@@ -1057,11 +1068,16 @@ pub fn ask_and_export_each(
     app: &AppHandle,
     clips: Vec<ExportClip>,
     frame: ExportFrame,
+    marks: Vec<ExportMark>,
     format: Format,
 ) -> bool {
     use tauri_plugin_dialog::DialogExt;
     let Some((stem, source_folder)) = stem(app).filter(|_| !busy(app)) else {
         return false;
+    };
+    let markup = match markup::take(app, marks) {
+        Ok(m) => Arc::new(m),
+        Err(e) => return refuse(app, e),
     };
     let names = names(app);
     let folder = if let Some(folder) = names.save_to.clone() {
@@ -1092,6 +1108,7 @@ pub fn ask_and_export_each(
             output: free_name(&folder, &export_name(&names, &stem, Some(c.id), format)),
             clips: vec![c],
             frame: frame.clone(),
+            markup: markup.clone(),
             format,
         })
         .collect();

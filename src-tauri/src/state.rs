@@ -1,5 +1,6 @@
 //! App-wide state, managed by Tauri (`app.state::<AppState>()`).
 
+use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -20,6 +21,8 @@ pub struct AppState {
     pub exporting: Mutex<Option<Arc<AtomicBool>>>,
     /// The encoders that work here, best first, once found (export.rs).
     pub encoders: Mutex<Option<Vec<Encoder>>>,
+    /// The markup's pixels the page sent for the next export, by item (markup.rs).
+    pub markup: Mutex<HashMap<u32, Vec<u8>>>,
 }
 
 impl AppState {
@@ -31,6 +34,7 @@ impl AppState {
             converting: Mutex::new(None),
             exporting: Mutex::new(None),
             encoders: Mutex::new(None),
+            markup: Mutex::new(HashMap::new()),
         }
     }
 }

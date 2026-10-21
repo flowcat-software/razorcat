@@ -160,7 +160,8 @@ pub fn cancel_conversion(app: AppHandle) {
     crate::convert::cancel(&app);
 }
 
-/// Exports the timeline (`clip` None) or one clip (`clip`, its number) as MP4 or GIF: the Save
+/// Exports the timeline (`clip` None) or one clip (`clip`, its number) as MP4 or GIF, with
+/// `marks` (their pixels POSTed just before, markup.rs): the Save
 /// dialog, then the export on a thread ([`crate::export::ExportProgress`], then
 /// [`crate::export::ExportEnded`]). False if it didn't start (the dialog cancelled, or an export
 /// under way).
@@ -170,11 +171,12 @@ pub async fn export(
     app: AppHandle,
     clips: Vec<crate::export::ExportClip>,
     frame: crate::export::ExportFrame,
+    marks: Vec<crate::markup::ExportMark>,
     clip: Option<u32>,
     format: crate::export::Format,
 ) -> bool {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::export::ask_and_export(&app, clips, frame, clip, format)
+        crate::export::ask_and_export(&app, clips, frame, marks, clip, format)
     })
     .await
     .unwrap_or(false)
@@ -187,10 +189,11 @@ pub async fn export_each(
     app: AppHandle,
     clips: Vec<crate::export::ExportClip>,
     frame: crate::export::ExportFrame,
+    marks: Vec<crate::markup::ExportMark>,
     format: crate::export::Format,
 ) -> bool {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::export::ask_and_export_each(&app, clips, frame, format)
+        crate::export::ask_and_export_each(&app, clips, frame, marks, format)
     })
     .await
     .unwrap_or(false)

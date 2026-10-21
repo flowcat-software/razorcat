@@ -9,12 +9,15 @@
 //! (when its picture starts showing, and the middle of it). `/thumbs/{generation}/{from}` is its
 //! thumbnails from `from` on (thumbs.rs), as many as are made. `/wave/{generation}` is its
 //! waveform's peaks (wave.rs), once made.
+//!
+//! `POST /markup/{id}`: the page sends an item of markup's pixels for the next export
+//! (markup.rs), raw straight-alpha RGBA.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 
-use tauri::http::{header, Request, Response, StatusCode};
+use tauri::http::{header, Method, Request, Response, StatusCode};
 use tauri::{Manager, Runtime, UriSchemeContext, UriSchemeResponder};
 
 use crate::media::grid;
@@ -70,6 +73,8 @@ enum Route {
     /// The generation, and the first thumbnail.
     Thumbs(u64, u64),
     Wave(u64),
+    /// An item of markup's pixels, sent (POST).
+    Markup(u32),
 }
 
 pub fn handle<R: Runtime>(
@@ -78,11 +83,34 @@ pub fn handle<R: Runtime>(
     responder: UriSchemeResponder,
 ) {
     let app = ctx.app_handle().clone();
+    // The page's origin isn't ours, so its POSTs are asked about first.
+    if req.method() == Method::OPTIONS {
+        responder.respond(
+            Response::builder()
+                .status(StatusCode::NO_CONTENT)
+                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                .header(header::ACCESS_CONTROL_ALLOW_METHODS, "GET, POST")
+                .header(header::ACCESS_CONTROL_ALLOW_HEADERS, "content-type")
+                .body(Vec::new())
+                .unwrap(),
+        );
+        return;
+    }
+    let path = req.uri().path().to_string();
+    let route = route(&path);
+    // Only markup is sent; everything else is read.
+    if (req.method() == Method::POST) != matches!(route, Some(Route::Markup(_))) {
+        responder.respond(reply(StatusCode::METHOD_NOT_ALLOWED, vec![]));
+        return;
+    }
     // File reads stay off the thread that called us.
     std::thread::spawn(move || {
-        let path = req.uri().path().to_string();
         let state = app.state::<AppState>();
-        let resp = match route(&path) {
+        let resp = match route {
+            Some(Route::Markup(id)) => {
+                crate::markup::upload(&app, id, req.into_body());
+                bytes_for_page(vec![])
+            }
             Some(route @ (Route::Source(_) | Route::Playable(_) | Route::Proxy(_))) => {
                 let file = {
                     let source = state.source.lock().unwrap();
@@ -174,6 +202,7 @@ fn route(path: &str) -> Option<Route> {
         "proxy" => Some(Route::Proxy(generation)),
         "frames" => Some(Route::Frames(generation)),
         "wave" => Some(Route::Wave(generation)),
+        "markup" => Some(Route::Markup(rest.parse().ok()?)),
         _ => None,
     }
 }
@@ -264,6 +293,7 @@ mod tests {
         assert_eq!(route("/playable/5"), Some(Route::Playable(5)));
         assert_eq!(route("/thumbs/6/120"), Some(Route::Thumbs(6, 120)));
         assert_eq!(route("/wave/7"), Some(Route::Wave(7)));
+        assert_eq!(route("/markup/8"), Some(Route::Markup(8)));
         assert_eq!(route("/thumbs/6"), None);
         assert_eq!(route("/thumbs/6/x"), None);
         assert_eq!(route("/source/x"), None);

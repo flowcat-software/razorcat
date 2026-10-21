@@ -1324,7 +1324,7 @@ function drawnBigEnough(a: Annotation, scale: number): boolean {
 }
 
 /** One annotation as a Konva node. Shapes are positioned about their centre so rotation works. */
-function AnnotationShape({
+export function AnnotationShape({
   a,
   hitSlop,
   hidden = false,

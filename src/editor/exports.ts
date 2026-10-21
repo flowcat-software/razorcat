@@ -1,9 +1,13 @@
 // Export, as the buttons, menus and Ctrl+E invoke it: the document's clips to Rust (export.rs),
 // which asks where to save, renders, and reports progress (`ExportProgress`, `ExportEnded`).
-import { commands } from "../shared/ipc";
+// The markup goes first, each item drawn and its pixels sent (drawMarks.ts, markup.rs).
+import { drawMarks } from "../markup/drawMarks";
+import { playheadFrame } from "../markup/model/store";
+import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
 import type { ClipId, Doc } from "./doc";
 import { useDoc } from "./docStore";
-import { growColour, type Side } from "./frame";
+import { growColour, outputSize, type Side } from "./frame";
+import { checkMarkup } from "./markupCheck";
 
 export type ExportFormat = "mp4" | "gif";
 
@@ -24,23 +28,61 @@ export function exportFrame(doc: Doc) {
   };
 }
 
+/**
+ * The markup, each item drawn and its pixels sent to Rust for the export about to start: the
+ * items as the export command names them, back to front. In development, checked against the
+ * preview (markupCheck.ts).
+ */
+async function sendMarkup(doc: Doc): Promise<ExportMark[]> {
+  const drawn = await drawMarks(doc);
+  await Promise.all(
+    drawn.map((m) => uploadPixels(`http://media.localhost/markup/${m.id}`, m.pixels)),
+  );
+  if (import.meta.env.DEV) {
+    void checkMarkup(drawn, playheadFrame(), outputSize(doc.frame)).catch((e: unknown) =>
+      console.error("[markup check]", e),
+    );
+  }
+  return drawn.map(({ id, x, y, width, height, start, end }) => ({
+    id,
+    x,
+    y,
+    width,
+    height,
+    start,
+    end,
+  }));
+}
+
+/** Runs `start` with the markup sent; if it can't be, says so in the console. */
+function withMarkup(doc: Doc, start: (marks: ExportMark[]) => Promise<unknown>) {
+  sendMarkup(doc)
+    .then(start)
+    .catch((e: unknown) => console.error("[export] markup:", e));
+}
+
 /** The whole timeline, as one file (Ctrl+E: MP4). */
 export function exportTimeline(format: ExportFormat = "mp4") {
   const { doc } = useDoc.getState();
-  void commands.export(exportClips(doc), exportFrame(doc), null, format);
+  withMarkup(doc, (marks) =>
+    commands.export(exportClips(doc), exportFrame(doc), marks, null, format),
+  );
 }
 
 /** One clip, as its own file. */
 export function exportClip(id: ClipId, format: ExportFormat = "mp4") {
   const { doc } = useDoc.getState();
   const clips = exportClips(doc).filter((c) => c.id === id);
-  if (clips.length) void commands.export(clips, exportFrame(doc), id, format);
+  if (!clips.length) return;
+  withMarkup(doc, (marks) => commands.export(clips, exportFrame(doc), marks, id, format));
 }
 
 /** Each clip as its own file, into a folder. */
 export function exportEach(format: ExportFormat = "mp4") {
   const { doc } = useDoc.getState();
-  void commands.exportEach(exportClips(doc), exportFrame(doc), format);
+  withMarkup(doc, (marks) =>
+    commands.exportEach(exportClips(doc), exportFrame(doc), marks, format),
+  );
 }
 
 /** A GIF this big (bytes) gets a word about its size. */

@@ -100,14 +100,15 @@ export const commands = {
 	/**  The status bar's Cancel: stops the conversion under way. */
 	cancelConversion: () => __TAURI_INVOKE<void>("cancel_conversion"),
 	/**
-	 *  Exports the timeline (`clip` None) or one clip (`clip`, its number) as MP4 or GIF: the Save
+	 *  Exports the timeline (`clip` None) or one clip (`clip`, its number) as MP4 or GIF, with
+	 *  `marks` (their pixels POSTed just before, markup.rs): the Save
 	 *  dialog, then the export on a thread ([`crate::export::ExportProgress`], then
 	 *  [`crate::export::ExportEnded`]). False if it didn't start (the dialog cancelled, or an export
 	 *  under way).
 	 */
-	export: (clips: ExportClip[], frame: ExportFrame, clip: number | null, format: Format) => __TAURI_INVOKE<boolean>("export", { clips, frame, clip, format }),
+	export: (clips: ExportClip[], frame: ExportFrame, marks: ExportMark[], clip: number | null, format: Format) => __TAURI_INVOKE<boolean>("export", { clips, frame, marks, clip, format }),
 	/**  Exports each clip as its own file, into a folder the user picks. */
-	exportEach: (clips: ExportClip[], frame: ExportFrame, format: Format) => __TAURI_INVOKE<boolean>("export_each", { clips, frame, format }),
+	exportEach: (clips: ExportClip[], frame: ExportFrame, marks: ExportMark[], format: Format) => __TAURI_INVOKE<boolean>("export_each", { clips, frame, marks, format }),
 	/**  The status bar's Cancel: stops the export under way. */
 	cancelExport: () => __TAURI_INVOKE<void>("cancel_export"),
 	/**  Shows a file in Explorer, selected (after an export). */
@@ -280,6 +281,19 @@ export type ExportGrow = {
 	bottom: GrowSide,
 	left: GrowSide,
 	right: GrowSide,
+};
+
+/**  An item of markup, as the page names it for an export. */
+export type ExportMark = {
+	id: number,
+	/**  What it covers of the output frame, in its pixels. */
+	x: number,
+	y: number,
+	width: number,
+	height: number,
+	/**  The timeline frames it shows on, `start` to `end` (exclusive). */
+	start: number,
+	end: number,
 };
 
 /**  Rust → editor: an export is this far along. */
