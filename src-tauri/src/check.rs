@@ -113,6 +113,7 @@ pub fn exported(
         app,
         clips,
         frame,
+        &crate::markup::Markup::default(),
         &file,
         crate::export::Format::Mp4,
         |_| {},

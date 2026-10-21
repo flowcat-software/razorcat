@@ -4,7 +4,7 @@
 import { drawMarks } from "../markup/drawMarks";
 import { playheadFrame } from "../markup/model/store";
 import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
-import type { ClipId, Doc } from "./doc";
+import { clipStarts, type ClipId, type Doc } from "./doc";
 import { useDoc } from "./docStore";
 import { growColour, outputSize, type Side } from "./frame";
 import { checkMarkup } from "./markupCheck";
@@ -12,11 +12,20 @@ import { checkMarkup } from "./markupCheck";
 export type ExportFormat = "mp4" | "gif";
 
 /**
- * The clips as export reads them: their numbers, source frames and whether they're heard (the
- * track's mute mutes them all), in timeline order.
+ * The clips as export reads them, in timeline order: their numbers, source frames, whether
+ * they're heard (the track's mute mutes them all), and where they start on the timeline (which
+ * the markup's frames count on).
  */
-export const exportClips = (doc: Doc) =>
-  doc.clips.map((c) => ({ id: c.id, in: c.in, out: c.out, muted: doc.muted || !!c.muted }));
+export function exportClips(doc: Doc) {
+  const starts = clipStarts(doc);
+  return doc.clips.map((c, i) => ({
+    id: c.id,
+    in: c.in,
+    out: c.out,
+    muted: doc.muted || !!c.muted,
+    start: starts[i],
+  }));
+}
 
 /** The project's frame as export reads it: the crop, and each side's grow in its colour. */
 export function exportFrame(doc: Doc) {

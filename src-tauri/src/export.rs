@@ -5,8 +5,9 @@
 //! filter puts it on the timeline's grid (the same rule the grid and the preview follow,
 //! grid.rs), and `trim` keeps the clip's grid frames. The audio is cut at the same times (all
 //! its tracks mixed, as the waveform shows them). The clips are joined with `concat`, then the
-//! joined picture is cropped and grown (the project's frame, frame.ts). A muted clip's sound is
-//! silenced (`concat` still joins it); with every clip muted, the file has no audio at all.
+//! joined picture is cropped and grown (the project's frame, frame.ts), and the markup is laid
+//! over it, each item (drawn by the page, markup.rs) on the frames it shows on. A muted clip's
+//! sound is silenced (`concat` still joins it); with every clip muted, the file has no audio.
 //!
 //! The encoder is the machine's best that works, found at startup by trying each in turn
 //! (`probe`): NVIDIA's, AMD's, Intel's, Windows' own (Media Foundation), then libx264, which
@@ -40,6 +41,8 @@ pub struct ExportClip {
     pub from: u32,
     pub out: u32,
     pub muted: bool,
+    /// Where it starts on the whole edit's timeline, which the markup's frames count on.
+    pub start: u32,
 }
 
 /// A part of the picture as shown (rotation applied), in its pixels.
@@ -266,6 +269,60 @@ struct Cut {
 /// rounding, and a source frame shown for several grid frames (VFR) is there for `fps`.
 const SEEK_EARLY: f64 = 0.5;
 
+/// An item of markup as ffmpeg lays it over the frame: its pixels' file (raw RGBA), its size and
+/// place, and the export's frames it shows on, as `[from, to)` stretches.
+#[derive(Debug, Clone, PartialEq)]
+struct Overlay {
+    path: PathBuf,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    shows: Vec<(u32, u32)>,
+}
+
+/// The markup over `clips` (in the export's order), with the export's frames each item shows
+/// on: what of its timeline frames the clips cover, wherever they are in the export. Items over
+/// none of them are left out.
+fn overlays(clips: &[ExportClip], markup: &Markup) -> Vec<Overlay> {
+    markup
+        .items
+        .iter()
+        .filter_map(|item| {
+            let m = &item.mark;
+            let shows = shown(clips, m.start, m.end);
+            (!shows.is_empty()).then(|| Overlay {
+                path: item.path.clone(),
+                x: m.x,
+                y: m.y,
+                width: m.width,
+                height: m.height,
+                shows,
+            })
+        })
+        .collect()
+}
+
+/// The export's frames on which timeline frames `start` to `end` show, as `[from, to)`
+/// stretches, joined where they meet.
+fn shown(clips: &[ExportClip], start: u32, end: u32) -> Vec<(u32, u32)> {
+    let mut shows: Vec<(u32, u32)> = Vec::new();
+    let mut at = 0;
+    for c in clips {
+        let length = c.out - c.from;
+        let (a, b) = (start.max(c.start), end.min(c.start + length));
+        if a < b {
+            let (from, to) = (at + a - c.start, at + b - c.start);
+            match shows.last_mut() {
+                Some(last) if last.1 == from => last.1 = to,
+                _ => shows.push((from, to)),
+            }
+        }
+        at += length;
+    }
+    shows
+}
+
 fn cuts(starts: &[f64], clips: &[ExportClip]) -> Vec<Cut> {
     clips
         .iter()
@@ -288,6 +345,7 @@ fn args(
     origin: f64,
     audio_tracks: u32,
     frame: Option<&str>,
+    overlays: &[Overlay],
     encoder: Encoder,
     bitrate: u64,
 ) -> Vec<OsString> {
@@ -299,11 +357,19 @@ fn args(
     };
     // Even dimensions, as 4:2:0 needs (for a source of odd size, with no frame).
     let last = format!(
-        "{}scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,format={}",
-        then(frame),
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,format={}",
         encoder.pixels()
     );
-    let mut a = graph(path, cuts, rate, origin, audio_tracks, &last);
+    let mut a = graph(
+        path,
+        cuts,
+        rate,
+        origin,
+        audio_tracks,
+        frame,
+        overlays,
+        &last,
+    );
     if audio_tracks > 0 {
         a.extend(["-c:a", "aac", "-b:a", "192k"].map(OsString::from));
     }
@@ -324,12 +390,14 @@ fn args(
 
 /// The ffmpeg arguments for a GIF of `cuts`: the picture alone at `gif_fps`, its longer side at
 /// most `size` (0: as it is), as raw frames (YUV4MPEG) on stdout for gifski.
+#[allow(clippy::too_many_arguments)]
 fn gif_args(
     path: &Path,
     cuts: &[Cut],
     rate: Rate,
     origin: f64,
     frame: Option<&str>,
+    overlays: &[Overlay],
     gif_fps: u32,
     size: u32,
 ) -> Vec<OsString> {
@@ -341,28 +409,24 @@ fn gif_args(
             "scale='if(gte(iw,ih),min({size},iw),-2)':'if(gte(iw,ih),-2,min({size},ih))':flags=lanczos"
         )
     };
-    let last = format!(
-        "{}fps={gif_fps},{scale},setsar=1,format=yuv420p",
-        then(frame)
-    );
-    let mut a = graph(path, cuts, rate, origin, 0, &last);
+    let last = format!("fps={gif_fps},{scale},setsar=1,format=yuv420p");
+    let mut a = graph(path, cuts, rate, origin, 0, frame, overlays, &last);
     a.extend(["-f", "yuv4mpegpipe", "-"].map(OsString::from));
     a
 }
 
-/// `filter` and a comma, to go first in a chain; nothing if there's none.
-fn then(filter: Option<&str>) -> String {
-    filter.map(|f| format!("{f},")).unwrap_or_default()
-}
-
-/// The inputs and the graph for `cuts`, mapped: the joined picture through `last` (a filter
-/// chain) as `[vout]`, and the joined sound as `[ac]` if there are `audio_tracks`.
+/// The inputs and the graph for `cuts`, mapped: the joined picture, made into the `frame`
+/// (crop and grow), with the `overlays` laid over it, through `last` (a filter chain) as
+/// `[vout]`; and the joined sound as `[ac]` if there are `audio_tracks`.
+#[allow(clippy::too_many_arguments)]
 fn graph(
     path: &Path,
     cuts: &[Cut],
     rate: Rate,
     origin: f64,
     audio_tracks: u32,
+    frame: Option<&str>,
+    overlays: &[Overlay],
     last: &str,
 ) -> Vec<OsString> {
     let fps = rate.fps();
@@ -370,6 +434,12 @@ fn graph(
     for c in cuts {
         a.extend(["-ss".into(), format!("{:.6}", c.seek).into()]);
         a.extend(["-i".into(), path.as_os_str().to_owned()]);
+    }
+    // Each item's pixels: one picture, raw RGBA.
+    for o in overlays {
+        a.extend(["-f", "rawvideo", "-pix_fmt", "rgba", "-video_size"].map(OsString::from));
+        a.push(format!("{}x{}", o.width, o.height).into());
+        a.extend(["-i".into(), o.path.as_os_str().to_owned()]);
     }
     let mut f: Vec<String> = Vec::new();
     for (i, c) in cuts.iter().enumerate() {
@@ -416,7 +486,31 @@ fn graph(
         u8::from(audio),
         if audio { "[ac]" } else { "" }
     ));
-    f.push(format!("[vc]{last}[vout]"));
+    // The frame, then the markup over it, back to front: in full colour (4:4:4), as the frame is
+    // made, so each item lands on the pixels the preview shows it on. Each item is made YUV
+    // once, not on every frame (spike 0.3), and is on only between its frames (`n` counts the
+    // joined frames from 0).
+    let mut at = "vc".to_string();
+    if let Some(frame) = frame {
+        f.push(format!("[vc]{frame}[vf]"));
+        at = "vf".into();
+    }
+    for (k, o) in overlays.iter().enumerate() {
+        let shows: Vec<String> = o
+            .shows
+            .iter()
+            .map(|(from, to)| format!("between(n,{from},{})", to - 1))
+            .collect();
+        f.push(format!("[{}:v:0]format=yuva444p[m{k}]", n + k));
+        f.push(format!(
+            "[{at}][m{k}]overlay=x={}:y={}:format=yuv444:enable='{}'[o{k}]",
+            o.x,
+            o.y,
+            shows.join("+")
+        ));
+        at = format!("o{k}");
+    }
+    f.push(format!("[{at}]{last}[vout]"));
     a.extend(["-filter_complex".into(), f.join(";").into()]);
     a.extend(["-map", "[vout]"].map(OsString::from));
     if audio {
@@ -556,10 +650,12 @@ fn prepare(
 
 /// Renders `clips` of the open source to `output` as `format`, blocking. `progress` gets 0
 /// to 1.
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     app: &AppHandle,
     clips: &[ExportClip],
     frame: ExportFrame,
+    markup: &Markup,
     output: &Path,
     format: Format,
     progress: impl FnMut(f64),
@@ -567,8 +663,8 @@ pub fn render(
 ) -> Result<Outcome, String> {
     let started = Instant::now();
     let done = match format {
-        Format::Mp4 => render_mp4(app, clips, &frame, output, progress, stop),
-        Format::Gif => render_gif(app, clips, &frame, output, progress, stop),
+        Format::Mp4 => render_mp4(app, clips, &frame, markup, output, progress, stop),
+        Format::Gif => render_gif(app, clips, &frame, markup, output, progress, stop),
     }?;
     if matches!(done, Outcome::Finished) {
         eprintln!(
@@ -585,6 +681,7 @@ fn render_mp4(
     app: &AppHandle,
     clips: &[ExportClip],
     frame: &ExportFrame,
+    markup: &Markup,
     output: &Path,
     mut progress: impl FnMut(f64),
     stop: &AtomicBool,
@@ -592,6 +689,7 @@ fn render_mp4(
     let (input, cuts) = prepare(app, clips, output)?;
     let frames: u64 = clips.iter().map(|c| u64::from(c.out - c.from)).sum();
     let made = frame_filter(frame, input.width, input.height);
+    let marks = overlays(clips, markup);
     let (width, height) = output_size(frame, input.width, input.height);
     let rate = bitrate(width, height, input.rate.fps());
     let mut last = String::new();
@@ -603,6 +701,7 @@ fn render_mp4(
             input.starts[0],
             input.audio_tracks,
             made.as_deref(),
+            &marks,
             encoder,
             rate,
         );
@@ -628,6 +727,7 @@ fn render_gif(
     app: &AppHandle,
     clips: &[ExportClip],
     frame: &ExportFrame,
+    markup: &Markup,
     output: &Path,
     mut progress: impl FnMut(f64),
     stop: &AtomicBool,
@@ -656,6 +756,7 @@ fn render_gif(
             input.rate,
             input.starts[0],
             frame_filter(frame, input.width, input.height).as_deref(),
+            &overlays(clips, markup),
             gif_fps,
             size,
         ))
@@ -779,8 +880,7 @@ fn y4m_size(header: &str) -> Option<(usize, usize)> {
 pub struct Job {
     pub clips: Vec<ExportClip>,
     pub frame: ExportFrame,
-    /// The markup, shared by the jobs of one export (PLAN 4.3a; overlaid from 4.3b).
-    #[expect(dead_code, reason = "overlaid from PLAN 4.3b")]
+    /// The markup, shared by the jobs of one export.
     pub markup: Arc<Markup>,
     pub output: PathBuf,
     pub format: Format,
@@ -818,6 +918,7 @@ pub fn start(app: &AppHandle, jobs: Vec<Job>) -> bool {
                 &app,
                 &job.clips,
                 job.frame.clone(),
+                &job.markup,
                 &job.output,
                 job.format,
                 progress,
@@ -1135,12 +1236,14 @@ mod tests {
                 from: 0,
                 out: 30,
                 muted: false,
+                start: 0,
             },
             ExportClip {
                 id: 2,
                 from: 240,
                 out: 270,
                 muted: false,
+                start: 0,
             },
         ];
         let c = cuts(&starts, &clips);
@@ -1172,6 +1275,7 @@ mod tests {
             0.0,
             1,
             None,
+            &[],
             Encoder::X264,
             6_000_000,
         ));
@@ -1204,6 +1308,7 @@ mod tests {
             0.0,
             2,
             None,
+            &[],
             Encoder::Nvenc,
             6_000_000,
         ));
@@ -1215,6 +1320,7 @@ mod tests {
             0.0,
             0,
             None,
+            &[],
             Encoder::Nvenc,
             6_000_000,
         ));
@@ -1240,6 +1346,7 @@ mod tests {
                 0.0,
                 1,
                 None,
+                &[],
                 Encoder::X264,
                 6_000_000,
             ))
@@ -1271,6 +1378,7 @@ mod tests {
             0.1,
             1,
             None,
+            &[],
             Encoder::X264,
             6_000_000,
         ));
@@ -1338,12 +1446,30 @@ mod tests {
             muted: false,
         }];
         let rate = Rate { num: 30, den: 1 };
-        let a = joined(&gif_args(Path::new("in.mp4"), &c, rate, 0.0, None, 20, 640));
+        let a = joined(&gif_args(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            None,
+            &[],
+            20,
+            640,
+        ));
         assert!(a.contains(
             "[v0]concat=n=1:v=1:a=0[vc];[vc]fps=20,scale='if(gte(iw,ih),min(640,iw),-2)'"
         ));
         assert!(a.ends_with("-map [vout] -f yuv4mpegpipe -"));
-        let whole = joined(&gif_args(Path::new("in.mp4"), &c, rate, 0.0, None, 25, 0));
+        let whole = joined(&gif_args(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            None,
+            &[],
+            25,
+            0,
+        ));
         assert!(whole.contains("fps=25,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos"));
     }
 
@@ -1426,7 +1552,7 @@ mod tests {
     }
 
     #[test]
-    fn the_frame_goes_first_in_the_last_chain() {
+    fn the_frame_is_made_before_the_rest() {
         let c = [Cut {
             seek: 0.0,
             from: 0,
@@ -1441,20 +1567,22 @@ mod tests {
             0.0,
             0,
             Some("format=yuv444p,crop=2:2:0:0:exact=1"),
+            &[],
             Encoder::X264,
             6_000_000,
         ));
-        assert!(a.contains("[vc]format=yuv444p,crop=2:2:0:0:exact=1,scale=trunc(iw/2)*2"));
+        assert!(a.contains("[vc]format=yuv444p,crop=2:2:0:0:exact=1[vf];[vf]scale=trunc(iw/2)*2"));
         let g = joined(&gif_args(
             Path::new("in.mp4"),
             &c,
             rate,
             0.0,
             Some("format=yuv444p"),
+            &[],
             20,
             640,
         ));
-        assert!(g.contains("[vc]format=yuv444p,fps=20,"));
+        assert!(g.contains("[vc]format=yuv444p[vf];[vf]fps=20,"));
     }
 
     #[test]
@@ -1468,5 +1596,102 @@ mod tests {
         );
         assert_eq!(y4m_size("RIFF W480 H270"), None);
         assert_eq!(y4m_size("YUV4MPEG2 W480"), None);
+    }
+
+    fn clip(id: u32, from: u32, out: u32, start: u32) -> ExportClip {
+        ExportClip {
+            id,
+            from,
+            out,
+            muted: false,
+            start,
+        }
+    }
+
+    #[test]
+    fn markup_shows_on_the_export_frames_of_its_timeline_frames() {
+        // Clips at timeline 0-30, 30-50 and 50-100.
+        let all = [
+            clip(1, 0, 30, 0),
+            clip(2, 100, 120, 30),
+            clip(3, 500, 550, 50),
+        ];
+        // The whole timeline: as it is, across cuts in one stretch.
+        assert_eq!(shown(&all, 20, 60), [(20, 60)]);
+        // One clip: cut to it, from its own first frame.
+        assert_eq!(shown(&all[1..2], 20, 60), [(0, 20)]);
+        assert_eq!(shown(&all[2..], 20, 60), [(0, 10)]);
+        // Over none of the clips: nowhere.
+        assert!(shown(&all[..1], 30, 40).is_empty());
+        // Clips not next to each other on the timeline: a stretch over each, joined where they
+        // meet in the export.
+        assert_eq!(shown(&[all[0].clone(), all[2].clone()], 20, 60), [(20, 40)]);
+        let apart = [all[2].clone(), all[0].clone()];
+        assert_eq!(shown(&apart, 20, 60), [(0, 10), (70, 80)]);
+    }
+
+    #[test]
+    fn markup_is_laid_over_the_frame_between_its_frames() {
+        let c = [Cut {
+            seek: 0.0,
+            from: 0,
+            out: 90,
+            muted: false,
+        }];
+        let rate = Rate { num: 30, den: 1 };
+        let mark = |x, shows| Overlay {
+            path: PathBuf::from("m.rgba"),
+            x,
+            y: 4,
+            width: 10,
+            height: 6,
+            shows,
+        };
+        let marks = [mark(2, vec![(5, 10)]), mark(3, vec![(0, 2), (40, 41)])];
+        let a = joined(&args(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            0,
+            Some("format=yuv444p"),
+            &marks,
+            Encoder::X264,
+            6_000_000,
+        ));
+        // After the clip's input, each item's.
+        assert!(a.contains(
+            "-i in.mp4 -f rawvideo -pix_fmt rgba -video_size 10x6 -i m.rgba -f rawvideo"
+        ));
+        assert!(a.contains("[vc]format=yuv444p[vf];[1:v:0]format=yuva444p[m0];"));
+        assert!(a.contains("[vf][m0]overlay=x=2:y=4:format=yuv444:enable='between(n,5,9)'[o0];"));
+        assert!(a.contains(
+            "[o0][m1]overlay=x=3:y=4:format=yuv444:enable='between(n,0,1)+between(n,40,40)'[o1];"
+        ));
+        assert!(a.contains("[o1]scale=trunc(iw/2)*2"));
+        // No frame: straight onto the joined picture.
+        let bare = joined(&args(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            0,
+            None,
+            &marks[..1],
+            Encoder::X264,
+            6_000_000,
+        ));
+        assert!(bare.contains("[vc][m0]overlay="));
+        let g = joined(&gif_args(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            None,
+            &marks,
+            20,
+            640,
+        ));
+        assert!(g.contains("[o1]fps=20,"));
     }
 }

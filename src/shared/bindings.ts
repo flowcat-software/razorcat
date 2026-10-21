@@ -256,6 +256,8 @@ export type ExportClip = {
 	in: number,
 	out: number,
 	muted: boolean,
+	/**  Where it starts on the whole edit's timeline, which the markup's frames count on. */
+	start: number,
 };
 
 /**

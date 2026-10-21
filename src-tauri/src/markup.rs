@@ -19,9 +19,7 @@ use crate::state::AppState;
 pub struct ExportMark {
     pub id: u32,
     /// What it covers of the output frame, in its pixels.
-    #[expect(dead_code, reason = "overlaid from PLAN 4.3b")]
     pub x: u32,
-    #[expect(dead_code, reason = "overlaid from PLAN 4.3b")]
     pub y: u32,
     pub width: u32,
     pub height: u32,
@@ -32,7 +30,6 @@ pub struct ExportMark {
 
 /// An item ready for ffmpeg: its pixels' file, and where and when it goes.
 #[derive(Debug)]
-#[expect(dead_code, reason = "overlaid from PLAN 4.3b")]
 pub struct MarkFile {
     pub path: PathBuf,
     pub mark: ExportMark,
