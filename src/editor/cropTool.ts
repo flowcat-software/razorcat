@@ -33,6 +33,18 @@ function refit(): void {
   if (ratio) doc.crop(cropToRatio(doc.doc.frame.crop, doc.doc.frame.source, ratio));
 }
 
+/**
+ * A held ratio outlives the video it was picked on: picking the crop tool fits a box of another
+ * shape (a new video's whole picture) to it, as picking the ratio does. A box already that shape
+ * is left as it is (within a pixel's rounding).
+ */
+useTool.subscribe((s, before) => {
+  if (s.tool !== "crop" || before.tool === "crop") return;
+  const ratio = lockedRatio();
+  const { crop } = useDoc.getState().doc.frame;
+  if (ratio && Math.abs(crop.width - crop.height * ratio) > Math.max(1, ratio)) refit();
+});
+
 /** Back to the whole picture, any shape. */
 export function resetCrop(): void {
   useTool.getState().setCropRatio("free");
