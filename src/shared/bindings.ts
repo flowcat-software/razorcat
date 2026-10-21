@@ -610,6 +610,11 @@ export type Timeline = {
 	 *  default: the cut is clean).
 	 */
 	fadeSplitMarkup?: boolean,
+	/**
+	 *  The fade Apply Default Fades gives markup, in frames (15 by default; kept to
+	 *  `DEFAULT_FADE_RANGE`).
+	 */
+	defaultMarkupFade?: number,
 };
 
 /**

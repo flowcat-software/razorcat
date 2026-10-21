@@ -14,6 +14,7 @@ import { create } from "zustand";
 import {
   addMark,
   addRange,
+  fadeEnds,
   deleteClip,
   deleteMarks,
   deleteRange,
@@ -63,6 +64,8 @@ export interface RangeOptions {
   splitMarks: boolean;
   /** ...and each part fades at the cut as the whole did at its ends (else the cut is clean). */
   fadeCuts: boolean;
+  /** The fade Apply Default Fades gives markup, in frames. */
+  defaultFade: number;
 }
 
 export interface DocState {
@@ -125,6 +128,10 @@ export interface DocState {
   placeMarks: (
     places: readonly { id: MarkId; start: number; end: number; lane: number }[],
   ) => boolean;
+  /** Markup `ids` given the default fade (Settings) at one end or both: `fadeEnds`. */
+  defaultFades: (ids: readonly MarkId[], ends: "both" | "in" | "out") => boolean;
+  /** Markup `ids`'s fades removed at one end or both. */
+  removeFades: (ids: readonly MarkId[], ends: "both" | "in" | "out") => boolean;
   /** Markup a lane up (-1, forward) or down (1, backward): see `stepLane`. */
   stepMark: (id: MarkId, dir: -1 | 1) => boolean;
   /** Markup `id` fades in over so many frames, or out. */
@@ -223,7 +230,13 @@ export const useDoc = create<DocState>()((set, get) => {
     selectedRange: null,
     selectedMarks: [],
     pendingIn: null,
-    options: { follow: true, deleteWithClip: true, splitMarks: true, fadeCuts: false },
+    options: {
+      follow: true,
+      deleteWithClip: true,
+      splitMarks: true,
+      fadeCuts: false,
+      defaultFade: 15,
+    },
 
     load: (frames, size) =>
       set({
@@ -274,6 +287,9 @@ export const useDoc = create<DocState>()((set, get) => {
     setMark: (id, start, end, lane) => apply((doc) => setMark(doc, id, start, end, lane), [id]),
     setMarkObject: (id, object) => apply((doc) => setMarkObject(doc, id, object)),
     stepMark: (id, dir) => apply((doc) => stepLane(doc, id, dir)),
+    defaultFades: (ids, ends) =>
+      apply((doc) => fadeEnds(doc, ids, get().options.defaultFade, ends)),
+    removeFades: (ids, ends) => apply((doc) => fadeEnds(doc, ids, 0, ends)),
     placeMarks: (places) =>
       apply(
         (doc) => {

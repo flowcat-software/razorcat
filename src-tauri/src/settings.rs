@@ -135,7 +135,13 @@ pub struct Timeline {
     /// Markup split at a cut fades there, each part as the whole did at that end (off by
     /// default: the cut is clean).
     pub fade_split_markup: bool,
+    /// The fade Apply Default Fades gives markup, in frames (15 by default; kept to
+    /// `DEFAULT_FADE_RANGE`).
+    pub default_markup_fade: u32,
 }
+
+/// The default markup fade's range, in frames.
+pub const DEFAULT_FADE_RANGE: std::ops::RangeInclusive<u32> = 1..=300;
 
 impl Default for Timeline {
     fn default() -> Self {
@@ -146,6 +152,7 @@ impl Default for Timeline {
             delete_ranges_with_clip: true,
             split_markup: true,
             fade_split_markup: false,
+            default_markup_fade: 15,
         }
     }
 }
@@ -410,6 +417,10 @@ pub fn validate(mut s: Settings) -> Result<Settings, String> {
         .proxies
         .limit_gb
         .clamp(*PROXY_LIMIT_RANGE.start(), *PROXY_LIMIT_RANGE.end());
+    s.timeline.default_markup_fade = s
+        .timeline
+        .default_markup_fade
+        .clamp(*DEFAULT_FADE_RANGE.start(), *DEFAULT_FADE_RANGE.end());
     s.editing.grow_presets = grow_presets(s.editing.grow_presets)?;
     s.styles = s.styles.normalized();
     if !GIF_RATES.contains(&s.export.gif_fps) {
@@ -654,6 +665,16 @@ mod tests {
         ));
         assert!(changed);
         assert_eq!(s.appearance.accent, "#aabbcc");
+    }
+
+    #[test]
+    fn the_default_fade_is_kept_in_range() {
+        let mut s = Settings::default();
+        assert_eq!(s.timeline.default_markup_fade, 15);
+        s.timeline.default_markup_fade = 0;
+        assert_eq!(validate(s.clone()).unwrap().timeline.default_markup_fade, 1);
+        s.timeline.default_markup_fade = 1000;
+        assert_eq!(validate(s).unwrap().timeline.default_markup_fade, 300);
     }
 
     #[test]

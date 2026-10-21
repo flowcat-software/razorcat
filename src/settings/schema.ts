@@ -51,6 +51,15 @@ export interface AccentItem extends BaseItem {
   path: PathOf<Settings, string>;
 }
 
+/** A whole number typed in, kept to `min`–`max`, with its unit after it. */
+export interface NumberItem extends BaseItem {
+  kind: "number";
+  path: PathOf<Settings, number>;
+  min: number;
+  max: number;
+  unit: string;
+}
+
 /** On or off, as a switch. */
 export interface ToggleItem extends BaseItem {
   kind: "toggle";
@@ -128,6 +137,7 @@ export interface FontPickerItem extends BaseItem {
 }
 
 export type Item =
+  | NumberItem
   | ToggleItem
   | ChoiceItem
   | NumberChoiceItem

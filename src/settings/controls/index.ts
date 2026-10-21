@@ -8,6 +8,7 @@ import { Choice, NumberChoice } from "./Choice";
 import { FolderInput } from "./FolderInput";
 import { FontPickerSetting } from "./FontPickerEditor";
 import { GrowPresetsEditor } from "./GrowPresetsEditor";
+import { NumberInput } from "./NumberInput";
 import { NumberPickerSetting } from "./NumberPickerEditor";
 import { PaletteSetting } from "./PaletteEditor";
 import { ProxyLimit } from "./ProxyLimit";
@@ -37,6 +38,7 @@ export const controls: Registry = {
   toggle: { component: Toggle, layout: "inline" },
   choice: { component: Choice, layout: "inline" },
   numberChoice: { component: NumberChoice, layout: "inline" },
+  number: { component: NumberInput, layout: "inline" },
   text: { component: TextInput, layout: "stacked" },
   accent: { component: AccentPicker, layout: "stacked" },
   folder: { component: FolderInput, layout: "stacked" },

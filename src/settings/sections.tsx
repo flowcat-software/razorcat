@@ -127,6 +127,18 @@ export const sections: Section[] = [
               "When the markup is split, the part before the cut fades out there and the part after fades in, as the whole did at its ends. Off: the cut is clean.",
             keywords: ["markup", "text", "split", "cut", "fade", "clip", "ranges", "timeline"],
           },
+          {
+            id: "defaultMarkupFade",
+            kind: "number",
+            path: "timeline.defaultMarkupFade",
+            label: "Default fade",
+            description:
+              "What Apply Default Fades gives markup (right-click a markup bar on the timeline: on its middle, both ends; on an edge, that end). A short item gets as much as fits.",
+            min: 1,
+            max: 300,
+            unit: "frames",
+            keywords: ["markup", "fade", "default", "in", "out", "length", "frames", "timeline"],
+          },
         ],
       },
     ],

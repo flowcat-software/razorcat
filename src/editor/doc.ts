@@ -731,6 +731,29 @@ export function setMarkFades(
   return { ...doc, marks };
 }
 
+/**
+ * Markup `ids` given a fade of `frames` (the default fade, PLAN 4.5d1; 0 removes it) at their
+ * start (`in`), end (`out`) or both, as much as each one's length allows: both on an item too
+ * short for two, half its length each. The other end's fade is kept when only one is given.
+ */
+export function fadeEnds(
+  doc: Doc,
+  ids: readonly MarkId[],
+  frames: number,
+  ends: "both" | "in" | "out",
+): Doc {
+  return shownMarks(doc)
+    .filter((m) => ids.includes(m.id))
+    .reduce((d, m) => {
+      if (ends === "in") return setMarkFades(d, m.id, { fadeIn: frames });
+      if (ends === "out") return setMarkFades(d, m.id, { fadeOut: frames });
+      const half = Math.floor((m.end - m.start) / 2);
+      const cleared = setMarkFades(d, m.id, { fadeOut: 0 });
+      const faded = setMarkFades(cleared, m.id, { fadeIn: Math.min(frames, half) });
+      return setMarkFades(faded, m.id, { fadeOut: frames });
+    }, doc);
+}
+
 /** Clip `from` was cut at source frame `at`: markup starting past it now belongs to clip `to`. */
 function handMarksOver(marks: readonly Mark[], from: ClipId, to: ClipId, at: number): Mark[] {
   return marks.map((m) => (m.clip === from && m.at >= at ? { ...m, clip: to } : m));

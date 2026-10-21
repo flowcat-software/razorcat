@@ -231,9 +231,38 @@ const laneAt = (L: Lanes, y: number) =>
     : Math.max(-1, Math.min(L.count, Math.floor((y - LANE_TOP + L.scroll) / L.pitch)));
 
 /**
- * What's at (x, y): on the ruler, ranges and the pending in-point; in the lanes, markup; on the
- * clip track, clips.
+ * The default fade (Settings) for the selected markup, and taking fades away, where the
+ * right-click was: on the left edge or fade-in handle, the fade-in; on the right, the fade-out;
+ * elsewhere on the bar, both. Remove is greyed when none of it has a fade there.
  */
+function fadeItems(kind: Hit["kind"]): MenuItems {
+  const ends =
+    kind === "markStart" || kind === "fadeIn"
+      ? "in"
+      : kind === "markEnd" || kind === "fadeOut"
+        ? "out"
+        : "both";
+  const names = { in: "Fade-in", out: "Fade-out", both: "Fades" }[ends];
+  const { doc, selectedMarks } = useDoc.getState();
+  const faded = shownMarks(doc).some((m) => {
+    if (!selectedMarks.includes(m.id)) return false;
+    const f = markFades(doc.marks.find((k) => k.id === m.id) ?? {}, m.end - m.start);
+    return ends === "in" ? f.fadeIn > 0 : ends === "out" ? f.fadeOut > 0 : f.fadeIn + f.fadeOut > 0;
+  });
+  const selected = () => useDoc.getState().selectedMarks;
+  return [
+    {
+      label: `Apply Default ${names}`,
+      run: () => useDoc.getState().defaultFades(selected(), ends),
+    },
+    {
+      label: `Remove ${names}`,
+      disabled: !faded,
+      run: () => useDoc.getState().removeFades(selected(), ends),
+    },
+  ];
+}
+
 /**
  * The selected markup's arrange items, as the preview's menu has them (ObjectMenu.tsx), each
  * greyed when it would move none of it: front and back with nothing it overlaps above or below.
@@ -265,6 +294,10 @@ function arrangeItems(doc: Doc, ids: readonly MarkId[]): MenuItems {
   ];
 }
 
+/**
+ * What's at (x, y): on the ruler, ranges and the pending in-point; in the lanes, markup; on the
+ * clip track, clips.
+ */
 function hitAt(
   doc: Doc,
   pendingIn: number | null,
@@ -1609,6 +1642,8 @@ ${d.group.length} items`,
               x: e.clientX,
               y: e.clientY,
               items: [
+                ...fadeItems(hit.kind),
+                "-",
                 { label: "Duplicate", hint: "Ctrl+D", run: () => void duplicateSelection() },
                 "-",
                 ...arrangeItems(useDoc.getState().doc, useDoc.getState().selectedMarks),

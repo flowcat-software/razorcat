@@ -3,6 +3,7 @@ import type { MarkObject } from "./doc";
 import {
   addMark,
   addRange,
+  fadeEnds,
   deleteClip,
   deleteMark,
   duplicateClip,
@@ -190,6 +191,38 @@ describe("fades", () => {
     return setMarkFades(setMarkFades(doc, 1, { fadeIn: 10 }), 1, { fadeOut: 15 });
   };
   const fadesOf = (doc: Doc) => doc.marks.map((m) => [m.fadeIn ?? 0, m.fadeOut ?? 0]);
+
+  it("take the default at either end or both, as much as the length allows", () => {
+    // 1: 60 frames, faded 10 in and 15 out; 2: 20 frames, unfaded.
+    const doc = addMark(faded(), text("b"), 0, 20, 1);
+    expect(fadesOf(fadeEnds(doc, [1, 2], 15, "in"))).toEqual([
+      [15, 15],
+      [15, 0],
+    ]);
+    expect(fadesOf(fadeEnds(doc, [1, 2], 15, "out"))).toEqual([
+      [10, 15],
+      [0, 15],
+    ]);
+    // Both on 20 frames: half each.
+    expect(fadesOf(fadeEnds(doc, [1, 2], 15, "both"))).toEqual([
+      [15, 15],
+      [10, 10],
+    ]);
+    // 0 removes them.
+    expect(fadesOf(fadeEnds(doc, [1], 0, "in"))).toEqual([
+      [0, 15],
+      [0, 0],
+    ]);
+    expect(fadesOf(fadeEnds(doc, [1], 0, "both"))).toEqual([
+      [0, 0],
+      [0, 0],
+    ]);
+    // Only those asked for.
+    expect(fadesOf(fadeEnds(doc, [2], 5, "both"))).toEqual([
+      [10, 15],
+      [5, 5],
+    ]);
+  });
 
   it("fit its length: the fade-in first, the fade-out in what's left", () => {
     expect(markFades({}, 30)).toEqual({ fadeIn: 0, fadeOut: 0 });

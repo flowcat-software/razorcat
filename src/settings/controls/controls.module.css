@@ -234,6 +234,19 @@
   gap: 12px;
 }
 
+/* A number setting: a short field, its unit after it. */
+.numberRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.numberInput {
+  width: 64px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .sliderValue {
   min-width: 36px;
   color: var(--text-2);
