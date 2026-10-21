@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { annotationId, docStore as markupDoc } from "../markup/model/store";
+import type { Reorder } from "../markup/model/commands";
 import { duplicateSelection } from "../markup/objectActions";
 import type { SourceInfo, ThumbsInfo } from "../shared/ipc";
 import type { Player } from "./player";
@@ -16,6 +18,7 @@ import {
   rangeRoom,
   shownMarks,
   shownRanges,
+  stepLane,
   total,
   type Clip,
   type ClipId,
@@ -213,6 +216,37 @@ const laneAt = (L: Lanes, y: number) =>
  * What's at (x, y): on the ruler, ranges and the pending in-point; in the lanes, markup; on the
  * clip track, clips.
  */
+/**
+ * The selected markup's arrange items, as the preview's menu has them (ObjectMenu.tsx), each
+ * greyed when it would move none of it: front and back with nothing it overlaps above or below.
+ */
+function arrangeItems(doc: Doc, ids: readonly MarkId[]): MenuItems {
+  const shown = shownMarks(doc);
+  const picked = shown.filter((m) => ids.includes(m.id));
+  const past = (m: ShownMark, dir: -1 | 1) =>
+    shown.some(
+      (o) => o.id !== m.id && o.start < m.end && m.start < o.end && (o.lane - m.lane) * dir > 0,
+    );
+  const can: Record<Reorder, boolean> = {
+    front: picked.some((m) => past(m, -1)),
+    forward: picked.some((m) => stepLane(doc, m.id, -1) !== doc),
+    backward: picked.some((m) => stepLane(doc, m.id, 1) !== doc),
+    back: picked.some((m) => past(m, 1)),
+  };
+  const item = (how: Reorder, label: string, hint: string) => ({
+    label,
+    hint,
+    disabled: !can[how],
+    run: () => markupDoc.getState().reorder(ids.map(annotationId), how),
+  });
+  return [
+    item("front", "To Front", "Ctrl+Shift+]"),
+    item("forward", "Forward", "Ctrl+]"),
+    item("backward", "Backward", "Ctrl+["),
+    item("back", "To Back", "Ctrl+Shift+["),
+  ];
+}
+
 function hitAt(
   doc: Doc,
   pendingIn: number | null,
@@ -1439,6 +1473,9 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
               y: e.clientY,
               items: [
                 { label: "Duplicate", hint: "Ctrl+D", run: () => void duplicateSelection() },
+                "-",
+                ...arrangeItems(useDoc.getState().doc, useDoc.getState().selectedMarks),
+                "-",
                 { label: "Delete", hint: "Delete", run: deleteSelected },
               ],
             });
