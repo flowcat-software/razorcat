@@ -881,3 +881,44 @@ export function stackLane(doc: Doc, id: MarkId, how: "front" | "back"): number {
   const lanes = over.map((s) => s.lane);
   return how === "front" ? Math.min(...lanes) - 1 : Math.max(...lanes) + 1;
 }
+
+/**
+ * Markup `id` a lane up (`-1`, forward) or down (`1`, backward). Into that lane if it's free
+ * there; else past what's in it, into the lane beyond if that's free, or a new lane between
+ * them, so it passes exactly one lane's worth of what it overlaps. Never a new lane past the
+ * top or bottom with nothing to pass. Settled (`settleLanes`); the same document if it can't move.
+ */
+export function stepLane(doc: Doc, id: MarkId, dir: -1 | 1): Doc {
+  const shown = shownMarks(doc);
+  const m = shown.find((s) => s.id === id);
+  if (!m) return doc;
+  const count = laneCount(doc);
+  /** A lane there is, with nothing in it overlapping the item. */
+  const free = (lane: number) =>
+    lane >= 0 &&
+    lane < count &&
+    !shown.some((s) => s.id !== id && s.lane === lane && s.start < m.end && m.start < s.end);
+  const next = m.lane + dir;
+  if (next < 0 || next >= count) return doc;
+  const moved = (marks: Mark[]) => settleLanes({ ...doc, marks });
+  const into = (lane: number) => moved(doc.marks.map((k) => (k.id === id ? { ...k, lane } : k)));
+  if (free(next)) return into(next);
+  const beyond = next + dir;
+  if (free(beyond)) return into(beyond);
+  // A lane of its own between `next` and `beyond`: the lanes from the lower of them down make
+  // room, then (from the top) each item goes back up to its own lane if nothing overlapping it is
+  // there now, so only what had to make way stays down, in the order it was.
+  const at = Math.max(next, beyond);
+  const lane = new Map(
+    shown.map((s) => [s.id, s.id === id ? at : s.lane >= at ? s.lane + 1 : s.lane]),
+  );
+  for (const s of shown
+    .filter((s) => s.id !== id && s.lane >= at)
+    .sort((a, b) => a.lane - b.lane)) {
+    const clear = shown.every(
+      (o) => o.id === s.id || lane.get(o.id) !== s.lane || o.end <= s.start || s.end <= o.start,
+    );
+    if (clear) lane.set(s.id, s.lane);
+  }
+  return moved(doc.marks.map((k) => (lane.has(k.id) ? { ...k, lane: lane.get(k.id)! } : k)));
+}

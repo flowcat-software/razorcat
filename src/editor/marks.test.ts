@@ -20,6 +20,7 @@ import {
   setMarkFades,
   settleLanes,
   stackLane,
+  stepLane,
   shownMarks,
   split,
   trimClip,
@@ -308,5 +309,27 @@ describe("lanes", () => {
     expect(stackLane(doc, 3, "front")).toBe(0);
     const front = settleLanes(setMark(doc, 2, 10, 30, stackLane(doc, 2, "front")), [2]);
     expect(lanes(front)).toEqual({ 1: 1, 2: 0, 3: 1 });
+  });
+
+  it("step an item a lane up or down, passing one lane of what it overlaps", () => {
+    // Free there: just moves (1 over the top, 2 under it, 3 elsewhere in time).
+    const doc = with_([0, 20, 0], [10, 30, 0], [50, 60, 1]);
+    expect(lanes(doc)).toEqual({ 1: 0, 2: 1, 3: 1 });
+    expect(lanes(stepLane(doc, 3, -1))).toEqual({ 1: 0, 2: 1, 3: 0 });
+    // Busy there and no lane beyond: a new one between, only what makes way staying down (3
+    // goes back to its lane).
+    expect(lanes(stepLane(doc, 2, -1))).toEqual({ 1: 1, 2: 0, 3: 1 });
+    // Down past 2 to a new bottom lane; the emptied top lane closes up.
+    expect(lanes(stepLane(doc, 1, 1))).toEqual({ 1: 1, 2: 0, 3: 0 });
+    // Nothing to pass at the top or bottom: stays.
+    expect(stepLane(doc, 1, -1)).toBe(doc);
+    expect(stepLane(doc, 2, 1)).toBe(doc);
+  });
+
+  it("step past one lane into a free one beyond", () => {
+    // 3 at the bottom under 2; lane 0 has room at 3's time.
+    const doc = with_([0, 10, 0], [20, 40, 1], [25, 35, 2]);
+    expect(lanes(doc)).toEqual({ 1: 0, 2: 1, 3: 2 });
+    expect(lanes(stepLane(doc, 3, -1))).toEqual({ 1: 0, 2: 1, 3: 0 });
   });
 });

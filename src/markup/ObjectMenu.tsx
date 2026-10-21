@@ -14,11 +14,13 @@ interface Props {
   onClose: () => void;
 }
 
-// Markup's stacking order is its lane (the top lane in front), so there are two places, and no
-// keys: Ctrl+[ / ] move clips in Razorcat.
+// Markup's stacking order is its lane (the top lane in front). The keys are the editor's
+// (EditorApp.tsx: with clips selected, they move clips).
 const ARRANGE: { how: Reorder; label: string; keys?: string }[] = [
-  { how: "front", label: "To Front (Top Lane)" },
-  { how: "back", label: "To Back (Bottom Lane)" },
+  { how: "front", label: "To Front", keys: "Ctrl+Shift+]" },
+  { how: "forward", label: "Forward", keys: "Ctrl+]" },
+  { how: "backward", label: "Backward", keys: "Ctrl+[" },
+  { how: "back", label: "To Back", keys: "Ctrl+Shift+[" },
 ];
 
 /**

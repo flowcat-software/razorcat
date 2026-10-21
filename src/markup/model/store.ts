@@ -262,16 +262,15 @@ export const docStore = createStore<DocState>()(() => ({
     const places = new Map(shownMarks(edit.doc).map((m) => [m.id, m]));
     const own = !edit.gestureStart;
     if (own) edit.beginGesture();
-    for (const id of ids) {
-      const m = places.get(markId(id));
-      if (!m) continue;
+    // The leading item first (the top one forward, the bottom one backward).
+    const up = how === "front" || how === "forward";
+    const moving = ids
+      .flatMap((id) => places.get(markId(id)) ?? [])
+      .sort((a, b) => (up ? a.lane - b.lane : b.lane - a.lane));
+    for (const m of moving) {
       // In front of or behind all it overlaps (a new lane if need be), or a lane up or down.
-      const now = useEdit.getState().doc;
-      const lane =
-        how === "front" || how === "back"
-          ? stackLane(now, m.id, how)
-          : m.lane + (how === "forward" ? -1 : 1);
-      edit.setMark(m.id, m.start, m.end, lane);
+      if (how === "forward" || how === "backward") edit.stepMark(m.id, up ? -1 : 1);
+      else edit.setMark(m.id, m.start, m.end, stackLane(useEdit.getState().doc, m.id, how));
     }
     if (own) edit.endGesture();
   },

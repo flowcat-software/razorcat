@@ -30,6 +30,7 @@ import {
   setGrow,
   setMark,
   setMarkFades,
+  stepLane,
   settleLanes,
   setMarkObject,
   setRange,
@@ -116,6 +117,8 @@ export interface DocState {
   setMark: (id: MarkId, start: number, end: number, lane: number) => boolean;
   /** Markup `id` shows `object` now (moved, resized or restyled on the preview). */
   setMarkObject: (id: MarkId, object: MarkObject) => boolean;
+  /** Markup a lane up (-1, forward) or down (1, backward): see `stepLane`. */
+  stepMark: (id: MarkId, dir: -1 | 1) => boolean;
   /** Markup `id` fades in over so many frames, or out. */
   setMarkFades: (id: MarkId, set: { fadeIn: number } | { fadeOut: number }) => boolean;
   removeMark: (id: MarkId) => boolean;
@@ -262,6 +265,7 @@ export const useDoc = create<DocState>()((set, get) => {
     },
     setMark: (id, start, end, lane) => apply((doc) => setMark(doc, id, start, end, lane), [id]),
     setMarkObject: (id, object) => apply((doc) => setMarkObject(doc, id, object)),
+    stepMark: (id, dir) => apply((doc) => stepLane(doc, id, dir)),
     setMarkFades: (id, set) => apply((doc) => setMarkFades(doc, id, set)),
     removeMark: (id) => apply((doc) => deleteMarks(doc, [id])),
     removeMarks: (ids) => apply((doc) => deleteMarks(doc, ids)),

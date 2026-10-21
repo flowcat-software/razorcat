@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { annotationId, docStore as markupDoc } from "../markup/model/store";
 import { startToolStylesSync } from "../markup/toolStylesSync";
 import { useMarkupKeys } from "../markup/useMarkupKeys";
 import { applyStyleSettings, loadFonts } from "../markup/useStyleSettings";
@@ -355,11 +356,16 @@ export function EditorApp() {
         useDoc.getState().redo();
         return;
       }
-      // Ctrl+[ / ]: the selected clip one place earlier or later; with Shift, to the start or end.
+      // Ctrl+[ / ]: the selected clip one place earlier or later, or the selected markup a lane
+      // back or forward; with Shift, to the start or end, or to the back or front.
       if ((e.code === "BracketLeft" || e.code === "BracketRight") && player) {
         e.preventDefault();
         const earlier = e.code === "BracketLeft";
-        moveSelected(player, e.shiftKey ? (earlier ? "first" : "last") : earlier ? -1 : 1);
+        const { selectedMarks } = useDoc.getState();
+        if (selectedMarks.length) {
+          const how = e.shiftKey ? (earlier ? "back" : "front") : earlier ? "backward" : "forward";
+          markupDoc.getState().reorder(selectedMarks.map(annotationId), how);
+        } else moveSelected(player, e.shiftKey ? (earlier ? "first" : "last") : earlier ? -1 : 1);
         return;
       }
       if (e.shiftKey) return;

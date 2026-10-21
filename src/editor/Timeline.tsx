@@ -52,8 +52,8 @@ const RULER = 42;
 const RANGE_STRIP = 11;
 const LANE_TOP = RULER + 8;
 /**
- * The markup lanes' area: two lanes, or three thin ones; more scroll in it (PLAN 4.5b2), so the
- * clips never move.
+ * The markup lanes' area: two lanes; more scroll in it (PLAN 4.5b2), so the clips never move.
+ * (Thinner lanes to fit three felt tight: Richard, 2026-10-21.)
  */
 const LANES_H = 60;
 const CLIP_TOP = LANE_TOP + LANES_H + 4;
@@ -191,12 +191,11 @@ interface Lanes {
   max: number;
 }
 
-/** The lanes of `doc` scrolled by `scroll` (kept in range): 24 px for two, 16 for more. */
+/** The lanes of `doc` scrolled by `scroll` (kept in range). */
 function lanesOf(doc: Doc, scroll: number): Lanes {
   const count = laneCount(doc);
-  const thin = count > 2;
-  const h = thin ? 16 : 24;
-  const pitch = h + (thin ? 3 : 4);
+  const h = 24;
+  const pitch = h + 4;
   const max = Math.max(0, count * pitch - (pitch - h) - LANES_H);
   return { count, h, pitch, max, scroll: Math.max(0, Math.min(max, scroll)) };
 }
