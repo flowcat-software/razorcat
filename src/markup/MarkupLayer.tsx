@@ -26,7 +26,7 @@ import {
   segmentQuad,
   underlineLayout,
 } from "./callout";
-import { margin } from "./drawMarks";
+import { drawnBox } from "./drawMarks";
 import { layerOf, registerAnnotationGroup } from "./export";
 import {
   annotationBounds,
@@ -309,12 +309,10 @@ export function MarkupLayer({
       if (group.isCached() && (stale || !cache)) group.clearCache();
       if (cache && !group.isCached()) {
         try {
-          // Past its measured box, as the export's drawing: an italic leans out of it.
-          const box = group.getClientRect({ skipTransform: true });
-          group.cache({
-            pixelRatio: scale * window.devicePixelRatio,
-            offset: margin(box.width, box.height),
-          });
+          // Where it draws, as the export's drawing has it (Konva's own measure misses arrows'
+          // and lines', and an italic's lean).
+          const box = drawnBox(a, group.getClientRect({ skipTransform: true }));
+          group.cache({ ...box, pixelRatio: scale * window.devicePixelRatio });
         } catch {
           // Nothing to draw (an empty box): it fades uncached.
         }

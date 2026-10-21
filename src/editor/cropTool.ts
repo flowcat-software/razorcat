@@ -72,10 +72,19 @@ const TOOL_KEYS: Record<string, Tool> = {
   KeyC: "crop",
   KeyG: "grow",
   KeyT: "text",
+  // Vandal's L, R and O play, add a range and end one here (Richard, 2026-10-21).
+  KeyA: "arrow",
+  // Line: / or \ (both look like one; the second \ is a UK or European keyboard's, by Shift).
+  Slash: "line",
+  Backslash: "line",
+  IntlBackslash: "line",
+  KeyB: "rect",
+  KeyE: "ellipse",
 };
 
 /**
- * The picture's tool keys: C picks crop up (or puts it down), G grow, T text, V the select tool.
+ * The picture's tool keys: C picks crop up (or puts it down), G grow, T text, A arrow, / or \
+ * line, B rectangle (box), E ellipse, V the select tool.
  * While cropping, arrows nudge the box (Shift 10 px) and Ctrl+arrows resize it from the
  * bottom-right, as in Vandal, one undo step for as long as the key is held. Enter or Esc put the
  * crop or grow tool down; with a markup tool, Esc first drops the markup selected (Vandal's Esc

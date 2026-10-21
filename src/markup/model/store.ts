@@ -72,7 +72,7 @@ export interface DocState {
 }
 
 /** The annotation id of markup `id`, and back. */
-const annotationId = (id: MarkId): AnnotationId => `m${id}`;
+export const annotationId = (id: MarkId): AnnotationId => `m${id}`;
 const markId = (id: AnnotationId): MarkId => Number(id.slice(1));
 
 let player: Player | null = null;

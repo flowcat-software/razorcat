@@ -19,8 +19,8 @@ interface Props {
   onOpen: () => void;
 }
 
-/** The tools that work on the picture, by the mockup; arrow arrives in Phase 4.5. */
-const TOOLS: { id: Tool | "arrow"; label: string; icon: ReactNode }[] = [
+/** The tools that work on the picture, by the mockup; Vandal's markup tools' icons. */
+const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
   { id: "select", label: "Select (V)", icon: <path d="M5 3l14 8-6 2-3 6z" /> },
   {
     id: "crop",
@@ -44,6 +44,13 @@ const TOOLS: { id: Tool | "arrow"; label: string; icon: ReactNode }[] = [
   },
   { id: "text", label: "Text (T)", icon: <path d="M5 6V4h14v2M12 4v16M9 20h6" /> },
   { id: "arrow", label: "Arrow (A)", icon: <path d="M5 19L19 5M10 5h9v9" /> },
+  { id: "line", label: "Line (/)", icon: <path d="M5 19L19 5" /> },
+  {
+    id: "rect",
+    label: "Rectangle (B)",
+    icon: <rect x="4" y="6" width="16" height="12" rx="1" />,
+  },
+  { id: "ellipse", label: "Ellipse (E)", icon: <ellipse cx="12" cy="12" rx="8.5" ry="6.5" /> },
 ];
 
 /** The editor's top row: the picture's tools on the left, file actions on the right. */
@@ -116,9 +123,9 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen }: Props)
             aria-label={t.label}
             aria-pressed={!empty && t.id === tool}
             title={t.label}
-            disabled={empty || t.id === "arrow"}
+            disabled={empty}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => useTool.getState().setTool(t.id as Tool)}
+            onClick={() => useTool.getState().setTool(t.id)}
           >
             <svg viewBox="0 0 24 24" aria-hidden>
               {t.icon}

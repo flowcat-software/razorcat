@@ -6,11 +6,15 @@ import { docStore as markupDoc } from "../markup/model/store";
 import { useToolStore as useMarkupTools } from "../markup/toolStore";
 import type { DragSpeed } from "../shared/ipc";
 
-/** The picture's tools that work so far (Phase 4.5 adds more of Vandal's markup tools). */
-export type Tool = "select" | "crop" | "grow" | "text";
+/** The picture's tools that work so far (4.5b and c add step, callout and highlighter). */
+export type Tool = "select" | "crop" | "grow" | "text" | "arrow" | "line" | "rect" | "ellipse";
 
 /** The tools that are Vandal's markup tools (the markup layer runs them). */
-export const MARKUP_TOOLS: readonly Tool[] = ["text"];
+export const MARKUP_TOOLS: readonly Tool[] = ["text", "arrow", "line", "rect", "ellipse"];
+
+/** A markup tool, as Vandal's markup code names it. */
+type MarkupTool = "text" | "arrow" | "line" | "rect" | "ellipse";
+const isMarkupTool = (tool: Tool): tool is MarkupTool => MARKUP_TOOLS.includes(tool);
 
 /**
  * The crop's aspect ratios, landscape, as width / height; "free" holds none. Portrait turns
@@ -66,7 +70,7 @@ export const useTool = create<ToolState>()((set) => ({
   // The markup's tool follows: the select tool, or the markup tool picked (which drops the
   // selection, so the options show that tool, as in Vandal).
   setTool: (tool) => {
-    const markup = tool === "text" ? tool : "select";
+    const markup = isMarkupTool(tool) ? tool : "select";
     if (markup !== "select") markupDoc.getState().select([]);
     useMarkupTools.setState({ tool: markup, colorSlot: "first" });
     set({ tool });
