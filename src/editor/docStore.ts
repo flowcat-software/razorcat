@@ -18,6 +18,7 @@ import {
   deleteClip,
   deleteMarks,
   deleteRange,
+  dropMark,
   duplicateClip,
   insertClip,
   keepRanges,
@@ -132,6 +133,8 @@ export interface DocState {
   defaultFades: (ids: readonly MarkId[], ends: "both" | "in" | "out") => boolean;
   /** Markup `ids`'s fades removed at one end or both. */
   removeFades: (ids: readonly MarkId[], ends: "both" | "in" | "out") => boolean;
+  /** Markup dragged to `start`–`end` and dropped on `lane` (`dropMark`: between busy lanes). */
+  dropMark: (id: MarkId, start: number, end: number, lane: number, below: boolean) => boolean;
   /** Markup a lane up (-1, forward) or down (1, backward): see `stepLane`. */
   stepMark: (id: MarkId, dir: -1 | 1) => boolean;
   /** Markup `id` fades in over so many frames, or out. */
@@ -287,6 +290,8 @@ export const useDoc = create<DocState>()((set, get) => {
     setMark: (id, start, end, lane) => apply((doc) => setMark(doc, id, start, end, lane), [id]),
     setMarkObject: (id, object) => apply((doc) => setMarkObject(doc, id, object)),
     stepMark: (id, dir) => apply((doc) => stepLane(doc, id, dir)),
+    dropMark: (id, start, end, lane, below) =>
+      apply((doc) => dropMark(doc, id, start, end, lane, below)),
     defaultFades: (ids, ends) =>
       apply((doc) => fadeEnds(doc, ids, get().options.defaultFade, ends)),
     removeFades: (ids, ends) => apply((doc) => fadeEnds(doc, ids, 0, ends)),

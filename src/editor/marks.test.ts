@@ -6,6 +6,7 @@ import {
   fadeEnds,
   deleteClip,
   deleteMark,
+  dropMark,
   duplicateClip,
   editPoints,
   freeLane,
@@ -378,6 +379,18 @@ describe("lanes", () => {
       { id: 6, start: 70, end: 89, lane: 3 },
     ]);
     expect(lanes(fits)).toEqual({ 1: 0, 2: 1, 3: 2, 4: 3, 5: 2, 6: 3 });
+  });
+
+  it("drop between busy lanes into a new one, above or below as the pointer is", () => {
+    // Three over 0-50 in lanes 0-2; 4 under them over 15-60.
+    const doc = with_([0, 50, 0], [0, 50, 1], [0, 50, 2], [15, 60, 3]);
+    expect(lanes(doc)).toEqual({ 1: 0, 2: 1, 3: 2, 4: 3 });
+    // On lane 1's top half: between 1 and 2; its lower half: between 2 and 3.
+    expect(lanes(dropMark(doc, 4, 15, 60, 1, false))).toEqual({ 1: 0, 2: 2, 3: 3, 4: 1 });
+    expect(lanes(dropMark(doc, 4, 15, 60, 1, true))).toEqual({ 1: 0, 2: 1, 3: 3, 4: 2 });
+    // A free lane, or above them all: straight in.
+    expect(lanes(dropMark(doc, 4, 60, 90, 0, true))).toEqual({ 1: 0, 2: 1, 3: 2, 4: 0 });
+    expect(lanes(dropMark(doc, 4, 15, 60, -1, false))).toEqual({ 1: 1, 2: 2, 3: 3, 4: 0 });
   });
 
   it("step past one lane into a free one beyond", () => {

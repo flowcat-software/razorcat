@@ -948,15 +948,22 @@ export function stepLane(doc: Doc, id: MarkId, dir: -1 | 1): Doc {
     !shown.some((s) => s.id !== id && s.lane === lane && s.start < m.end && m.start < s.end);
   const next = m.lane + dir;
   if (next < 0 || next >= count) return doc;
-  const moved = (marks: Mark[]) => settleLanes({ ...doc, marks });
-  const into = (lane: number) => moved(doc.marks.map((k) => (k.id === id ? { ...k, lane } : k)));
+  const into = (lane: number) =>
+    settleLanes({ ...doc, marks: doc.marks.map((k) => (k.id === id ? { ...k, lane } : k)) });
   if (free(next)) return into(next);
   const beyond = next + dir;
   if (free(beyond)) return into(beyond);
-  // A lane of its own between `next` and `beyond`: the lanes from the lower of them down make
-  // room, then (from the top) each item goes back up to its own lane if nothing overlapping it is
-  // there now, so only what had to make way stays down, in the order it was.
-  const at = Math.max(next, beyond);
+  // A lane of its own between `next` and `beyond`.
+  return insertLane(doc, id, Math.max(next, beyond));
+}
+
+/**
+ * Markup `id` in a lane of its own at `at`, the lanes from there down making room; then (from
+ * the top) each of them goes back up to its own lane if nothing overlapping it is there now, so
+ * only what had to make way stays down, in the order it was. Settled.
+ */
+function insertLane(doc: Doc, id: MarkId, at: number): Doc {
+  const shown = shownMarks(doc);
   const lane = new Map(
     shown.map((s) => [s.id, s.id === id ? at : s.lane >= at ? s.lane + 1 : s.lane]),
   );
@@ -968,5 +975,33 @@ export function stepLane(doc: Doc, id: MarkId, dir: -1 | 1): Doc {
     );
     if (clear) lane.set(s.id, s.lane);
   }
-  return moved(doc.marks.map((k) => (lane.has(k.id) ? { ...k, lane: lane.get(k.id)! } : k)));
+  const marks = doc.marks.map((k) => (lane.has(k.id) ? { ...k, lane: lane.get(k.id)! } : k));
+  return settleLanes({ ...doc, marks });
+}
+
+/**
+ * Markup `id` dragged to `start`–`end` and dropped on `lane`: into it if it's free there (or a
+ * new lane above or below them all, -1 or past the last); on a busy lane, into a new lane just
+ * above it, or just below it with `below` (the pointer in its lower half), as a layer dropped
+ * between layers (Richard, 2026-10-21: a busy lane sent it back down, so it couldn't be put
+ * between). Settled.
+ */
+export function dropMark(
+  doc: Doc,
+  id: MarkId,
+  start: number,
+  end: number,
+  lane: number,
+  below: boolean,
+): Doc {
+  const own = doc.marks.find((m) => m.id === id);
+  if (!own) return doc;
+  const timed = setMark(doc, id, start, end, own.lane);
+  const m = shownMarks(timed).find((s) => s.id === id);
+  if (!m) return doc;
+  const busy = shownMarks(timed).some(
+    (s) => s.id !== id && s.lane === lane && s.start < m.end && m.start < s.end,
+  );
+  if (!busy) return settleLanes(setMark(timed, id, start, end, lane), [id]);
+  return insertLane(timed, id, below ? lane + 1 : lane);
 }

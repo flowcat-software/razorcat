@@ -1326,7 +1326,8 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       }
       guide.current = s.target;
       a = Math.max(0, Math.min(length - len, a));
-      to = { start: a, end: a + len, lane: laneAt(lanes(), y) };
+      const L = lanes();
+      to = { start: a, end: a + len, lane: laneAt(L, y) };
       if (d.group) {
         moveGroup(d, d.group, a - start, y);
         showReadout(
@@ -1346,7 +1347,11 @@ ${d.group.length} items`,
       // The preview shows the frame at the moving edge, the playhead staying put (as a trim).
       player.peek(player.sourceFrame(d.kind === "start" ? to.start : to.end - 1));
     }
-    store.setMark(d.id, to.start, to.end, to.lane);
+    if (d.kind === "move") {
+      // Dropped on a busy lane: a new one above it, or below it from its lower half.
+      const row = (y - LANE_TOP + lanes().scroll) / lanes().pitch;
+      store.dropMark(d.id, to.start, to.end, to.lane, row - Math.floor(row) >= 0.5);
+    } else store.setMark(d.id, to.start, to.end, to.lane);
     showReadout(
       `${fmt(to.start)} → ${fmt(to.end)}\n${fmt(to.end - to.start)}`,
       e.clientX,
