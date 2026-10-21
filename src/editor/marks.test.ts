@@ -10,10 +10,12 @@ import {
   freeLane,
   keepRanges,
   keepRangesInPlace,
+  markFades,
   markLabel,
   moveClip,
   removeRanges,
   setMark,
+  setMarkFades,
   shownMarks,
   split,
   trimClip,
@@ -171,5 +173,70 @@ describe("markup", () => {
     expect(freeLane(doc, 50, 70)).toBe(1);
     expect(freeLane(doc, 60, 80)).toBe(0);
     expect(freeLane(addMark(doc, text(""), 50, 10, 1), 55, 58)).toBe(0);
+  });
+});
+
+describe("fades", () => {
+  // Text over 20-80 of a 100-frame source, fading in over 10 and out over 15.
+  const faded = (): Doc => {
+    const doc = addMark(wholeSource(100), text("Hi"), 20, 60, 0);
+    return setMarkFades(setMarkFades(doc, 1, { fadeIn: 10 }), 1, { fadeOut: 15 });
+  };
+  const fadesOf = (doc: Doc) => doc.marks.map((m) => [m.fadeIn ?? 0, m.fadeOut ?? 0]);
+
+  it("fit its length: the fade-in first, the fade-out in what's left", () => {
+    expect(markFades({}, 30)).toEqual({ fadeIn: 0, fadeOut: 0 });
+    expect(markFades({ fadeIn: 10, fadeOut: 15 }, 60)).toEqual({ fadeIn: 10, fadeOut: 15 });
+    expect(markFades({ fadeIn: 10, fadeOut: 15 }, 20)).toEqual({ fadeIn: 10, fadeOut: 10 });
+    expect(markFades({ fadeIn: 50, fadeOut: 15 }, 20)).toEqual({ fadeIn: 20, fadeOut: 0 });
+  });
+
+  it("are set one at a time, kept to what the other leaves", () => {
+    const doc = faded();
+    expect(fadesOf(doc)).toEqual([[10, 15]]);
+    expect(fadesOf(setMarkFades(doc, 1, { fadeIn: 100 }))).toEqual([[45, 15]]);
+    expect(fadesOf(setMarkFades(doc, 1, { fadeOut: -4 }))).toEqual([[10, 0]]);
+    expect(setMarkFades(doc, 1, { fadeIn: 10 })).toBe(doc);
+    expect(setMarkFades(doc, 9, { fadeIn: 3 })).toBe(doc);
+  });
+
+  it("shorten with a trim and come back when it's pulled back", () => {
+    const doc = faded();
+    const short = setMark(doc, 1, 20, 40, 0);
+    expect(markFades(short.marks[0], 20)).toEqual({ fadeIn: 10, fadeOut: 10 });
+    const back = setMark(short, 1, 20, 80, 0);
+    expect(markFades(back.marks[0], 60)).toEqual({ fadeIn: 10, fadeOut: 15 });
+  });
+
+  it("are cut clean at a split: the start keeps the fade-in, the end the fade-out", () => {
+    expect(fadesOf(split(faded(), 50))).toEqual([
+      [10, 0],
+      [0, 15],
+    ]);
+  });
+
+  it("fade at the cut too when asked, each part as the whole did", () => {
+    expect(fadesOf(split(faded(), 50, true, true))).toEqual([
+      [10, 15],
+      [10, 15],
+    ]);
+    // Cutting a range out the same: the part between dropped.
+    const ranged = addRange(faded(), 40, 60);
+    expect(fadesOf(removeRanges(ranged, true, false))).toEqual([
+      [10, 0],
+      [0, 15],
+    ]);
+    expect(fadesOf(removeRanges(ranged, true, true))).toEqual([
+      [10, 15],
+      [10, 15],
+    ]);
+  });
+
+  it("go with a duplicate", () => {
+    const doc = duplicateClip(faded(), 1);
+    expect(fadesOf(doc)).toEqual([
+      [10, 15],
+      [10, 15],
+    ]);
   });
 });

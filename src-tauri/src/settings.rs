@@ -132,6 +132,9 @@ pub struct Timeline {
     /// Splitting a clip (or cutting ranges out) splits the markup over the cut (on by default);
     /// off, it stays whole, on the clip under its start.
     pub split_markup: bool,
+    /// Markup split at a cut fades there, each part as the whole did at that end (off by
+    /// default: the cut is clean).
+    pub fade_split_markup: bool,
 }
 
 impl Default for Timeline {
@@ -142,6 +145,7 @@ impl Default for Timeline {
             ranges_follow_video: true,
             delete_ranges_with_clip: true,
             split_markup: true,
+            fade_split_markup: false,
         }
     }
 }
@@ -718,6 +722,7 @@ mod tests {
         assert_eq!(v["timeline"]["rangesFollowVideo"], true);
         assert_eq!(v["timeline"]["deleteRangesWithClip"], true);
         assert_eq!(v["timeline"]["splitMarkup"], true);
+        assert_eq!(v["timeline"]["fadeSplitMarkup"], false);
         assert_eq!(v["editing"]["numberDragSpeed"], "normal");
         assert_eq!(v["export"]["gifFps"], 20);
         assert_eq!(v["export"]["gifSize"], 640);

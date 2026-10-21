@@ -118,6 +118,15 @@ export const sections: Section[] = [
               "Each part then goes with its own clip. Removing or keeping ranges cuts it the same way. Off: it stays whole, on the clip under its start.",
             keywords: ["markup", "text", "split", "cut", "clip", "ranges", "timeline"],
           },
+          {
+            id: "fadeSplitMarkup",
+            kind: "toggle",
+            path: "timeline.fadeSplitMarkup",
+            label: "Split markup fades at the cut",
+            description:
+              "When the markup is split, the part before the cut fades out there and the part after fades in, as the whole did at its ends. Off: the cut is clean.",
+            keywords: ["markup", "text", "split", "cut", "fade", "clip", "ranges", "timeline"],
+          },
         ],
       },
     ],

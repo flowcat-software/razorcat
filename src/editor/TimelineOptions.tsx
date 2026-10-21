@@ -1,5 +1,5 @@
 import type { SourceInfo } from "../shared/ipc";
-import { clipLength, MARK_NAMES, shownMarks, shownRanges, total } from "./doc";
+import { clipLength, MARK_NAMES, markFades, shownMarks, shownRanges, total } from "./doc";
 import { useDoc } from "./docStore";
 import { needsHours, timecode } from "./timecode";
 import styles from "./EditorApp.module.css";
@@ -46,7 +46,9 @@ export function TimelineOptions({ source, inFrames }: Props) {
   const range = ranges.find((r) => r.id === selectedRange);
   const marks = shownMarks(doc).filter((m) => selectedMarks.includes(m.id));
   const mark = marks.length === 1 ? marks[0] : null;
-  const object = mark && doc.marks.find((m) => m.id === mark.id)?.object;
+  const kept = mark && doc.marks.find((m) => m.id === mark.id);
+  const object = kept?.object;
+  const fades = mark && markFades(kept ?? {}, mark.end - mark.start);
   return (
     <div className={styles.timelineOptions}>
       {pendingIn !== null ? (
@@ -66,6 +68,9 @@ export function TimelineOptions({ source, inFrames }: Props) {
           <Field label="From" value={fmt(mark.start)} />
           <Field label="to" value={fmt(mark.end)} />
           <Field label="Length" value={fmt(mark.end - mark.start)} />
+          <span className={styles.optionsSep} />
+          <Field label="Fade in" value={fmt(fades?.fadeIn ?? 0)} />
+          <Field label="out" value={fmt(fades?.fadeOut ?? 0)} />
         </>
       ) : range ? (
         <>

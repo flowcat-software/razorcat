@@ -602,6 +602,11 @@ export type Timeline = {
 	 *  off, it stays whole, on the clip under its start.
 	 */
 	splitMarkup?: boolean,
+	/**
+	 *  Markup split at a cut fades there, each part as the whole did at that end (off by
+	 *  default: the cut is clean).
+	 */
+	fadeSplitMarkup?: boolean,
 };
 
 /**

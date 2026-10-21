@@ -18,7 +18,10 @@
 // Markup (Phase 4: text, arrows...) is anchored by its start: a source frame of one clip, and how
 // long it lasts. Its place on the timeline is worked out from that (`markPlace`), so it follows
 // its video as ranges do, with the mockup's rule for trims: video trimmed away under its start
-// slides it along to stay in its clip (back where it was when the trim is pulled back).
+// slides it along to stay in its clip (back where it was when the trim is pulled back). It can
+// fade in and out (linear, over whole frames); the fades are kept as set and fitted to its
+// length where they're used, so a trim that shortens it shortens them, and pulling the trim back
+// gives them back.
 //
 // The frame (crop, and the space grown round it; frame.ts) is one for the whole project.
 
@@ -73,6 +76,18 @@ export interface Mark {
   /** Its lane on the timeline, from the top. The top lane's markup is drawn over the others. */
   lane: number;
   object: MarkObject;
+  /** How many frames it fades in over, from its start, and out over, to its end (none if not set). */
+  fadeIn?: number;
+  fadeOut?: number;
+}
+
+/** A piece of markup's fades, fitted to `length` frames: the fade-in first, the fade-out in what's left. */
+export function markFades(
+  m: { fadeIn?: number; fadeOut?: number },
+  length: number,
+): { fadeIn: number; fadeOut: number } {
+  const fadeIn = Math.max(0, Math.min(length, m.fadeIn ?? 0));
+  return { fadeIn, fadeOut: Math.max(0, Math.min(length - fadeIn, m.fadeOut ?? 0)) };
 }
 
 /** What each kind of markup is called. */
@@ -187,12 +202,13 @@ export function editPoints(doc: Doc): number[] {
 /**
  * Splits the clip under timeline frame `f` there: the second part is a new clip. Nothing to
  * split at a clip's first frame (it's already a cut) or past the end: the same document. With
- * `splitMarks`, markup over the cut is split there too, a part on each side.
+ * `splitMarks`, markup over the cut is split there too, a part on each side: cut clean, or, with
+ * `fadeCuts`, each part fading at the cut as the whole did at its ends.
  */
-export function split(doc: Doc, f: number, splitMarks = true): Doc {
+export function split(doc: Doc, f: number, splitMarks = true, fadeCuts = false): Doc {
   const at = clipAt(doc, f);
   if (!at || f === at.start) return doc;
-  if (splitMarks) doc = cutMarks(doc, f, f);
+  if (splitMarks) doc = cutMarks(doc, f, f, fadeCuts);
   const cut = at.clip.in + (f - at.start);
   const clips = [...doc.clips];
   clips.splice(at.index, 1, { ...at.clip, out: cut }, { ...at.clip, id: doc.nextId, in: cut });
@@ -538,14 +554,16 @@ export function keepRangesInPlace(before: Doc, after: Doc): Doc {
  * Cuts timeline stretches out of the clips (ripple), and clears the ranges. A clip cut in its
  * middle becomes two: the second part a new clip. Nothing left at all: the same document.
  */
-function cutOut(doc: Doc, places: readonly Place[], splitMarks: boolean): Doc {
+function cutOut(doc: Doc, places: readonly Place[], splitMarks: boolean, fadeCuts: boolean): Doc {
   let nextId = doc.nextId;
   let clips: readonly Clip[] = doc.clips;
   let marks = doc.marks;
   let nextMarkId = doc.nextMarkId;
   // From the end, so the earlier places stay where they are.
   for (const { a, b } of [...places].sort((x, y) => y.a - x.a)) {
-    if (splitMarks) ({ marks, nextMarkId } = cutMarks({ ...doc, clips, marks, nextMarkId }, a, b));
+    if (splitMarks) {
+      ({ marks, nextMarkId } = cutMarks({ ...doc, clips, marks, nextMarkId }, a, b, fadeCuts));
+    }
     const starts = clipStarts({ ...doc, clips });
     const out: Clip[] = [];
     clips.forEach((c, i) => {
@@ -573,15 +591,15 @@ function cutOut(doc: Doc, places: readonly Place[], splitMarks: boolean): Doc {
 
 /**
  * Removes the ranges' frames (ripple), and the ranges. Not all of it: the same document. With
- * `splitMarks`, markup over a cut is cut there too.
+ * `splitMarks`, markup over a cut is cut there too (`fadeCuts` as for `split`).
  */
-export function removeRanges(doc: Doc, splitMarks = true): Doc {
+export function removeRanges(doc: Doc, splitMarks = true, fadeCuts = false): Doc {
   const shown = shownRanges(doc);
-  return shown.length ? cutOut(doc, shown, splitMarks) : doc;
+  return shown.length ? cutOut(doc, shown, splitMarks, fadeCuts) : doc;
 }
 
 /** Keeps only the ranges' frames (ripple), and clears the ranges. `splitMarks` as above. */
-export function keepRanges(doc: Doc, splitMarks = true): Doc {
+export function keepRanges(doc: Doc, splitMarks = true, fadeCuts = false): Doc {
   const shown = shownRanges(doc).sort((x, y) => x.a - y.a);
   if (!shown.length) return doc;
   const gaps: Place[] = [];
@@ -591,7 +609,7 @@ export function keepRanges(doc: Doc, splitMarks = true): Doc {
     t = Math.max(t, b);
   }
   if (t < total(doc)) gaps.push({ a: t, b: total(doc) });
-  return gaps.length ? cutOut(doc, gaps, splitMarks) : { ...doc, ranges: [] };
+  return gaps.length ? cutOut(doc, gaps, splitMarks, fadeCuts) : { ...doc, ranges: [] };
 }
 
 // --- markup ---
@@ -638,9 +656,11 @@ function anchorAt(doc: Doc, f: number): { clip: ClipId; at: number } | null {
 /**
  * Markup over the edges of timeline frames `a` to `b` is cut there (a split, when they're the
  * same): its parts outside them kept, each anchored to its video, the part between dropped.
- * Markup wholly between them, or clear of them, is left as it is.
+ * Markup wholly between them, or clear of them, is left as it is. The part with the start keeps
+ * its fade-in, the part with the end its fade-out; at the cut, none, or with `fadeCuts` the
+ * fade the whole had at that end (Richard, 2026-10-08).
  */
-function cutMarks(doc: Doc, a: number, b: number): Doc {
+function cutMarks(doc: Doc, a: number, b: number, fadeCuts = false): Doc {
   let nextMarkId = doc.nextMarkId;
   const marks: Mark[] = [];
   for (const m of doc.marks) {
@@ -655,10 +675,46 @@ function cutMarks(doc: Doc, a: number, b: number): Doc {
     if (place.end > b) parts.push({ a: b, b: place.end });
     parts.forEach((p, i) => {
       const at = anchorAt(doc, p.a);
-      if (at) marks.push({ ...m, ...at, id: i === 0 ? m.id : nextMarkId++, length: p.b - p.a });
+      if (!at) return;
+      const fadeIn = p.a === place.start || fadeCuts ? (m.fadeIn ?? 0) : 0;
+      const fadeOut = p.b === place.end || fadeCuts ? (m.fadeOut ?? 0) : 0;
+      const id = i === 0 ? m.id : nextMarkId++;
+      marks.push({ ...m, ...at, id, length: p.b - p.a, ...fades(fadeIn, fadeOut) });
     });
   }
   return { ...doc, marks, nextMarkId };
+}
+
+/** Fades as a piece of markup keeps them: none left out. */
+function fades(fadeIn: number, fadeOut: number): { fadeIn?: number; fadeOut?: number } {
+  return { fadeIn: fadeIn || undefined, fadeOut: fadeOut || undefined };
+}
+
+/**
+ * Markup `id` fades in over `fadeIn` frames, or out over `fadeOut` (whichever is given), kept to
+ * whole frames and to what its length leaves after the other. The same document if nothing
+ * changes.
+ */
+export function setMarkFades(
+  doc: Doc,
+  id: MarkId,
+  set: { fadeIn: number } | { fadeOut: number },
+): Doc {
+  const index = doc.marks.findIndex((m) => m.id === id);
+  if (index < 0) return doc;
+  const old = doc.marks[index];
+  const place = markPlace(doc, old);
+  const length = place ? place.end - place.start : old.length;
+  const now = markFades(old, length);
+  const fit = (v: number, other: number) => Math.max(0, Math.min(length - other, Math.round(v)));
+  const next =
+    "fadeIn" in set
+      ? { fadeIn: fit(set.fadeIn, now.fadeOut), fadeOut: now.fadeOut }
+      : { fadeIn: now.fadeIn, fadeOut: fit(set.fadeOut, now.fadeIn) };
+  if (next.fadeIn === now.fadeIn && next.fadeOut === now.fadeOut) return doc;
+  const marks = [...doc.marks];
+  marks[index] = { ...old, ...fades(next.fadeIn, next.fadeOut) };
+  return { ...doc, marks };
 }
 
 /** Clip `from` was cut at source frame `at`: markup starting past it now belongs to clip `to`. */

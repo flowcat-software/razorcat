@@ -11,6 +11,7 @@ import {
   clipStarts,
   LANES,
   moveSlot,
+  markFades,
   markLabel,
   rangeRoom,
   shownMarks,
@@ -93,12 +94,13 @@ type Edge = "in" | "out";
 /**
  * What the pointer is on: a clip's edge (trims it) or title bar (moves it); a range's edge
  * (resizes it) or bar (moves it); the empty range strip (draws one); the pending in-point;
- * markup's edge (when it starts or ends) or bar (moves it, along or to another lane).
+ * markup's edge (when it starts or ends), a fade's handle on its top corners, or its bar
+ * (moves it, along or to another lane).
  */
 type Hit =
   | { kind: Edge | "move"; clip: Clip }
   | { kind: "rangeA" | "rangeB" | "rangeMove"; range: ShownRange }
-  | { kind: "markStart" | "markEnd" | "markMove"; mark: ShownMark }
+  | { kind: "markStart" | "markEnd" | "markMove" | "fadeIn" | "fadeOut"; mark: ShownMark }
   | { kind: "rangeNew" | "pendingIn" };
 
 /** What a handle does (the mockup's tooltips). */
@@ -114,6 +116,8 @@ const TIPS: Record<Hit["kind"], [string, string]> = {
   markStart: ["When it starts", "drag"],
   markEnd: ["When it ends", "drag"],
   markMove: ["Move it in time", "drag · up or down: the other lane"],
+  fadeIn: ["Fade in", "drag right for a longer fade"],
+  fadeOut: ["Fade out", "drag left for a longer fade"],
 };
 
 const CURSORS: Record<Hit["kind"], string> = {
@@ -128,7 +132,12 @@ const CURSORS: Record<Hit["kind"], string> = {
   markStart: "ew-resize",
   markEnd: "ew-resize",
   markMove: "grab",
+  fadeIn: "col-resize",
+  fadeOut: "col-resize",
 };
+
+/** How far down a markup bar its fade handles reach (px): below them, its edges trim it. */
+const FADE_HIT = 9;
 
 /** A trim under way: the edge, where the drag started, and the clip as it was. */
 interface Trim {
@@ -160,10 +169,10 @@ interface RangeDrag {
  * started.
  */
 interface MarkDrag {
-  kind: "start" | "end" | "move";
+  kind: "start" | "end" | "move" | "fadeIn" | "fadeOut";
   id: MarkId;
   x0: number;
-  orig: { start: number; end: number; lane: number };
+  orig: { start: number; end: number; lane: number; fadeIn: number; fadeOut: number };
   /** The playhead when the drag started: an edge drag moves it, so it snaps to where it was. */
   playhead: number;
 }
@@ -200,6 +209,17 @@ function hitAt(doc: Doc, pendingIn: number | null, view: View, x: number, y: num
       const x0 = xOf(view, mark.start);
       const x1 = xOf(view, mark.end);
       if (x < x0 - EDGE_HIT || x > x1 + EDGE_HIT) continue;
+      // Its top corners: the fades' handles (the fade-out's first, so a bar all fade-in can
+      // still get a fade-out).
+      if (y <= y0 + FADE_HIT) {
+        const f = markFades(doc.marks.find((k) => k.id === mark.id) ?? {}, mark.end - mark.start);
+        if (Math.abs(x - xOf(view, mark.end - f.fadeOut)) <= EDGE_HIT) {
+          return { kind: "fadeOut", mark };
+        }
+        if (Math.abs(x - xOf(view, mark.start + f.fadeIn)) <= EDGE_HIT) {
+          return { kind: "fadeIn", mark };
+        }
+      }
       // A short bar's edges leave a middle to move it by.
       const reach = Math.min(EDGE_HIT, (x1 - x0) / 3);
       if (Math.abs(x - x0) <= reach || (x < x0 && x >= x0 - EDGE_HIT)) {
@@ -689,11 +709,51 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         g.clip();
         g.fillStyle = c["mark"];
         g.fillRect(x0, y0, x1 - x0, LANE_H);
+        // The fades: a ramp from each corner it fades at (the mockup's).
+        const mark = marks.get(m.id);
+        const f = markFades(mark ?? {}, m.end - m.start);
+        const fx0 = xOf(view, m.start + f.fadeIn);
+        const fx1 = xOf(view, m.end - f.fadeOut);
+        g.fillStyle = "rgb(0 0 0 / 0.28)";
+        if (f.fadeIn) {
+          g.beginPath();
+          g.moveTo(x0, y0);
+          g.lineTo(fx0, y0);
+          g.lineTo(x0, y0 + LANE_H);
+          g.fill();
+        }
+        if (f.fadeOut) {
+          g.beginPath();
+          g.moveTo(x1, y0);
+          g.lineTo(fx1, y0);
+          g.lineTo(x1, y0 + LANE_H);
+          g.fill();
+        }
         g.fillStyle = "#fff";
         g.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
-        const object = marks.get(m.id)?.object;
-        g.fillText(object ? markLabel(object) : "", Math.max(x0, HEADER) + 8, y0 + LANE_H / 2 + 1);
+        g.fillText(
+          mark ? markLabel(mark.object) : "",
+          Math.max(fx0, HEADER) + 8,
+          y0 + LANE_H / 2 + 1,
+        );
         g.restore();
+        // Its fades' handles: triangles on the top corners, while it's selected, hovered or
+        // dragged.
+        const h = hover.current;
+        if (
+          selectedMarks.includes(m.id) ||
+          (h && "mark" in h && h.mark.id === m.id) ||
+          marking.current?.id === m.id
+        ) {
+          g.fillStyle = "#fff";
+          for (const fx of [fx0, fx1]) {
+            g.beginPath();
+            g.moveTo(fx - 5, y0);
+            g.lineTo(fx + 5, y0);
+            g.lineTo(fx, y0 + 7);
+            g.fill();
+          }
+        }
         if (selectedMarks.includes(m.id)) {
           g.strokeStyle = c["accent"];
           g.lineWidth = 2;
@@ -1029,6 +1089,20 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     const on = snapping(e);
     const { start, end, lane } = d.orig;
     const len = end - start;
+    if (d.kind === "fadeIn" || d.kind === "fadeOut") {
+      const df = Math.round((x - d.x0) / view.zoom);
+      if (d.kind === "fadeIn") store.setMarkFades(d.id, { fadeIn: d.orig.fadeIn + df });
+      else store.setMarkFades(d.id, { fadeOut: d.orig.fadeOut - df });
+      const f = markFades(useDoc.getState().doc.marks.find((m) => m.id === d.id) ?? {}, len);
+      const fmt = formatter();
+      showReadout(
+        d.kind === "fadeIn" ? `Fade in ${fmt(f.fadeIn)}` : `Fade out ${fmt(f.fadeOut)}`,
+        e.clientX,
+        e.clientY,
+      );
+      draw.current();
+      return;
+    }
     let to = { start, end, lane };
     if (d.kind === "move") {
       const df = (x - d.x0) / view.zoom;
@@ -1129,12 +1203,23 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           sel.includes(mark.id) ? sel.filter((id) => id !== mark.id) : [...sel, mark.id],
         );
       } else if (!sel.includes(mark.id)) docState.selectMarks([mark.id]);
-      const kind = hit.kind === "markStart" ? "start" : hit.kind === "markEnd" ? "end" : "move";
+      const kind =
+        hit.kind === "markStart"
+          ? "start"
+          : hit.kind === "markEnd"
+            ? "end"
+            : hit.kind === "markMove"
+              ? "move"
+              : hit.kind;
+      const fades = markFades(
+        docState.doc.marks.find((m) => m.id === mark.id) ?? {},
+        mark.end - mark.start,
+      );
       marking.current = {
         kind,
         id: mark.id,
         x0: x,
-        orig: { start: mark.start, end: mark.end, lane: mark.lane },
+        orig: { start: mark.start, end: mark.end, lane: mark.lane, ...fades },
         playhead: player.getState().frame,
       };
       if (kind === "move") e.currentTarget.style.cursor = "grabbing";

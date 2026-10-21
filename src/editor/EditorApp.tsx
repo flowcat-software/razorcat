@@ -46,6 +46,7 @@ const rangeOptions = (s: Settings) =>
     follow: s.timeline.rangesFollowVideo,
     deleteWithClip: s.timeline.deleteRangesWithClip,
     splitMarks: s.timeline.splitMarkup,
+    fadeCuts: s.timeline.fadeSplitMarkup,
   });
 
 /** The settings the editor's stores keep (ranges, number fields, the markup's styles). */

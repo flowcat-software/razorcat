@@ -29,6 +29,7 @@ import {
   setCrop,
   setGrow,
   setMark,
+  setMarkFades,
   setMarkObject,
   setRange,
   shownMarks,
@@ -57,6 +58,8 @@ export interface RangeOptions {
   deleteWithClip: boolean;
   /** Splitting a clip, or cutting ranges out, splits the markup over the cut. */
   splitMarks: boolean;
+  /** ...and each part fades at the cut as the whole did at its ends (else the cut is clean). */
+  fadeCuts: boolean;
 }
 
 export interface DocState {
@@ -112,6 +115,8 @@ export interface DocState {
   setMark: (id: MarkId, start: number, end: number, lane: number) => boolean;
   /** Markup `id` shows `object` now (moved, resized or restyled on the preview). */
   setMarkObject: (id: MarkId, object: MarkObject) => boolean;
+  /** Markup `id` fades in over so many frames, or out. */
+  setMarkFades: (id: MarkId, set: { fadeIn: number } | { fadeOut: number }) => boolean;
   removeMark: (id: MarkId) => boolean;
   removeMarks: (ids: readonly MarkId[]) => boolean;
 
@@ -202,7 +207,7 @@ export const useDoc = create<DocState>()((set, get) => {
     selectedRange: null,
     selectedMarks: [],
     pendingIn: null,
-    options: { follow: true, deleteWithClip: true, splitMarks: true },
+    options: { follow: true, deleteWithClip: true, splitMarks: true, fadeCuts: false },
 
     load: (frames, size) =>
       set({
@@ -216,7 +221,10 @@ export const useDoc = create<DocState>()((set, get) => {
         pendingIn: null,
       }),
 
-    split: (f) => applyClips((doc) => split(doc, f, get().options.splitMarks)),
+    split: (f) => {
+      const { splitMarks, fadeCuts } = get().options;
+      return applyClips((doc) => split(doc, f, splitMarks, fadeCuts));
+    },
     remove: (id) => applyClips((doc) => deleteClip(doc, id, get().options.deleteWithClip)),
     move: (id, to) => applyClips((doc) => moveClip(doc, id, to)),
     trim: (id, inF, outF) => applyClips((doc) => trimClip(doc, id, inF, outF)),
@@ -233,8 +241,14 @@ export const useDoc = create<DocState>()((set, get) => {
     },
     setRange: (id, a, b) => apply((doc) => setRange(doc, id, a, b)),
     removeRange: (id) => apply((doc) => deleteRange(doc, id)),
-    keepRanges: () => apply((doc) => keepRanges(doc, get().options.splitMarks)),
-    removeRanges: () => apply((doc) => removeRanges(doc, get().options.splitMarks)),
+    keepRanges: () => {
+      const { splitMarks, fadeCuts } = get().options;
+      return apply((doc) => keepRanges(doc, splitMarks, fadeCuts));
+    },
+    removeRanges: () => {
+      const { splitMarks, fadeCuts } = get().options;
+      return apply((doc) => removeRanges(doc, splitMarks, fadeCuts));
+    },
     setPendingIn: (f) => set({ pendingIn: f }),
 
     addMark: (object, start, length, lane) => {
@@ -243,6 +257,7 @@ export const useDoc = create<DocState>()((set, get) => {
     },
     setMark: (id, start, end, lane) => apply((doc) => setMark(doc, id, start, end, lane)),
     setMarkObject: (id, object) => apply((doc) => setMarkObject(doc, id, object)),
+    setMarkFades: (id, set) => apply((doc) => setMarkFades(doc, id, set)),
     removeMark: (id) => apply((doc) => deleteMarks(doc, [id])),
     removeMarks: (ids) => apply((doc) => deleteMarks(doc, ids)),
     crop: (crop) => apply((doc) => setCrop(doc, crop)),
