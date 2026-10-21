@@ -30,7 +30,9 @@ interface Props {
 }
 
 /**
- * A popup menu (the mockup's): a press outside it, Escape, or picking an item closes it.
+ * A popup menu (the mockup's): a press outside it, a key, or picking an item closes it. Escape
+ * only closes it; any other key (not a modifier alone) also does what it does (Delete deletes
+ * what the menu was for), as Windows' menus do.
  */
 export function Menu({ items, x, y, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null);
@@ -46,8 +48,8 @@ export function Menu({ items, x, y, onClose }: Props) {
       if (!ref.current?.contains(e.target as Node)) onClose();
     };
     const key = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
+      if (["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
+      if (e.key === "Escape") e.stopPropagation();
       onClose();
     };
     // Capture: before the press does anything else (the timeline would scrub).

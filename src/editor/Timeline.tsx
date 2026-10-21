@@ -1315,10 +1315,14 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
           canvas.title = speaker
             ? `${doc.muted ? "Unmute the sound" : "Mute all the sound"} (Shift+M)`
             : "";
-          hoverTip(hit?.kind ?? null, e.clientX, e.clientY);
+          // None while a menu is open (its tooltip would read as part of it).
+          if (menu) hideTip();
+          else hoverTip(hit?.kind ?? null, e.clientX, e.clientY);
         }}
         onContextMenu={(e) => {
           e.preventDefault();
+          // A handle's tooltip under the menu reads as part of it.
+          hideTip();
           const r = e.currentTarget.getBoundingClientRect();
           const x = e.clientX - r.left;
           const y = e.clientY - r.top;
@@ -1333,6 +1337,23 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
               items: [
                 { label: "Duplicate", hint: "Ctrl+D", run: () => void duplicateSelection() },
                 { label: "Delete", hint: "Delete", run: deleteSelected },
+              ],
+            });
+            return;
+          }
+          // A range, anywhere it can be grabbed (its bar or an edge): selected, and its menu.
+          if (hit && "range" in hit) {
+            const { id } = hit.range;
+            docState.selectRange(id);
+            setMenu({
+              x: e.clientX,
+              y: e.clientY,
+              items: [
+                {
+                  label: "Delete range",
+                  hint: "Delete",
+                  run: () => useDoc.getState().removeRange(id),
+                },
               ],
             });
             return;
