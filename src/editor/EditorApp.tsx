@@ -498,7 +498,7 @@ export function EditorApp() {
         inFrames={inFrames}
         onToggleFrames={() => setInFrames((f) => !f)}
       />
-      <TimelineOptions source={source} inFrames={inFrames} />
+      <TimelineOptions source={source} inFrames={inFrames} player={player} />
       <div className={styles.timeline}>
         {source && player && (
           <Timeline

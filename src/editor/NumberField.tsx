@@ -16,7 +16,21 @@ interface Props {
   onChange: (value: number) => number;
   /** Shown after it (px). */
   unit?: string;
+  /** How it shows the value, and reads what's typed (null: not a value); else a whole number. */
+  format?: (value: number) => string;
+  parse?: (text: string) => number | null;
+  /** What Shift multiplies a drag by, and what to call it in the tooltip (else ×10). */
+  shift?: { by: number; label: string };
+  /** Its width, in px (else 56). */
+  width?: number;
+  /** How fast a drag changes it, against the usual (0.5: half as fast). */
+  gain?: number;
 }
+
+const readNumber = (text: string) => {
+  const n = Number(text);
+  return text.trim() !== "" && Number.isFinite(n) ? n : null;
+};
 
 /**
  * A number in the options bar, as Resolve's: a click types; press and drag left or right
@@ -29,7 +43,18 @@ interface Props {
 /** Px the hidden cursor may stray from where the drag began before it's moved back. */
 const RETURN_AFTER = 200;
 
-export function NumberField({ label, name, value, onChange, unit }: Props) {
+export function NumberField({
+  label,
+  name,
+  value,
+  onChange,
+  unit,
+  format = String,
+  parse = readNumber,
+  shift = { by: 10, label: "10× faster" },
+  width,
+  gain = 1,
+}: Props) {
   /** What's typed, until Enter or leaving the field sets it (Esc drops it). */
   const [typed, setTyped] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -38,13 +63,13 @@ export function NumberField({ label, name, value, onChange, unit }: Props) {
   const dropTyped = useRef(false);
 
   const commit = () => {
-    const n = Number(typed);
     if (dropTyped.current) {
       dropTyped.current = false;
       setTyped(null);
       return;
     }
-    if (typed !== null && typed.trim() !== "" && Number.isFinite(n)) onChange(Math.round(n));
+    const n = typed === null ? null : parse(typed);
+    if (n !== null) onChange(Math.round(n));
     setTyped(null);
   };
 
@@ -99,7 +124,7 @@ export function NumberField({ label, name, value, onChange, unit }: Props) {
       const exact =
         current +
         carry +
-        dx * dragGain(speed, useTool.getState().dragSpeed) * (m.shiftKey ? 10 : 1);
+        dx * gain * dragGain(speed, useTool.getState().dragSpeed) * (m.shiftKey ? shift.by : 1);
       const want = Math.round(exact);
       if (want === current) {
         carry = exact - current;
@@ -135,10 +160,11 @@ export function NumberField({ label, name, value, onChange, unit }: Props) {
         data-dragging={dragging || undefined}
         inputMode="numeric"
         aria-label={name ?? label}
-        title="Drag left or right to change (Shift: 10× faster) · click to type"
-        value={typed ?? String(value)}
+        title={`Drag left or right to change (Shift: ${shift.label}) · click to type`}
+        style={width ? { width } : undefined}
+        value={typed ?? format(value)}
         onPointerDown={onPointerDown}
-        onChange={(e) => setTyped(e.target.value.replace(/[^\d-]/g, ""))}
+        onChange={(e) => setTyped(e.target.value.replace(/[^\d:.-]/g, ""))}
         onBlur={commit}
         onKeyDown={(e) => {
           // Its own keys: the editor's (arrows, Enter, Esc) wait.

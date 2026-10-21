@@ -18,3 +18,18 @@ export function timecode(n: number, num: number, den: number, hours = false): st
 export function needsHours(frames: number, num: number, den: number): boolean {
   return (frames * den) / num >= 3600;
 }
+
+/**
+ * The frame typed as `text` on a timeline at `num/den` fps: timecode as the readout shows it
+ * (`mm:ss.ff`, `h:mm:ss.ff`, or whole seconds `mm:ss`), or a plain frame number. Null if it's
+ * neither. A frame number past its second (`00:01.45` at 30 fps) counts on into the next.
+ */
+export function parseTimecode(text: string, num: number, den: number): number | null {
+  const t = text.trim();
+  if (/^\d+$/.test(t)) return Number(t);
+  const m = /^(?:(\d+):)?(\d+):(\d+)(?:\.(\d+))?$/.exec(t);
+  if (!m) return null;
+  const [, h, mm, ss, ff] = m;
+  const seconds = Number(h ?? 0) * 3600 + Number(mm) * 60 + Number(ss);
+  return Math.ceil((seconds * num) / den) + Number(ff ?? 0);
+}

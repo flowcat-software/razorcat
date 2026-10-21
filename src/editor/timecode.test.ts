@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { needsHours, timecode } from "./timecode";
+import { needsHours, parseTimecode, timecode } from "./timecode";
 
 describe("timecode", () => {
   it("counts frames within the second at a whole rate", () => {
@@ -28,5 +28,33 @@ describe("needsHours", () => {
   it("is from an hour", () => {
     expect(needsHours(3600 * 30 - 1, 30, 1)).toBe(false);
     expect(needsHours(3600 * 30, 30, 1)).toBe(true);
+  });
+});
+
+describe("parseTimecode", () => {
+  it("reads back every frame the readout shows, at 30 and 29.97", () => {
+    for (const [num, den] of [
+      [30, 1],
+      [30000, 1001],
+      [24, 1],
+    ]) {
+      for (let n = 0; n < 4000; n += 7) {
+        expect(parseTimecode(timecode(n, num, den), num, den)).toBe(n);
+        expect(parseTimecode(timecode(n, num, den, true), num, den)).toBe(n);
+      }
+    }
+  });
+
+  it("takes frame numbers, whole seconds, and frames past the second", () => {
+    expect(parseTimecode("45", 30, 1)).toBe(45);
+    expect(parseTimecode(" 01:05 ", 30, 1)).toBe(65 * 30);
+    expect(parseTimecode("00:01.45", 30, 1)).toBe(75);
+    expect(parseTimecode("1:00:00.00", 30, 1)).toBe(108000);
+  });
+
+  it("refuses anything else", () => {
+    for (const bad of ["", "abc", "1:2:3:4", "01.15", "-3", "00:01.", ":05"]) {
+      expect(parseTimecode(bad, 30, 1)).toBeNull();
+    }
   });
 });
