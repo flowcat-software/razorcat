@@ -3,7 +3,7 @@
 // active tool's next object. Restyling objects is one undo step and also
 // becomes the tools' current style.
 
-import { docStore } from "./model/store";
+import { docStore, stepsDoc } from "./model/store";
 import type {
   Annotation,
   AnnotationId,
@@ -133,7 +133,7 @@ export function targetValues(target: StyleTarget, doc: Doc): TargetValues {
       callout: { textColor: c.textColor, end: c.end, shape: c.shape },
     };
   }
-  return { ...styleValues(target, a, doc), corner: cornerValue(target, doc), callout: null };
+  return { ...styleValues(target, a), corner: cornerValue(target, doc), callout: null };
 }
 
 /** The corner radius on show, or null where corners don't apply (ellipses, round spotlights). */
@@ -153,7 +153,6 @@ function cornerValue(target: StyleTarget, doc: Doc): number | null {
 function styleValues(
   target: StyleTarget,
   a: Exclude<Annotation, { kind: "callout" }> | undefined,
-  doc: Doc,
 ): Omit<TargetValues, "corner" | "callout"> {
   const tools = useToolStore.getState();
   if (!a) {
@@ -180,7 +179,7 @@ function styleValues(
           : null,
       redact: t === "redact" ? toolRedact() : null,
       spotlight: t === "spotlight" ? toolSpotlight() : null,
-      step: t === "step" ? { ...toolStepStyle(), ...stepNumbering(doc) } : null,
+      step: t === "step" ? { ...toolStepStyle(), ...stepNumbering(stepsDoc()) } : null,
     };
   }
   if (a.kind === "step") {
@@ -581,7 +580,7 @@ export function applyStyle(patch: StylePatch, target = styleTarget()): void {
   // start by every step marker, selected or not.
   const shared = [
     ...(patch.dim === undefined ? [] : store.doc.annotations.filter((a) => a.kind === "spotlight")),
-    ...(patch.stepFormat === undefined && patch.stepStart === undefined ? [] : stepsOf(store.doc)),
+    ...(patch.stepFormat === undefined && patch.stepStart === undefined ? [] : stepsOf(stepsDoc())),
   ];
   const ids = [...new Set([...target.ids, ...shared.map((a) => a.id)])];
   if (!ids.length) return;
@@ -647,7 +646,7 @@ export function resetStepStyles(style: StepStyle): void {
     stepFont: style.fontFamily,
   });
   const store = docStore.getState();
-  const steps = stepsOf(store.doc);
+  const steps = stepsOf(stepsDoc());
   if (!steps.length) return;
   store.beginGesture();
   for (const s of steps) {

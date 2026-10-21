@@ -40,7 +40,7 @@ import {
   textPx,
   translateAnnotation,
 } from "./geometry";
-import { docStore, useDoc } from "./model/store";
+import { docStore, stepsDoc, useDoc } from "./model/store";
 import type {
   Annotation,
   AnnotationId,
@@ -60,7 +60,7 @@ import type {
 } from "./model/types";
 import { editStepLabel } from "./stepEditing";
 import { StepLabelEditor } from "./StepLabelEditor";
-import { nextStepSeq, stepLabels } from "./steps";
+import { nextStepSeq } from "./steps";
 import {
   DEFAULT_TEXT_BACKGROUND,
   drawnCornerRadius,
@@ -614,9 +614,9 @@ export function MarkupLayer({
         kind: "step",
         x: p.x,
         y: p.y,
-        seq: nextStepSeq(store.doc),
+        seq: nextStepSeq(stepsDoc()),
         ...toolStepStyle(),
-        ...stepNumbering(store.doc),
+        ...stepNumbering(stepsDoc()),
       });
       drag = { mode: "place", id };
     } else {
@@ -1059,7 +1059,7 @@ export function MarkupLayer({
   const spotlights = doc.annotations.filter(
     (a): a is SpotlightAnnotation => a.kind === "spotlight",
   );
-  const labels = stepLabels(doc);
+  const labels = useDoc((s) => s.labels);
   const editedStep = doc.annotations.find(
     (a): a is StepAnnotation => a.kind === "step" && a.id === labelEditing,
   );
@@ -1117,7 +1117,7 @@ export function MarkupLayer({
                     a={a}
                     hitSlop={HIT_SLOP / scale}
                     hidden={a.id === editing?.id || a.id === labelEditing}
-                    label={labels.get(a.id)}
+                    label={labels[a.id]}
                   />
                 </Group>
               ))}
@@ -1341,7 +1341,7 @@ export function MarkupLayer({
         <StepLabelEditor
           key={editedStep.id}
           a={editedStep}
-          label={labels.get(editedStep.id) ?? ""}
+          label={labels[editedStep.id] ?? ""}
           scale={scale}
           offset={offset}
         />

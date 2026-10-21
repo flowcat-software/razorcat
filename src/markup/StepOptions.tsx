@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { hint } from "./HintLine";
 import type { ControlHint } from "./hints";
 import { boxOf, useMenuPlacement } from "./menuPlacement";
-import { useDoc } from "./model/store";
+import { stepsDoc, useDoc } from "./model/store";
 import type { StepFormat, StepShape } from "./model/types";
 import { NumberPickerControl } from "./NumberPickerControl";
 import { MARKER_SIZE_ICON } from "./pickerIcons";
@@ -167,7 +167,7 @@ function StartField({ format, start }: { format: StepFormat; start: number }) {
  */
 function ResetStyles({ style }: { style: StepStyle }) {
   const doc = useDoc((s) => s.doc);
-  const effect = stepResetEffect(doc, style);
+  const effect = stepResetEffect(stepsDoc(), style);
   return (
     <ConfirmButton
       label="Sync style"
@@ -185,7 +185,9 @@ function ResetStyles({ style }: { style: StepStyle }) {
 
 /** Drops every typed label so all markers count up again; always asks first. */
 function ResetNumbering() {
-  const count = useDoc((s) => customLabelCount(s.doc));
+  // Every marker on the timeline (the labels change with any of them).
+  useDoc((s) => s.labels);
+  const count = customLabelCount(stepsDoc());
   return (
     <ConfirmButton
       label="Renumber"

@@ -51,6 +51,28 @@ const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
     icon: <rect x="4" y="6" width="16" height="12" rx="1" />,
   },
   { id: "ellipse", label: "Ellipse (E)", icon: <ellipse cx="12" cy="12" rx="8.5" ry="6.5" /> },
+  {
+    id: "step",
+    label: "Step (N)",
+    icon: (
+      <>
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="M10.3 9.4L12.6 7.8v8.4" />
+      </>
+    ),
+  },
+  {
+    id: "callout",
+    label: "Callout (Q)",
+    // A box of text with a pointer down to the left.
+    icon: (
+      <>
+        <rect x="9" y="3.5" width="12" height="9" rx="2" />
+        <path d="M12 8h6M12.5 12.5L4 20.5" />
+        <circle cx="4" cy="20.5" r="0.6" />
+      </>
+    ),
+  },
 ];
 
 /** The editor's top row: the picture's tools on the left, file actions on the right. */

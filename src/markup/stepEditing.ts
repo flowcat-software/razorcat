@@ -2,9 +2,9 @@
 // label is typed into a field over the marker (StepLabelEditor) and goes into
 // the document once, as one undo step, when typing ends.
 
-import { docStore } from "./model/store";
+import { docStore, stepsDoc } from "./model/store";
 import type { AnnotationId } from "./model/types";
-import { stepLabels, stepsOf, withTypedLabel } from "./steps";
+import { stepsOf, withTypedLabel } from "./steps";
 import { finishTextEdit } from "./textEditing";
 import { useToolStore } from "./toolStore";
 
@@ -24,14 +24,14 @@ export function finishStepLabel(typed: string | null): void {
   useToolStore.setState({ labelEditing: null });
   if (typed === null) return;
   const store = docStore.getState();
-  const shown = stepLabels(store.doc).get(id) ?? "";
+  const shown = store.labels[id] ?? "";
   store.update(id, (a) => (a.kind === "step" ? withTypedLabel(a, typed, shown) : a));
 }
 
 /** Every marker counts up again: typed labels are dropped, as one undo step. */
 export function resetStepNumbering(): void {
   const store = docStore.getState();
-  const typed = stepsOf(store.doc).filter((s) => s.label !== undefined);
+  const typed = stepsOf(stepsDoc()).filter((s) => s.label !== undefined);
   if (!typed.length) return;
   store.beginGesture();
   for (const s of typed) {

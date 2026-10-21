@@ -7,7 +7,9 @@
 // - stacking order is the lanes: the top lane's markup is in front;
 // - gestures, undo and redo are the edit's, so a drag on the preview is one undo step there;
 // - the selection is the edit's selected markup (what of it is showing);
-// - each showing item's opacity at the playhead, as its fades make it (`opacity`).
+// - each showing item's opacity at the playhead, as its fades make it (`opacity`);
+// - step markers count up by their start times on the timeline, all of them, not only those
+//   showing (`labels`; Richard, 2026-10-21), where Vandal counts in creation order.
 
 import { createStore, useStore } from "zustand";
 import {
@@ -19,7 +21,9 @@ import {
   type MarkId,
   type MarkObject,
 } from "../../editor/doc";
+import type { Doc as EditDoc } from "../../editor/doc";
 import { useDoc as useEdit } from "../../editor/docStore";
+import { stepLabel } from "../steps";
 import { outputSize } from "../../editor/frame";
 import type { Player } from "../../editor/player";
 import { useToolStore } from "../toolStore";
@@ -30,6 +34,7 @@ import {
   type AnnotationId,
   type Doc,
   type NewAnnotation,
+  type StepAnnotation,
 } from "./types";
 
 /** How long new markup lasts, in seconds. */
@@ -46,6 +51,8 @@ export interface DocState {
   gestureStart: Doc | null;
   /** How opaque each showing item is at the playhead, if it's fading (the rest are opaque). */
   opacity: Readonly<Record<AnnotationId, number>>;
+  /** Every step marker's label (`timelineStepLabels`). */
+  labels: Readonly<Record<AnnotationId, string>>;
 
   /**
    * A fresh edit holding just `doc`'s annotations, from the start, as long as an edit with
@@ -97,7 +104,49 @@ export function annotationOf(id: MarkId, object: MarkObject): Annotation {
 }
 
 /** The view of the edit now: the markup at the playhead (and any being typed into). */
-function view(): Pick<DocState, "doc" | "selection" | "gestureStart" | "opacity"> {
+/**
+ * Every step marker's label in edit `doc`: its own if one was typed, else counting up by where
+ * they start on the timeline, then in the order they were made (not by lane: a new one goes in
+ * whichever lane is free), skipping those with their own. The count's
+ * format and first label are the first marker made's (Vandal's: shared). Hidden markers (their
+ * clip deleted) count last.
+ */
+export function timelineStepLabels(doc: EditDoc): Record<AnnotationId, string> {
+  const places = new Map(shownMarks(doc).map((m) => [m.id, m]));
+  const steps = doc.marks.filter((m) => m.object.kind === "step");
+  const labels: Record<AnnotationId, string> = {};
+  if (!steps.length) return labels;
+  const first = steps[0].object as StepAnnotation;
+  const start = (id: MarkId) => places.get(id)?.start ?? Infinity;
+  const made = (m: (typeof steps)[number]) => (m.object as StepAnnotation).seq;
+  const order = [...steps].sort(
+    (a, b) => start(a.id) - start(b.id) || made(a) - made(b) || a.id - b.id,
+  );
+  let n = first.start;
+  for (const m of order) {
+    const own = (m.object as StepAnnotation).label;
+    labels[annotationId(m.id)] = own ?? stepLabel(n++, first.format);
+  }
+  return labels;
+}
+
+/**
+ * Every step marker in the edit, as one of Vandal's documents. Vandal's step actions (the
+ * shared format and first label, the next marker's, syncing their style, resetting typed
+ * labels) look at the markers in the document they're given: given this, they reach every
+ * marker on the timeline, not only those showing at the playhead.
+ */
+export function stepsDoc(): Doc {
+  const edit = useEdit.getState().doc;
+  return {
+    ...docStore.getState().doc,
+    annotations: edit.marks
+      .filter((m) => m.object.kind === "step")
+      .map((m) => annotationOf(m.id, m.object)),
+  };
+}
+
+function view(): Pick<DocState, "doc" | "selection" | "gestureStart" | "opacity" | "labels"> {
   const edit = useEdit.getState();
   const frame = player?.getState().frame ?? 0;
   const editing = useToolStore.getState().editing;
@@ -125,6 +174,7 @@ function view(): Pick<DocState, "doc" | "selection" | "gestureStart" | "opacity"
   }
   return {
     opacity,
+    labels: timelineStepLabels(edit.doc),
     doc,
     selection: edit.selectedMarks.filter((id) => showing.has(id)).map(annotationId),
     gestureStart: edit.gestureStart ? doc : null,
@@ -146,8 +196,13 @@ function refresh() {
   const sameOpacity =
     Object.keys(next.opacity).length === Object.keys(s.opacity).length &&
     Object.entries(next.opacity).every(([id, a]) => s.opacity[id] === a);
-  if (same && sameSelection && sameOpacity && !next.gestureStart === !s.gestureStart) return;
+  const sameLabels =
+    Object.keys(next.labels).length === Object.keys(s.labels).length &&
+    Object.entries(next.labels).every(([id, l]) => s.labels[id] === l);
+  if (same && sameSelection && sameOpacity && sameLabels && !next.gestureStart === !s.gestureStart)
+    return;
   docStore.setState({
+    labels: sameLabels ? s.labels : next.labels,
     opacity: sameOpacity ? s.opacity : next.opacity,
     doc: same ? s.doc : next.doc,
     selection: sameSelection ? s.selection : next.selection,
@@ -165,6 +220,7 @@ export const docStore = createStore<DocState>()(() => ({
   selection: [],
   gestureStart: null,
   opacity: {},
+  labels: {},
 
   load: (doc) => {
     const edit = useEdit.getState();

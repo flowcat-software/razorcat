@@ -2,7 +2,7 @@
 // and the objects' right-click menu.
 
 import { translateAnnotation } from "./geometry";
-import { docStore, selectedAnnotations } from "./model/store";
+import { docStore, selectedAnnotations, stepsDoc } from "./model/store";
 import type { Annotation, AnnotationId, Doc, NewAnnotation, StepAnnotation } from "./model/types";
 import { nextStepSeq, stepsOf } from "./steps";
 import { stepNumbering } from "./styles";
@@ -30,8 +30,10 @@ export function duplicateSelection(): boolean {
 export function addCopies(annotations: readonly Annotation[]): AnnotationId[] {
   const store = docStore.getState();
   if (!annotations.length) return [];
-  const firstSeq = nextStepSeq(store.doc);
-  const numbering = stepsOf(store.doc).length ? stepNumbering(store.doc) : null;
+  // Razorcat: every marker on the timeline, not only those showing.
+  const steps = stepsDoc();
+  const firstSeq = nextStepSeq(steps);
+  const numbering = stepsOf(steps).length ? stepNumbering(steps) : null;
   const stepOrder = annotations
     .filter((a): a is StepAnnotation => a.kind === "step")
     .sort((a, b) => a.seq - b.seq);
