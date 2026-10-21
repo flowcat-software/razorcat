@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getName } from "@tauri-apps/api/app";
-import logo from "../../../src-tauri/icons/128x128@2x.png";
+import logo from "../../../assets/razorcat-icon-tray.png";
 import pkg from "../../../package.json";
 import { commands, type MediaTools } from "../../shared/ipc";
 import type { AboutItem } from "../schema";

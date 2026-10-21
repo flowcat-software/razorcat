@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <!-- Placeholder until the real icon (the name may still change). -->
-  <rect x="64" y="64" width="896" height="896" rx="200" fill="#1d1f24"/>
-  <rect x="200" y="300" width="624" height="424" rx="56" fill="none" stroke="#f2f2f2" stroke-width="56"/>
-  <path d="M460 400 L620 512 L460 624 Z" fill="#e5484d"/>
-  <rect x="300" y="200" width="40" height="624" rx="20" fill="#e5484d"/>
-</svg>
