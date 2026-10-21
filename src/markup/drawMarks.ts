@@ -21,6 +21,9 @@ export interface DrawnMark {
   pixels: Uint8ClampedArray<ArrayBuffer>;
 }
 
+/** The longest the drawing waits for fonts to load (ms). */
+const FONTS_WAIT = 2000;
+
 /** MarkupDrawing's group: every item, in output pixels. */
 let drawing: Konva.Group | null = null;
 
@@ -30,9 +33,11 @@ export function registerDrawing(group: Konva.Group | null): void {
 
 /**
  * How far past a node's measured box to draw, in output pixels: some shapes draw outside it
- * (a text box's background), and the empty edge is trimmed off again.
+ * (a text box's background, an italic's lean), and the empty edge is trimmed off again. The
+ * preview's fading cache (MarkupLayer.tsx) takes the same.
  */
-const margin = (width: number, height: number) => Math.ceil(Math.max(width, height) / 4) + 32;
+export const margin = (width: number, height: number) =>
+  Math.ceil(Math.max(width, height) / 4) + 32;
 
 /**
  * Every item of `doc`'s markup that shows, drawn: back to front (the bottom lane first), as the
@@ -43,8 +48,8 @@ export async function drawMarks(doc: Doc): Promise<DrawnMark[]> {
   if (!shown.length) return [];
   const group = drawing;
   if (!group) throw new Error("The markup isn't ready to export yet.");
-  // Text drawn before its font has loaded comes out in another.
-  await document.fonts.ready;
+  // Text drawn before its font has loaded comes out in another; but never wait for ever.
+  await Promise.race([document.fonts.ready, new Promise((done) => setTimeout(done, FONTS_WAIT))]);
   const frame = outputSize(doc.frame);
   const drawn: DrawnMark[] = [];
   for (const m of shown.sort((a, b) => b.lane - a.lane || a.start - b.start || a.id - b.id)) {

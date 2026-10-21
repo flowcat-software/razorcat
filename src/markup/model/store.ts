@@ -6,10 +6,19 @@
 // - moving, resizing or restyling one changes what its markup shows;
 // - stacking order is the lanes: the top lane's markup is in front;
 // - gestures, undo and redo are the edit's, so a drag on the preview is one undo step there;
-// - the selection is the edit's selected markup (what of it is showing).
+// - the selection is the edit's selected markup (what of it is showing);
+// - each showing item's opacity at the playhead, as its fades make it (`opacity`).
 
 import { createStore, useStore } from "zustand";
-import { freeLane, LANES, shownMarks, type MarkId, type MarkObject } from "../../editor/doc";
+import {
+  freeLane,
+  LANES,
+  markFades,
+  markOpacity,
+  shownMarks,
+  type MarkId,
+  type MarkObject,
+} from "../../editor/doc";
 import { useDoc as useEdit } from "../../editor/docStore";
 import { outputSize } from "../../editor/frame";
 import type { Player } from "../../editor/player";
@@ -35,6 +44,8 @@ export interface DocState {
   selection: AnnotationId[];
   /** Not null during the edit's gesture (the document then, as far as markup goes: this one). */
   gestureStart: Doc | null;
+  /** How opaque each showing item is at the playhead, if it's fading (the rest are opaque). */
+  opacity: Readonly<Record<AnnotationId, number>>;
 
   /**
    * A fresh edit holding just `doc`'s annotations, from the start, as long as an edit with
@@ -86,7 +97,7 @@ export function annotationOf(id: MarkId, object: MarkObject): Annotation {
 }
 
 /** The view of the edit now: the markup at the playhead (and any being typed into). */
-function view(): Pick<DocState, "doc" | "selection" | "gestureStart"> {
+function view(): Pick<DocState, "doc" | "selection" | "gestureStart" | "opacity"> {
   const edit = useEdit.getState();
   const frame = player?.getState().frame ?? 0;
   const editing = useToolStore.getState().editing;
@@ -104,7 +115,16 @@ function view(): Pick<DocState, "doc" | "selection" | "gestureStart"> {
     annotations: on.map((m) => annotationOf(m.id, objects.get(m.id)!)),
   };
   const showing = new Set(on.map((m) => m.id));
+  const opacity: Record<AnnotationId, number> = {};
+  for (const m of on) {
+    const kept = edit.doc.marks.find((k) => k.id === m.id);
+    const length = m.end - m.start;
+    const a = kept ? markOpacity(markFades(kept, length), length, frame - m.start) : 1;
+    // Text being typed into shows whole.
+    if (a < 1 && m.id !== typing) opacity[annotationId(m.id)] = a;
+  }
   return {
+    opacity,
     doc,
     selection: edit.selectedMarks.filter((id) => showing.has(id)).map(annotationId),
     gestureStart: edit.gestureStart ? doc : null,
@@ -123,8 +143,12 @@ function refresh() {
   const sameSelection =
     next.selection.length === s.selection.length &&
     next.selection.every((id, i) => id === s.selection[i]);
-  if (same && sameSelection && !next.gestureStart === !s.gestureStart) return;
+  const sameOpacity =
+    Object.keys(next.opacity).length === Object.keys(s.opacity).length &&
+    Object.entries(next.opacity).every(([id, a]) => s.opacity[id] === a);
+  if (same && sameSelection && sameOpacity && !next.gestureStart === !s.gestureStart) return;
   docStore.setState({
+    opacity: sameOpacity ? s.opacity : next.opacity,
     doc: same ? s.doc : next.doc,
     selection: sameSelection ? s.selection : next.selection,
     gestureStart: next.gestureStart && (same ? s.doc : next.doc),
@@ -140,6 +164,7 @@ export const docStore = createStore<DocState>()(() => ({
   },
   selection: [],
   gestureStart: null,
+  opacity: {},
 
   load: (doc) => {
     const edit = useEdit.getState();

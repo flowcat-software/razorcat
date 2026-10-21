@@ -26,6 +26,7 @@ import {
   segmentQuad,
   underlineLayout,
 } from "./callout";
+import { margin } from "./drawMarks";
 import { layerOf, registerAnnotationGroup } from "./export";
 import {
   annotationBounds,
@@ -241,6 +242,7 @@ export function MarkupLayer({
 }: Props) {
   const doc = useDoc((s) => s.doc);
   const selection = useDoc((s) => s.selection);
+  const opacity = useDoc((s) => s.opacity);
   const tool = useToolStore((s) => s.tool);
   const editing = useToolStore((s) => s.editing);
   const labelEditing = useToolStore((s) => s.labelEditing);
@@ -255,6 +257,8 @@ export function MarkupLayer({
   const stageRef = useRef<Konva.Stage>(null);
   const groupRef = useRef<Konva.Group>(null);
   const highlightsRef = useRef<Konva.Group>(null);
+  /** Each item's own group, which fades it (Razorcat). */
+  const fadeGroups = useRef(new Map<AnnotationId, Konva.Group>());
   const highlightLayerRef = useRef<Konva.Layer>(null);
   const trRef = useRef<Konva.Transformer>(null);
   /**
@@ -286,6 +290,38 @@ export function MarkupLayer({
   useLayoutEffect(() => {
     view.current = { scale, offset };
   });
+
+  // Fading markup (Razorcat, PLAN 4.4b) fades as one picture, as the export's single image of
+  // it does: its group is drawn once to a cache at the screen's resolution, and that is drawn
+  // at its opacity (a text's background doesn't show through its letters). Selected, it's
+  // faded uncached, so a drag or resize shows live. Opaque again, the cache goes.
+  const cachedFor = useRef<unknown[]>([]);
+  useLayoutEffect(() => {
+    // The markup, the selection or the zoom changed: what's cached may look different now.
+    const now = [doc, selection, scale];
+    const stale = now.some((v, i) => v !== cachedFor.current[i]);
+    cachedFor.current = now;
+    for (const a of doc.annotations) {
+      const group = fadeGroups.current.get(a.id);
+      if (!group) continue;
+      const alpha = opacity[a.id] ?? 1;
+      const cache = alpha < 1 && !selection.includes(a.id);
+      if (group.isCached() && (stale || !cache)) group.clearCache();
+      if (cache && !group.isCached()) {
+        try {
+          // Past its measured box, as the export's drawing: an italic leans out of it.
+          const box = group.getClientRect({ skipTransform: true });
+          group.cache({
+            pixelRatio: scale * window.devicePixelRatio,
+            offset: margin(box.width, box.height),
+          });
+        } catch {
+          // Nothing to draw (an empty box): it fades uncached.
+        }
+      }
+      group.opacity(alpha);
+    }
+  }, [doc, opacity, selection, scale]);
 
   useEffect(() => {
     registerAnnotationGroup("annotations", groupRef.current);
@@ -1032,6 +1068,11 @@ export function MarkupLayer({
   const editedText = doc.annotations.find(
     (a): a is TextAnnotation | CalloutAnnotation => isTextual(a) && a.id === editing?.id,
   );
+  /** Keeps item `id`'s fade group (Razorcat). */
+  const fadeGroup = (id: AnnotationId) => (group: Konva.Group | null) => {
+    if (group) fadeGroups.current.set(id, group);
+    else fadeGroups.current.delete(id);
+  };
   const groupProps = {
     x: offset.x,
     y: offset.y,
@@ -1060,7 +1101,9 @@ export function MarkupLayer({
             {doc.annotations
               .filter((a) => layerOf(a) === "highlights")
               .map((a) => (
-                <AnnotationShape key={a.id} a={a} hitSlop={HIT_SLOP / scale} />
+                <Group key={a.id} ref={fadeGroup(a.id)}>
+                  <AnnotationShape a={a} hitSlop={HIT_SLOP / scale} />
+                </Group>
               ))}
           </Group>
         </Layer>
@@ -1071,13 +1114,14 @@ export function MarkupLayer({
             {doc.annotations
               .filter((a) => layerOf(a) === "annotations")
               .map((a) => (
-                <AnnotationShape
-                  key={a.id}
-                  a={a}
-                  hitSlop={HIT_SLOP / scale}
-                  hidden={a.id === editing?.id || a.id === labelEditing}
-                  label={labels.get(a.id)}
-                />
+                <Group key={a.id} ref={fadeGroup(a.id)}>
+                  <AnnotationShape
+                    a={a}
+                    hitSlop={HIT_SLOP / scale}
+                    hidden={a.id === editing?.id || a.id === labelEditing}
+                    label={labels.get(a.id)}
+                  />
+                </Group>
               ))}
           </Group>
         </Layer>

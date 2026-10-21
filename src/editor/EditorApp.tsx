@@ -22,7 +22,7 @@ import {
   seekEdit,
   splitAtPlayhead,
 } from "./edits";
-import { LARGE_GIF, exportTimeline, fileSize } from "./exports";
+import { LARGE_GIF, exportTimeline, fileSize, onExportFailed } from "./exports";
 import { checkFrames } from "./frameCheck";
 import { FrameOptions } from "./FrameOptions";
 import { Player } from "./player";
@@ -213,6 +213,12 @@ export function EditorApp() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [player, audio]);
+
+  // An export that couldn't start, before Rust had it (its markup couldn't be drawn or sent).
+  useEffect(() => {
+    onExportFailed((text) => setNotice({ text, error: true }));
+    return () => onExportFailed(() => {});
+  }, []);
 
   useEffect(() => {
     const stops: (() => void)[] = [];

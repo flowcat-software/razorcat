@@ -81,6 +81,23 @@ export interface Mark {
   fadeOut?: number;
 }
 
+/**
+ * How opaque markup with `fades` (fitted to it), `length` frames long, is on its frame `u` (from
+ * 0): fading in, u / fade-in, so its first frame is clear; fading out, (length − u) / fade-out,
+ * so its last is one step from clear. The mockup's ramps, and ffmpeg's `fade` frame for frame,
+ * so the preview and the export agree.
+ */
+export function markOpacity(
+  fades: { fadeIn: number; fadeOut: number },
+  length: number,
+  u: number,
+): number {
+  let a = 1;
+  if (u < fades.fadeIn) a = u / fades.fadeIn;
+  if (u >= length - fades.fadeOut) a = Math.min(a, (length - u) / fades.fadeOut);
+  return Math.max(0, Math.min(1, a));
+}
+
 /** A piece of markup's fades, fitted to `length` frames: the fade-in first, the fade-out in what's left. */
 export function markFades(
   m: { fadeIn?: number; fadeOut?: number },

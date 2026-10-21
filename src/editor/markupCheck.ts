@@ -17,6 +17,12 @@ const TOLERANCE = 3;
 export async function checkMarkup(drawn: readonly DrawnMark[], at: number, size: Size) {
   // Text being typed into is hidden on the preview: nothing to compare.
   if (useToolStore.getState().editing) return;
+  // Markup mid-fade is see-through on the preview but drawn whole for the export (ffmpeg fades
+  // it): nothing to compare.
+  if (Object.keys(markupDoc.getState().opacity).length) {
+    await commands.frameCheckReport(`markup: not checked at frame ${at} (fading)`, "{}");
+    return;
+  }
   const on = drawn.filter((m) => m.start <= at && at < m.end);
   const live = renderLayer(markupDoc.getState().doc, "annotations");
   if (!on.length && !live) return;

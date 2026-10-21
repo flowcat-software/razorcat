@@ -63,11 +63,21 @@ async function sendMarkup(doc: Doc): Promise<ExportMark[]> {
   }));
 }
 
-/** Runs `start` with the markup sent; if it can't be, says so in the console. */
+/** Told when an export can't start here, before Rust has it (the editor's status bar). */
+let failed: (message: string) => void = () => {};
+
+export function onExportFailed(report: (message: string) => void) {
+  failed = report;
+}
+
+/** Runs `start` with the markup sent; if it can't be, says why. */
 function withMarkup(doc: Doc, start: (marks: ExportMark[]) => Promise<unknown>) {
   sendMarkup(doc)
     .then(start)
-    .catch((e: unknown) => console.error("[export] markup:", e));
+    .catch((e: unknown) => {
+      console.error("[export] markup:", e);
+      failed(`The export couldn't start: ${e instanceof Error ? e.message : String(e)}`);
+    });
 }
 
 /** The whole timeline, as one file (Ctrl+E: MP4). */
