@@ -57,6 +57,8 @@
   --mark: light-dark(#8a5cc4, #6f4aa0);
   --range: light-dark(rgb(240 160 0 / 0.3), rgb(255 190 40 / 0.22));
   --range-edge: light-dark(#d08a00, #ffbe28);
+  /* The ruler's top strip, where ranges are drawn: a hint of their colour. */
+  --range-strip: light-dark(rgb(240 160 0 / 0.1), rgb(255 190 40 / 0.07));
   --playhead: light-dark(#e0352b, #ff5a4f);
   /* The snap guide: neutral, so it can't be mistaken for a range (amber) or the playhead (red). */
   --snap: light-dark(#1b1b1b, #ffffff);

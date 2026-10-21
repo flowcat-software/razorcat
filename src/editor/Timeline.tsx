@@ -46,8 +46,9 @@ interface Props {
 }
 
 // The mockup's geometry (mockup/main.html): the ruler, the markup lanes, the clip track.
-const RULER = 30;
-/** The strip along the ruler's top: ranges' bars; drag on it to draw one. */
+/** Taller than the mockup's 30: below the range strip, a press moves the playhead (Richard). */
+const RULER = 42;
+/** The strip along the ruler's top: ranges' bars; drag on it to draw one. Tinted, to show it. */
 const RANGE_STRIP = 11;
 const LANE_TOP = RULER + 8;
 const LANE_H = 24;
@@ -86,6 +87,7 @@ const TOKENS = [
   "snap",
   "range",
   "range-edge",
+  "range-strip",
   "mark",
 ];
 
@@ -517,6 +519,10 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       g.fillStyle = c["tl-lane"];
       g.fillRect(HEADER, CLIP_TOP, W, CLIP_H);
       for (let lane = 0; lane < LANES; lane++) g.fillRect(HEADER, laneY(lane), W, LANE_H);
+
+      // The range strip along the ruler's top: where ranges are drawn.
+      g.fillStyle = c["range-strip"];
+      g.fillRect(HEADER, 0, W - HEADER, RANGE_STRIP);
 
       // Ruler: labelled ticks at least 70 px apart, minor ticks between.
       const { rateNum: num, rateDen: den } = source;
