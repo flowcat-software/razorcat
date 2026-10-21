@@ -11,8 +11,11 @@
 // edit (nothing cut out, nothing out of order). Then the edit is exported whole; cropped (two
 // barcode cells off each side and the top quarter off, odd sizes, which export evens), so the
 // export must show the twelve cells between; and cropped and grown (white where the two cells
-// were on each side, and on top), so the four outer cells read white.
-import { commands } from "../shared/ipc";
+// were on each side, and on top), so the four outer cells read white. Last, with markup (PLAN
+// 4.3c): two solid magenta items, one over a cut, sent as an export sends them; each item's
+// corner pixels must be magenta on its frames and, on every other frame, not magenta unless
+// the export without them is there too (the picture under them is anything).
+import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
 import { clipStarts, total } from "./doc";
 import { useDoc } from "./docStore";
 import { exportClips, exportFrame } from "./exports";
@@ -219,11 +222,23 @@ export async function checkFrames(
 
     // Export = preview: the edit exported (as Export does), every frame of it.
     progress("Checking frames: exporting the edit…");
-    const exportPass = async (pass: string, cells: number, expect: (k: number) => number) => {
+    const exportPass = async (
+      pass: string,
+      cells: number,
+      expect: (k: number) => number,
+      marks: ExportMark[] = [],
+      probes: { x: number; y: number }[] = [],
+    ) => {
       const { doc } = useDoc.getState();
-      const exported = await commands.frameCheckExport(exportClips(doc), exportFrame(doc), cells);
+      const exported = await commands.frameCheckExport(
+        exportClips(doc),
+        exportFrame(doc),
+        marks,
+        probes,
+        cells,
+      );
       if (exported.status === "error") throw new Error(exported.error);
-      const shownFrames = exported.data;
+      const shownFrames = exported.data.barcodes;
       let wrong = 0;
       for (let k = 0; k < Math.max(n, shownFrames.length); k++) {
         if (shownFrames[k] === expect(k)) continue;
@@ -231,6 +246,7 @@ export async function checkFrames(
         misses.push({ pass, frame: k, expected: expect(k), shown: shownFrames[k] ?? -1 });
       }
       passes.push({ pass, checked: n, misses: wrong, covered: 0 });
+      return exported.data.probes;
     };
     await exportPass("export", BITS, want);
 
@@ -261,6 +277,51 @@ export async function checkFrames(
     await exportPass("export grown", BITS, (k) => (want(k) & 0x3ffc) | 0xc003);
     useDoc.getState().crop({ x: 0, y: 0, width, height });
     useDoc.getState().grow({ ...useDoc.getState().doc.frame.grow, top: 0, left: 0, right: 0 });
+
+    // Markup: two items, at even places and sizes (whole 4:2:0 blocks, so the corners keep
+    // their colour), one from 5 frames before the first cut to 5 after it.
+    progress("Checking frames: exporting the edit with markup…");
+    const even = (v: number) => Math.round(v / 2) * 2;
+    const cut = clipStarts(useDoc.getState().doc)[1];
+    const size = { width: even(width / 10), height: even(height / 10) };
+    const marks: ExportMark[] = [
+      { id: 1, x: even(width / 4), y: even(height / 3), ...size, start: cut - 5, end: cut + 5 },
+      { id: 2, x: even(width * 0.6), y: even(height / 5), ...size, start: 10, end: 20 },
+    ];
+    const probes = marks.flatMap((m) => [
+      { x: m.x, y: m.y },
+      { x: m.x + m.width - 1, y: m.y + m.height - 1 },
+    ]);
+    const bare = await exportPass("export unmarked", BITS, want, [], probes);
+    for (const m of marks) {
+      const pixels = new Uint8ClampedArray(m.width * m.height * 4);
+      for (let i = 0; i < pixels.length; i += 4) pixels.set([255, 0, 255, 255], i);
+      await uploadPixels(`http://media.localhost/markup/${m.id}`, pixels);
+    }
+    const marked = await exportPass("export marked", BITS, want, marks, probes);
+    let wrongMarks = 0;
+    for (let k = 0; k < n; k++) {
+      probes.forEach((_, p) => {
+        const m = marks[Math.floor(p / 2)];
+        const on = m.start <= k && k < m.end;
+        const [r, g, b] = marked[k]?.slice(p * 3, p * 3 + 3) ?? [];
+        const [r0, g0, b0] = bare[k]?.slice(p * 3, p * 3 + 3) ?? [];
+        // Off its frames, an item shows as magenta where the export without it isn't (a pixel of
+        // two encodes can differ more than a little anywhere: the encoder spends its bits
+        // differently).
+        const magenta = (r: number, g: number, b: number) => r > 180 && g < 80 && b > 180;
+        const right = on ? magenta(r, g, b) : !magenta(r, g, b) || magenta(r0, g0, b0);
+        if (right) return;
+        wrongMarks++;
+        misses.push({
+          pass: `markup ${m.id} ${p % 2 ? "end" : "start"} corner`,
+          frame: k,
+          expected: on ? 1 : 0,
+          shown: (r << 16) | (g << 8) | b,
+        });
+      });
+    }
+    passes.push({ pass: "markup", checked: n * probes.length, misses: wrongMarks, covered: 0 });
   }
 
   const wrongs = misses.length;

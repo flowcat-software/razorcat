@@ -2,7 +2,7 @@
 //! barcoded test clip (`spikes/make-test-media.mjs`) and the page steps and seeks the preview
 //! over it, reading the barcode of the frame on screen; `--check-edit` does it on an edited
 //! timeline (clips cut out and moved), plays across the cuts, and exports it (export = preview),
-//! then again cropped.
+//! then again cropped, and with test markup (PLAN 4.3c), read at points of the picture.
 //! Here: the frames export would pick (the `fps` filter over the original, as export reads it),
 //! the edit's export read back frame by frame, and the report. Release builds do none of it.
 
@@ -11,7 +11,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
@@ -19,6 +19,7 @@ use tauri_specta::Event;
 use crate::editor::LABEL;
 use crate::export::{ExportClip, ExportFrame};
 use crate::ffmpeg::{self, Outcome};
+use crate::markup::ExportMark;
 use crate::state::AppState;
 
 /// The barcode: 16 cells along the bottom sixteenth of the picture, least significant bit on
@@ -95,17 +96,35 @@ pub fn expected(app: &AppHandle) -> Result<Vec<u32>, String> {
 
 /// Exports `clips` of the open source in `frame` (export.rs, as a real export) to a temporary
 /// file, then reads each of its frames' barcodes: what the edit's export shows, frame by frame.
+/// A pixel of the exported picture to read on every frame.
+#[derive(Debug, Clone, Copy, Deserialize, Type)]
+pub struct Probe {
+    pub x: u32,
+    pub y: u32,
+}
+
+/// The export read back: each frame's barcode, and its probes' colours (RGB, probe after probe).
+#[derive(Debug, Serialize, Type)]
+pub struct Exported {
+    pub barcodes: Vec<u32>,
+    pub probes: Vec<Vec<u8>>,
+}
+
 /// `cells`: how many of the barcode's cells the export's width holds (fewer, cropped at the
-/// sides: the number read is the cells left).
+/// sides: the number read is the cells left). `marks`: markup over it, its pixels sent first as
+/// for an export; `probes`: pixels to read.
 pub fn exported(
     app: &AppHandle,
     clips: &[ExportClip],
     frame: ExportFrame,
+    marks: Vec<ExportMark>,
+    probes: &[Probe],
     cells: u32,
-) -> Result<Vec<u32>, String> {
+) -> Result<Exported, String> {
     if !cfg!(debug_assertions) {
         return Err("development only".into());
     }
+    let markup = crate::markup::take(app, marks)?;
     let dir = std::env::temp_dir();
     let file = dir.join("razorcat-check-export.mp4");
     let stop = AtomicBool::new(false);
@@ -113,7 +132,7 @@ pub fn exported(
         app,
         clips,
         frame,
-        &crate::markup::Markup::default(),
+        &markup,
         &file,
         crate::export::Format::Mp4,
         |_| {},
@@ -133,8 +152,54 @@ pub fn exported(
     }
     let bytes = fs::read(&out).map_err(|e| e.to_string());
     let _ = fs::remove_file(&out);
+    let read = probed(&file, probes);
     let _ = fs::remove_file(&file);
-    Ok(barcodes(&bytes?, cells as usize))
+    Ok(Exported {
+        barcodes: barcodes(&bytes?, cells as usize),
+        probes: read?,
+    })
+}
+
+/// Each frame of `file`'s `probes`' colours, RGB, probe after probe: each a pixel cut out, in a
+/// row (one ffmpeg pass).
+fn probed(file: &std::path::Path, probes: &[Probe]) -> Result<Vec<Vec<u8>>, String> {
+    if probes.is_empty() {
+        return Ok(Vec::new());
+    }
+    let n = probes.len();
+    let mut graph = format!("[0:v:0]format=rgb24,split={n}");
+    graph += &(0..n).map(|k| format!("[s{k}]")).collect::<String>();
+    for (k, p) in probes.iter().enumerate() {
+        graph += &format!(";[s{k}]crop=1:1:{}:{}[p{k}]", p.x, p.y);
+    }
+    graph += ";";
+    graph += &(0..n).map(|k| format!("[p{k}]")).collect::<String>();
+    graph += &if n > 1 {
+        format!("hstack=inputs={n}[out]")
+    } else {
+        "null[out]".into()
+    };
+    let out = std::env::temp_dir().join("razorcat-check-probes.rgb");
+    let mut args: Vec<OsString> = vec!["-i".into(), file.into()];
+    args.extend(["-filter_complex".into(), graph.into()]);
+    args.extend(
+        [
+            "-map",
+            "[out]",
+            "-fps_mode",
+            "passthrough",
+            "-f",
+            "rawvideo",
+        ]
+        .map(OsString::from),
+    );
+    match ffmpeg::run(&args, &out, None, |_| {}, || false)? {
+        Outcome::Finished => {}
+        Outcome::Stopped => return Err("stopped".into()),
+    }
+    let bytes = fs::read(&out).map_err(|e| e.to_string());
+    let _ = fs::remove_file(&out);
+    Ok(bytes?.chunks_exact(3 * n).map(<[u8]>::to_vec).collect())
 }
 
 /// The numbers in `cells`-byte rows of grey cells.

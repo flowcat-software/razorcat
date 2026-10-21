@@ -114,10 +114,10 @@ export const commands = {
 	/**  Shows a file in Explorer, selected (after an export). */
 	showInFolder: (path: string) => typedError<null, string>(__TAURI_INVOKE("show_in_folder", { path })),
 	/**
-	 *  Development: exports `clips` to a temporary file and reads back each frame's barcode (the
-	 *  export check, check.rs).
+	 *  Development: exports `clips` (with `marks`, sent first) to a temporary file and reads back
+	 *  each frame's barcode and the colours at `probes` (the export check, check.rs).
 	 */
-	frameCheckExport: (clips: ExportClip[], frame: ExportFrame, cells: number) => typedError<number[], string>(__TAURI_INVOKE("frame_check_export", { clips, frame, cells })),
+	frameCheckExport: (clips: ExportClip[], frame: ExportFrame, marks: ExportMark[], probes: Probe[], cells: number) => typedError<Exported, string>(__TAURI_INVOKE("frame_check_export", { clips, frame, marks, probes, cells })),
 	/**  Installed font families for the text tool's font picker (cached after the first call). */
 	listFonts: () => __TAURI_INVOKE<string[]>("list_fonts"),
 	/**
@@ -306,6 +306,12 @@ export type ExportProgress = {
 	done: number | null,
 };
 
+/**  The export read back: each frame's barcode, and its probes' colours (RGB, probe after probe). */
+export type Exported = {
+	barcodes: number[],
+	probes: number[][],
+};
+
 /**  How the font picker shows its fonts. */
 export type FontControl = "dropdown" | 
 /**  A stepped slider with the name under it (custom lists of up to 10). */
@@ -408,6 +414,16 @@ export type NumberPicker = { control: "slider"; min: number | null; max: number 
 export type OpenFailed = {
 	/**  A sentence for the user. */
 	message: string,
+};
+
+/**
+ *  Exports `clips` of the open source in `frame` (export.rs, as a real export) to a temporary
+ *  file, then reads each of its frames' barcodes: what the edit's export shows, frame by frame.
+ *  A pixel of the exported picture to read on every frame.
+ */
+export type Probe = {
+	x: number,
+	y: number,
 };
 
 export type Proxies = {

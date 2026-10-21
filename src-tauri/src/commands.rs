@@ -230,19 +230,23 @@ pub async fn frame_check_expected(app: AppHandle) -> Result<Vec<u32>, String> {
         .map_err(|e| e.to_string())?
 }
 
-/// Development: exports `clips` to a temporary file and reads back each frame's barcode (the
-/// export check, check.rs).
+/// Development: exports `clips` (with `marks`, sent first) to a temporary file and reads back
+/// each frame's barcode and the colours at `probes` (the export check, check.rs).
 #[tauri::command]
 #[specta::specta]
 pub async fn frame_check_export(
     app: AppHandle,
     clips: Vec<crate::export::ExportClip>,
     frame: crate::export::ExportFrame,
+    marks: Vec<crate::markup::ExportMark>,
+    probes: Vec<crate::check::Probe>,
     cells: u32,
-) -> Result<Vec<u32>, String> {
-    tauri::async_runtime::spawn_blocking(move || crate::check::exported(&app, &clips, frame, cells))
-        .await
-        .map_err(|e| e.to_string())?
+) -> Result<crate::check::Exported, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::check::exported(&app, &clips, frame, marks, &probes, cells)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Development: keeps the check's report (JSON) and logs `summary`; returns the report's path.
