@@ -802,16 +802,13 @@ export function deleteMark(doc: Doc, id: MarkId): Doc {
 }
 
 /**
- * The lane for new markup from `start` to `end`: the first with nothing there, else a new one
- * after the last.
+ * The lane for new markup from `start` to `end`: in front of all it overlaps, as a drawing's
+ * newest stroke is. The top lane if there's room there then, else a new one above it (Richard,
+ * 2026-10-21: in a new lane at the bottom, what was just drawn went behind the rest).
  */
 export function freeLane(doc: Doc, start: number, end: number): number {
-  const shown = shownMarks(doc);
-  const lanes = laneCount(doc);
-  for (let lane = 0; lane < lanes; lane++) {
-    if (!shown.some((m) => m.lane === lane && m.start < end && m.end > start)) return lane;
-  }
-  return lanes;
+  const busy = shownMarks(doc).some((m) => m.lane === 0 && m.start < end && m.end > start);
+  return busy ? -1 : 0;
 }
 
 // --- lanes ---

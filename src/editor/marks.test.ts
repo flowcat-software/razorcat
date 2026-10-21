@@ -173,12 +173,12 @@ describe("markup", () => {
     expect(markLabel(text(""))).toBe("Text");
   });
 
-  it("goes in a free lane", () => {
+  it("goes in front: the top lane if it has room, else a new one above it", () => {
     const doc = withText();
-    expect(freeLane(doc, 50, 70)).toBe(1);
+    expect(freeLane(doc, 50, 70)).toBe(-1);
     expect(freeLane(doc, 60, 80)).toBe(0);
-    // Both lanes busy: a new one (they grow; Richard, 2026-10-21).
-    expect(freeLane(addMark(doc, text(""), 50, 10, 1), 55, 58)).toBe(2);
+    // Room at the top over something lower down: still in front of it.
+    expect(freeLane(addMark(doc, text(""), 70, 10, 1), 72, 78)).toBe(0);
   });
 });
 
