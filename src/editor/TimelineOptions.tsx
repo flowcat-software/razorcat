@@ -71,24 +71,30 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
     width: inFrames ? 64 : hours ? 92 : 76,
   };
   const fade = { ...time, gain: FADE_GAIN };
-  const seek = (f: number) => player?.seek(Math.max(0, Math.min(length - 1, f)));
+  // Dragging an edge's field shows its frame, the playhead staying put (as dragging the edge
+  // does); letting go shows the playhead's again.
+  const peek = (f: number, dragging: boolean) => {
+    if (dragging) player?.peek(player.sourceFrame(Math.max(0, Math.min(length - 1, f))));
+  };
+  const unpeek = () => player?.peek(null);
 
   // Markup: From and To move that end (as dragging it), Length moves To; the fades are kept to
   // its length. Each returns the value as kept.
-  const markFrom = (id: MarkId, v: number) => {
+  const markFrom = (id: MarkId, v: number, dragging: boolean) => {
     const m = markNow(id);
     if (!m) return v;
     const a = Math.max(0, Math.min(m.end - 1, v));
     useDoc.getState().setMark(id, a, m.end, m.lane);
-    seek(a);
-    return markNow(id)?.start ?? a;
+    const start = markNow(id)?.start ?? a;
+    peek(start, dragging);
+    return start;
   };
-  const markTo = (id: MarkId, v: number) => {
+  const markTo = (id: MarkId, v: number, dragging: boolean) => {
     const m = markNow(id);
     if (!m) return v;
     useDoc.getState().setMark(id, m.start, Math.max(m.start + 1, v), m.lane);
     const end = markNow(id)?.end ?? v;
-    seek(end - 1);
+    peek(end - 1, dragging);
     return end;
   };
   const markLength = (id: MarkId, v: number) => {
@@ -107,20 +113,20 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
   };
 
   // A range: the same, kept off its neighbours (setRange).
-  const rangeFrom = (id: RangeId, v: number) => {
+  const rangeFrom = (id: RangeId, v: number, dragging: boolean) => {
     const r = rangeNow(id);
     if (!r) return v;
     useDoc.getState().setRange(id, Math.max(0, Math.min(r.b - 1, v)), r.b);
     const a = rangeNow(id)?.a ?? v;
-    seek(a);
+    peek(a, dragging);
     return a;
   };
-  const rangeTo = (id: RangeId, v: number) => {
+  const rangeTo = (id: RangeId, v: number, dragging: boolean) => {
     const r = rangeNow(id);
     if (!r) return v;
     useDoc.getState().setRange(id, r.a, Math.max(r.a + 1, v));
     const b = rangeNow(id)?.b ?? v;
-    seek(b - 1);
+    peek(b - 1, dragging);
     return b;
   };
   const rangeLength = (id: RangeId, v: number) => {
@@ -157,14 +163,16 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
           <NumberField
             label="From"
             value={mark.start}
-            onChange={(v) => markFrom(mark.id, v)}
+            onChange={(v, dragging) => markFrom(mark.id, v, dragging)}
+            onDragEnd={unpeek}
             {...time}
           />
           <NumberField
             label="to"
             name="To"
             value={mark.end}
-            onChange={(v) => markTo(mark.id, v)}
+            onChange={(v, dragging) => markTo(mark.id, v, dragging)}
+            onDragEnd={unpeek}
             {...time}
           />
           <NumberField
@@ -194,14 +202,16 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
           <NumberField
             label="From"
             value={range.a}
-            onChange={(v) => rangeFrom(range.id, v)}
+            onChange={(v, dragging) => rangeFrom(range.id, v, dragging)}
+            onDragEnd={unpeek}
             {...time}
           />
           <NumberField
             label="to"
             name="To"
             value={range.b}
-            onChange={(v) => rangeTo(range.id, v)}
+            onChange={(v, dragging) => rangeTo(range.id, v, dragging)}
+            onDragEnd={unpeek}
             {...time}
           />
           <NumberField

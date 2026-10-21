@@ -11,9 +11,11 @@ interface Props {
   /** Its name for screen readers, if the label's too short to say (Width). */
   name?: string;
   value: number;
-  /** A new value, typed or dragged to; returns the value as kept (the document keeps it in
-   * range). */
-  onChange: (value: number) => number;
+  /** A new value, typed or dragged to (`dragging`); returns the value as kept (the document
+   * keeps it in range). */
+  onChange: (value: number, dragging: boolean) => number;
+  /** A drag of it ended. */
+  onDragEnd?: () => void;
   /** Shown after it (px). */
   unit?: string;
   /** How it shows the value, and reads what's typed (null: not a value); else a whole number. */
@@ -48,6 +50,7 @@ export function NumberField({
   name,
   value,
   onChange,
+  onDragEnd,
   unit,
   format = String,
   parse = readNumber,
@@ -69,7 +72,7 @@ export function NumberField({
       return;
     }
     const n = typed === null ? null : parse(typed);
-    if (n !== null) onChange(Math.round(n));
+    if (n !== null) onChange(Math.round(n), false);
     setTyped(null);
   };
 
@@ -130,7 +133,7 @@ export function NumberField({
         carry = exact - current;
         return;
       }
-      const kept = onChange(want);
+      const kept = onChange(want, true);
       carry = kept === want ? exact - want : 0;
       current = kept;
     };
@@ -142,6 +145,7 @@ export function NumberField({
         document.documentElement.classList.remove(styles.hideCursor);
         setDragging(false);
         useDoc.getState().endGesture();
+        onDragEnd?.();
       } else {
         input.focus();
         input.select();

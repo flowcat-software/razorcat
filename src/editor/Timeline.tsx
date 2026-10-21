@@ -175,7 +175,7 @@ interface MarkDrag {
   id: MarkId;
   x0: number;
   orig: { start: number; end: number; lane: number; fadeIn: number; fadeOut: number };
-  /** The playhead when the drag started: an edge drag moves it, so it snaps to where it was. */
+  /** The playhead when the drag started, to snap to. */
   playhead: number;
 }
 
@@ -1038,7 +1038,9 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     if (d.kind === "pendingIn") {
       const s = snap(fOf(view, x), targets, view.zoom, on);
       guide.current = s.target;
-      store.setPendingIn(Math.max(0, Math.min(length - 1, s.frame)));
+      const at = Math.max(0, Math.min(length - 1, s.frame));
+      store.setPendingIn(at);
+      player.peek(player.sourceFrame(at));
       showReadout(
         `In ${fmt(useDoc.getState().pendingIn ?? 0)}  (O sets the out)`,
         e.clientX,
@@ -1075,6 +1077,9 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         return;
       }
       to = { a: Math.min(f, fixed), b: Math.max(f, fixed) };
+      // The preview shows the frame at the moving edge, the playhead staying put (as a trim):
+      // the range's first frame, or its last (its end is the frame after).
+      player.peek(player.sourceFrame(f < fixed ? f : f - 1));
     }
     if (d.id === null) d.id = store.addRange(to.a, to.b);
     else store.setRange(d.id, to.a, to.b);
@@ -1084,8 +1089,8 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
 
   /**
    * Moves markup, or moves one of its edges, as the pointer moves. Moving, it can change lane;
-   * whichever end lands near something snaps (the start first). Dragging an edge puts the
-   * playhead on it, so the preview shows where it starts or ends.
+   * whichever end lands near something snaps (the start first). Dragging an edge, the preview
+   * shows the frame where it starts or ends, the playhead staying put.
    */
   const markTo = (e: React.PointerEvent<HTMLCanvasElement>, d: MarkDrag) => {
     const { x, y, view } = at(e);
@@ -1126,7 +1131,8 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       guide.current = s.target;
       if (d.kind === "start") to.start = Math.max(0, Math.min(end - 1, s.frame));
       else to.end = Math.max(start + 1, Math.min(length, s.frame));
-      player.seek(d.kind === "start" ? to.start : to.end - 1);
+      // The preview shows the frame at the moving edge, the playhead staying put (as a trim).
+      player.peek(player.sourceFrame(d.kind === "start" ? to.start : to.end - 1));
     }
     store.setMark(d.id, to.start, to.end, to.lane);
     const fmt = formatter();
@@ -1154,10 +1160,12 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     if (ranging.current) {
       ranging.current = null;
       docState.endGesture();
+      player.peek(null);
     }
     if (marking.current) {
       marking.current = null;
       docState.endGesture();
+      player.peek(null);
     }
     showReadout(null);
     guide.current = null;
