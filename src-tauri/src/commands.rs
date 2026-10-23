@@ -27,11 +27,15 @@ pub async fn open_dialog(app: AppHandle) {
     let _ = tauri::async_runtime::spawn_blocking(move || editor::ask_open(&app)).await;
 }
 
-/// The Windows accent color, if Windows has one.
+/// The Windows accent color, if Windows has one. Async, so it's read on a worker thread: as a
+/// plain command it ran on the main thread, WinRT and a COM init amid the window's start-up, the
+/// suspect in a rare start-up crash (0xc0000005, always right where this ran).
 #[tauri::command]
 #[specta::specta]
-pub fn windows_accent() -> Option<WindowsAccent> {
-    appearance::windows_accent()
+pub async fn windows_accent() -> Option<WindowsAccent> {
+    tauri::async_runtime::spawn_blocking(appearance::windows_accent)
+        .await
+        .unwrap_or_default()
 }
 
 /// The current settings.

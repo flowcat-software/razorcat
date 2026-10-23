@@ -54,7 +54,11 @@ export const commands = {
 	 *  [`editor::OpenFailed`] follows).
 	 */
 	openDialog: () => __TAURI_INVOKE<void>("open_dialog"),
-	/**  The Windows accent color, if Windows has one. */
+	/**
+	 *  The Windows accent color, if Windows has one. Async, so it's read on a worker thread: as a
+	 *  plain command it ran on the main thread, WinRT and a COM init amid the window's start-up, the
+	 *  suspect in a rare start-up crash (0xc0000005, always right where this ran).
+	 */
 	windowsAccent: () => __TAURI_INVOKE<{
 	light: string,
 	dark: string,
