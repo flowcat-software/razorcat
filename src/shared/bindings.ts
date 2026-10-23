@@ -258,6 +258,11 @@ export type ExportClip = {
 	 */
 	fadeIn: number,
 	fadeOut: number,
+	/**
+	 *  How many frames it crossfades with the clip before it in the export over (none for the
+	 *  first).
+	 */
+	crossfade: number,
 };
 
 /**

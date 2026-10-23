@@ -24,9 +24,12 @@
 // Then spotlights (PLAN 4.5g), on their own: two holes in one run of darkness, overlapping, each
 // pixel the export without markup darkened by as much as is left of it there. Last, clip fades
 // (PLAN 4.7a): the second clip fading in and out, each pixel the unfaded export's at the
-// preview's ramp (`clipOpacityAt`), its barcode not read on those frames.
+// preview's ramp (`clipOpacityAt`), its barcode not read on those frames. And a crossfade
+// (4.7b): the second clip over the first's last 8 frames, the export 8 frames shorter, each
+// pixel there the unfaded export's two frames mixed (`crossfadeMix`), the rest its frames moved
+// along.
 import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
-import { clipOpacityAt, clipStarts, markOpacity, total } from "./doc";
+import { clipOpacityAt, clipStarts, crossfadeMix, markOpacity, total } from "./doc";
 import { useDoc } from "./docStore";
 import { exportClips, exportFrame } from "./exports";
 import { outputSize } from "./frame";
@@ -263,6 +266,8 @@ export async function checkFrames(
       probes: { x: number; y: number }[] = [],
       /** Frames whose barcode isn't read (faded too dark to). */
       unread: (k: number) => boolean = () => false,
+      /** How many frames the export has. */
+      count = n,
     ) => {
       const { doc } = useDoc.getState();
       const exported = await commands.frameCheckExport(
@@ -275,12 +280,12 @@ export async function checkFrames(
       if (exported.status === "error") throw new Error(exported.error);
       const shownFrames = exported.data.barcodes;
       let wrong = 0;
-      for (let k = 0; k < Math.max(n, shownFrames.length); k++) {
-        if (unread(k) || shownFrames[k] === expect(k)) continue;
+      for (let k = 0; k < Math.max(count, shownFrames.length); k++) {
+        if (k < count && (unread(k) || shownFrames[k] === expect(k))) continue;
         wrong++;
         misses.push({ pass, frame: k, expected: expect(k), shown: shownFrames[k] ?? -1 });
       }
-      passes.push({ pass, checked: n, misses: wrong, covered: 0 });
+      passes.push({ pass, checked: count, misses: wrong, covered: 0 });
       return exported.data.probes;
     };
     await exportPass("export", BITS, want);
@@ -552,6 +557,61 @@ export async function checkFrames(
     }
     passes.push({ pass: "clip fades", checked: n * spots.length, misses: wrongFades, covered: 0 });
     useDoc.getState().clipRemoveFades([fadedClip], "both");
+
+    // A crossfade: the second clip over the first's last 8 frames (from E − 8, E the cut). Read
+    // at the spots and at the middle of each barcode cell, which changes from frame to frame,
+    // so the mix shows: once without it, once with.
+    progress("Checking frames: exporting the edit with a crossfade…");
+    const XF = 8;
+    const E = clipStarts(useDoc.getState().doc)[1];
+    const cells = Array.from({ length: BITS }, (_, j) => ({
+      x: Math.floor(((j + 0.5) * width) / BITS),
+      y: height - Math.ceil(height / 32),
+    }));
+    const mixProbes = [...spots, ...cells];
+    const apart = await exportPass("export uncrossfaded", BITS, want, [], mixProbes);
+    useDoc.getState().setCrossfade(fadedClip, XF);
+    const over = (k: number) => k >= E - XF && k < E;
+    const moved = (k: number) => (k < E - XF ? k : k + XF);
+    const mixed = await exportPass(
+      "export crossfaded",
+      BITS,
+      // The player plays the crossfaded edit now: `want` has its frames moved already.
+      want,
+      [],
+      mixProbes,
+      over,
+      n - XF,
+    );
+    let wrongMixes = 0;
+    for (let k = 0; k < n - XF; k++) {
+      mixProbes.forEach((_, p) => {
+        const got = mixed[k]?.slice(p * 3, p * 3 + 3) ?? [];
+        const at = (f: number) => [...(apart[f]?.slice(p * 3, p * 3 + 3) ?? [])];
+        const w = over(k) ? crossfadeMix(k - (E - XF), XF) : 0;
+        const want3 = over(k) ? at(k).map((c, i) => c * (1 - w) + at(k + XF)[i] * w) : at(moved(k));
+        // As the clip fades: wrong when all the bright channels are off.
+        const near = (i: number) => Math.abs(got[i] - want3[i]) <= FADE_NOISE;
+        const bright = [0, 1, 2].filter((i) => Math.max(got[i], want3[i]) >= 64);
+        if (bright.length ? bright.some(near) : [0, 1, 2].every(near)) return;
+        wrongMixes++;
+        const rgb = (c: number[]) =>
+          (Math.round(c[0]) << 16) | (Math.round(c[1]) << 8) | Math.round(c[2]);
+        misses.push({
+          pass: `crossfade, probe ${p}`,
+          frame: k,
+          expected: rgb(want3),
+          shown: rgb([...got]),
+        });
+      });
+    }
+    passes.push({
+      pass: "crossfade",
+      checked: (n - XF) * mixProbes.length,
+      misses: wrongMixes,
+      covered: 0,
+    });
+    useDoc.getState().setCrossfade(fadedClip, 0);
   }
 
   const wrongs = misses.length;

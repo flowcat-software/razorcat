@@ -27,6 +27,13 @@
 // A clip can fade in from black and out to black (PLAN 4.7a), its sound with it: kept and
 // fitted the same way, and the same ramps. Markup isn't faded with it.
 //
+// A clip can crossfade with the one before it (PLAN 4.7b): it overlaps that clip's last frames,
+// its own first ones blending in over them, so the timeline is that much shorter (only frames
+// that are shown are used: a cut usually hides something). Kept as set, and fitted where it's
+// used (`crossfades`). It belongs to the cut: a clip that gets another one before it (moved,
+// or its neighbour deleted) loses it (`keepCrossfades`). At a crossfaded end, the clip's own
+// fade doesn't apply.
+//
 // The frame (crop, and the space grown round it; frame.ts) is one for the whole project.
 
 import type { NewAnnotation } from "../markup/model/types";
@@ -58,6 +65,8 @@ export interface Clip {
   /** How many frames it fades in from black over, and out to black over (none if not set). */
   fadeIn?: number;
   fadeOut?: number;
+  /** How many frames it crossfades with the clip before it over (none if not set). */
+  crossfade?: number;
 }
 
 export type RangeId = number;
@@ -126,8 +135,24 @@ export function markFades(
   return { fadeIn, fadeOut: Math.max(0, Math.min(length - fadeIn, m.fadeOut ?? 0)) };
 }
 
-/** Clip `c`'s fades, fitted to its length. */
+/** Clip `c`'s fades as kept, fitted to its length (crossfades aside: `fadesOf`). */
 export const clipFades = (c: Clip) => markFades(c, clipLength(c));
+
+/**
+ * The fades of clip `index` as they take effect: none at an end it crossfades at, the rest fitted
+ * to what the crossfades leave.
+ */
+export function fadesOf(doc: Doc, index: number): { fadeIn: number; fadeOut: number } {
+  const c = doc.clips[index];
+  if (!c) return { fadeIn: 0, fadeOut: 0 };
+  const xf = crossfades(doc);
+  const head = xf[index];
+  const tail = xf[index + 1] ?? 0;
+  return markFades(
+    { fadeIn: head ? 0 : c.fadeIn, fadeOut: tail ? 0 : c.fadeOut },
+    clipLength(c) - head - tail,
+  );
+}
 
 /**
  * How much of the picture shows on timeline frame `f` (0 to 1): the fades of the clip under it,
@@ -136,7 +161,123 @@ export const clipFades = (c: Clip) => markFades(c, clipLength(c));
 export function clipOpacityAt(doc: Doc, f: number): number {
   const at = clipAt(doc, f);
   if (!at) return 1;
-  return markOpacity(clipFades(at.clip), clipLength(at.clip), f - at.start);
+  return markOpacity(fadesOf(doc, at.index), clipLength(at.clip), f - at.start);
+}
+
+/**
+ * Each clip's crossfade with the one before it (PLAN 4.7b), as it takes effect: none for the
+ * first; else as set, kept to whole frames, to the frames of the clip before that its own
+ * crossfade leaves, and to all but a frame of the clip's own (so each clip has frames that are
+ * its alone, to play: the player's spans).
+ */
+export function crossfades(doc: Doc): number[] {
+  const out: number[] = [];
+  doc.clips.forEach((c, i) => {
+    if (i === 0 || !c.crossfade) {
+      out.push(0);
+      return;
+    }
+    const room = Math.min(clipLength(doc.clips[i - 1]) - out[i - 1], clipLength(c) - 1);
+    out.push(Math.max(0, Math.min(Math.round(c.crossfade), room)));
+  });
+  return out;
+}
+
+/**
+ * How much of the incoming clip shows on frame `k` (from 0) of a crossfade `length` frames long:
+ * k / length, ffmpeg's `xfade` frame for frame (its first frame the outgoing clip's alone).
+ */
+export const crossfadeMix = (k: number, length: number) => k / length;
+
+/**
+ * The crossfade at timeline frame `f`, if one's there: the incoming clip (its index), and how
+ * far into it `f` is (`k`) of how long (`length`).
+ */
+export function crossfadeAt(
+  doc: Doc,
+  f: number,
+): { index: number; clip: Clip; k: number; length: number } | null {
+  const xf = crossfades(doc);
+  const starts = clipStarts(doc);
+  for (let index = 1; index < doc.clips.length; index++) {
+    const length = xf[index];
+    if (length && f >= starts[index] && f < starts[index] + length) {
+      return { index, clip: doc.clips[index], k: f - starts[index], length };
+    }
+  }
+  return null;
+}
+
+/**
+ * The clips as the player plays them: each from its first frame after its crossfade (the
+ * outgoing clip plays through the crossfade, the incoming one shown over it), so they meet end
+ * to end along the timeline.
+ */
+export function playedClips(doc: Doc): Clip[] {
+  const xf = crossfades(doc);
+  return doc.clips.map((c, i) => (xf[i] ? { ...c, in: c.in + xf[i] } : c));
+}
+
+/**
+ * Clip `id` crossfades with the clip before it over `frames` (0: none), kept as `crossfades`
+ * keeps it. The same document if nothing changes (or it's the first clip).
+ */
+export function setCrossfade(doc: Doc, id: ClipId, frames: number): Doc {
+  const index = doc.clips.findIndex((c) => c.id === id);
+  if (index < 1) return doc;
+  const now = crossfades(doc)[index];
+  const tried = crossfades(withCrossfadeAt(doc, index, Math.max(0, Math.round(frames))))[index];
+  if (tried === now && (tried > 0 || !doc.clips[index].crossfade)) return doc;
+  return withCrossfadeAt(doc, index, tried);
+}
+
+function withCrossfadeAt(doc: Doc, index: number, frames: number): Doc {
+  const clips = [...doc.clips];
+  clips[index] = withCrossfade(clips[index], frames);
+  return { ...doc, clips };
+}
+
+/** `c` crossfading over `frames` (0: not at all, left out). */
+function withCrossfade(c: Clip, frames: number): Clip {
+  const next: Clip = { ...c, crossfade: frames };
+  if (!frames) delete next.crossfade;
+  return next;
+}
+
+/**
+ * The crossfades through an edit (`after`, made from `previous`; in a drag, `start` is the
+ * document when it began): a clip keeps its crossfade while the clip before it is the one it
+ * was (or a part of it that ends where it did: a split, a cut), and loses it when another comes
+ * before it (moved, deleted, inserted). One that lost it to an earlier step of the same drag
+ * gets it back once the clip before it is the one it was. The same document if none changes.
+ */
+export function keepCrossfades(start: Doc, previous: Doc, after: Doc): Doc {
+  if (after === previous) return after;
+  const before = (d: Doc, id: ClipId) => {
+    const i = d.clips.findIndex((c) => c.id === id);
+    return i > 0 ? d.clips[i - 1] : null;
+  };
+  const same = (a: Clip | null, b: Clip | null) =>
+    !!a && !!b && (a.id === b.id || (a.source === b.source && a.out === b.out));
+  let changed = false;
+  const clips = after.clips.map((c, i) => {
+    const prev = i > 0 ? after.clips[i - 1] : null;
+    const was = start.clips.find((s) => s.id === c.id);
+    let crossfade = c.crossfade ?? 0;
+    if (!same(prev, before(start, c.id)) && !same(prev, before(previous, c.id))) crossfade = 0;
+    else if (
+      !crossfade &&
+      was?.crossfade &&
+      same(prev, before(start, c.id)) &&
+      !same(prev, before(previous, c.id))
+    ) {
+      crossfade = was.crossfade;
+    }
+    if (crossfade === (c.crossfade ?? 0)) return c;
+    changed = true;
+    return withCrossfade(c, crossfade);
+  });
+  return changed ? { ...after, clips } : after;
 }
 
 /** What each kind of markup is called. */
@@ -242,26 +383,33 @@ export function setCrop(doc: Doc, crop: Rect): Doc {
 
 export const clipLength = (c: Clip) => c.out - c.in;
 
-/** The timeline's length in frames. */
-export const total = (doc: Doc) => doc.clips.reduce((n, c) => n + clipLength(c), 0);
+/** The timeline's length in frames: the clips', less their crossfades. */
+export function total(doc: Doc): number {
+  const xf = crossfades(doc);
+  return doc.clips.reduce((n, c, i) => n + clipLength(c) - xf[i], 0);
+}
 
-/** Where each clip starts on the timeline. */
+/** Where each clip starts on the timeline: over the end of the one before, if it crossfades. */
 export function clipStarts(doc: Doc): number[] {
+  const xf = crossfades(doc);
   let t = 0;
-  return doc.clips.map((c) => {
-    const s = t;
-    t += clipLength(c);
+  return doc.clips.map((c, i) => {
+    const s = t - xf[i];
+    t = s + clipLength(c);
     return s;
   });
 }
 
-/** The clip under timeline frame `f`: its index, and where it starts. */
+/**
+ * The clip under timeline frame `f`: its index, and where it starts. In a crossfade, the
+ * outgoing clip (it plays through it).
+ */
 export function clipAt(doc: Doc, f: number): { index: number; clip: Clip; start: number } | null {
-  let start = 0;
+  const starts = clipStarts(doc);
   for (let index = 0; index < doc.clips.length; index++) {
     const clip = doc.clips[index];
+    const start = starts[index];
     if (f >= start && f < start + clipLength(clip)) return { index, clip, start };
-    start += clipLength(clip);
   }
   return null;
 }
@@ -282,7 +430,10 @@ export function editPoints(doc: Doc): number[] {
 function cutClip(c: Clip, at: number, id: ClipId, fadeCuts: boolean): [Clip, Clip] {
   return [
     withFades({ ...c, out: at }, c.fadeIn ?? 0, fadeCuts ? (c.fadeOut ?? 0) : 0),
-    withFades({ ...c, id, in: at }, fadeCuts ? (c.fadeIn ?? 0) : 0, c.fadeOut ?? 0),
+    withCrossfade(
+      withFades({ ...c, id, in: at }, fadeCuts ? (c.fadeIn ?? 0) : 0, c.fadeOut ?? 0),
+      0,
+    ),
   ];
 }
 
@@ -309,7 +460,7 @@ export function split(
   fadeClipCuts = false,
 ): Doc {
   const at = clipAt(doc, f);
-  if (!at || f === at.start) return doc;
+  if (!at || f === at.start || inCrossfade(doc, f)) return doc;
   if (splitMarks) doc = cutMarks(doc, f, f, fadeCuts);
   const cut = at.clip.in + (f - at.start);
   const clips = [...doc.clips];
@@ -317,6 +468,16 @@ export function split(
   const ranges = handOver(doc.ranges, at.clip.id, doc.nextId, cut);
   const marks = handMarksOver(doc.marks, at.clip.id, doc.nextId, cut);
   return { ...doc, clips, ranges, marks, nextId: doc.nextId + 1 };
+}
+
+/**
+ * Whether a cut at timeline frame `f` would land in a crossfade (or on its end, which would
+ * leave the incoming clip's first part nothing of its own): nothing splits there.
+ */
+export function inCrossfade(doc: Doc, f: number): boolean {
+  const xf = crossfades(doc);
+  const starts = clipStarts(doc);
+  return xf.some((n, i) => n > 0 && f > starts[i] && f <= starts[i] + n);
 }
 
 /**
@@ -817,7 +978,9 @@ export function keepRangesInPlace(before: Doc, after: Doc): Doc {
 
 /**
  * Cuts timeline stretches out of the clips (ripple), and clears the ranges. A clip cut in its
- * middle becomes two: the second part a new clip. Nothing left at all: the same document.
+ * middle becomes two: the second part a new clip. A crossfade a stretch reaches into goes
+ * (PLAN 4.7b), and the stretch takes in as much more of what comes after it, which that moves
+ * along. Nothing left at all: the same document.
  */
 function cutOut(
   doc: Doc,
@@ -831,7 +994,16 @@ function cutOut(
   let marks = doc.marks;
   let nextMarkId = doc.nextMarkId;
   // From the end, so the earlier places stay where they are.
-  for (const { a, b } of [...places].sort((x, y) => y.a - x.a)) {
+  for (const place of [...places].sort((x, y) => y.a - x.a)) {
+    const { a } = place;
+    let { b } = place;
+    const xf = crossfades({ ...doc, clips });
+    const xs = clipStarts({ ...doc, clips });
+    clips = clips.map((c, i) => {
+      if (!xf[i] || a >= xs[i] + xf[i] || b <= xs[i]) return c;
+      b += xf[i];
+      return withCrossfade(c, 0);
+    });
     if (splitMarks) {
       ({ marks, nextMarkId } = cutMarks({ ...doc, clips, marks, nextMarkId }, a, b, fadeCuts));
     }

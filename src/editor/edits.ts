@@ -10,6 +10,7 @@ import {
   copyClips,
   editPoints,
   freeLane,
+  inCrossfade,
   markFades,
   pasteSlot,
   shownMarks,
@@ -27,7 +28,14 @@ import { useTimeline } from "./timelineStore";
 /** S: splits the clip under the playhead there. */
 export function splitAtPlayhead(player: Player) {
   const f = player.getState().frame;
-  if (!useDoc.getState().split(f)) sayWhy(f === 0 ? "split.start" : "split.cut");
+  if (useDoc.getState().split(f)) return;
+  sayWhy(
+    f === 0
+      ? "split.start"
+      : inCrossfade(useDoc.getState().doc, f)
+        ? "split.crossfade"
+        : "split.cut",
+  );
 }
 
 /**

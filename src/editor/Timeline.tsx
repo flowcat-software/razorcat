@@ -12,6 +12,8 @@ import {
   clipAt,
   clipFades,
   clipLength,
+  crossfades,
+  fadesOf,
   clipStarts,
   laneCount,
   longestSource,
@@ -146,7 +148,7 @@ type Edge = "in" | "out";
  * handle on its top corners, or its bar (moves it, along or to another lane).
  */
 type Hit =
-  | { kind: Edge | "move" | "clipFadeIn" | "clipFadeOut"; clip: Clip }
+  | { kind: Edge | "move" | "clipFadeIn" | "clipFadeOut" | "crossfade"; clip: Clip }
   | { kind: "rangeA" | "rangeB" | "rangeMove"; range: ShownRange }
   | { kind: "markStart" | "markEnd" | "markMove" | "fadeIn" | "fadeOut"; mark: ShownMark }
   | { kind: "rangeNew" | "pendingIn" };
@@ -158,6 +160,7 @@ const TIPS: Record<Hit["kind"], [string, string]> = {
   move: ["Move the clip", "drag left or right · Ctrl+[ ]"],
   clipFadeIn: ["Fade in from black", "drag right for a longer fade"],
   clipFadeOut: ["Fade out to black", "drag left for a longer fade"],
+  crossfade: ["Crossfade", "drag left to blend this clip in over the one before"],
   rangeA: ["Range start", "drag"],
   rangeB: ["Range end", "drag"],
   rangeMove: ["Move the range", "drag"],
@@ -179,6 +182,7 @@ const CURSORS: Record<Hit["kind"], string> = {
   move: "grab",
   clipFadeIn: "col-resize",
   clipFadeOut: "col-resize",
+  crossfade: "col-resize",
   rangeA: "ew-resize",
   rangeB: "ew-resize",
   rangeMove: "grab",
@@ -193,6 +197,8 @@ const CURSORS: Record<Hit["kind"], string> = {
 
 /** How far down a markup bar its fade handles reach (px): below them, its edges trim it. */
 const FADE_HIT = 9;
+/** How far up the clip row a cut's crossfade handle reaches (px, PLAN 4.7b): above, it trims. */
+const CROSSFADE_HIT = 14;
 
 /** A trim under way: the edge, where the drag started, and the clip as it was. */
 interface Trim {
@@ -444,19 +450,32 @@ function hitAt(
   const last = doc.clips.length - 1;
   // Its top corners: the fades' handles (the fade-out's first, as markup's), each on its own
   // clip's side of a cut, the timeline's two ends reaching outward.
+  // None at an end that crossfades (PLAN 4.7b): the crossfade is that end's.
+  const xf = crossfades(doc);
   if (y <= CLIP_TOP + FADE_HIT) {
     for (let i = 0; i <= last; i++) {
       const clip = doc.clips[i];
       const x0 = xOf(view, starts[i]);
       const x1 = xOf(view, starts[i] + clipLength(clip));
-      const f = clipFades(clip);
+      const f = fadesOf(doc, i);
       const out = xOf(view, starts[i] + clipLength(clip) - f.fadeOut);
-      if (Math.abs(x - out) <= EDGE_HIT && x <= x1 + (i === last ? EDGE_HIT : 0)) {
+      if (!xf[i + 1] && Math.abs(x - out) <= EDGE_HIT && x <= x1 + (i === last ? EDGE_HIT : 0)) {
         return { kind: "clipFadeOut", clip };
       }
       const into = xOf(view, starts[i] + f.fadeIn);
-      if (Math.abs(x - into) <= EDGE_HIT && x >= x0 - (i === 0 ? EDGE_HIT : 0)) {
+      if (!xf[i] && Math.abs(x - into) <= EDGE_HIT && x >= x0 - (i === 0 ? EDGE_HIT : 0)) {
         return { kind: "clipFadeIn", clip };
+      }
+    }
+  }
+  // Along the clip row's foot: each cut's crossfade handle, where the clip after it starts (on
+  // the cut, with none), and the crossfade's band.
+  if (y >= CLIP_TOP + CLIP_H - CROSSFADE_HIT) {
+    for (let i = 1; i <= last; i++) {
+      const hx = xOf(view, starts[i]);
+      const end = xOf(view, starts[i] + xf[i]);
+      if (x >= hx - EDGE_HIT && x <= Math.max(hx + EDGE_HIT, end - EDGE_HIT)) {
+        return { kind: "crossfade", clip: doc.clips[i] };
       }
     }
   }
@@ -711,6 +730,8 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
   const ranging = useRef<RangeDrag | null>(null);
   /** Markup being dragged. */
   const marking = useRef<MarkDrag | null>(null);
+  /** A crossfade being dragged (PLAN 4.7b): its incoming clip, from where, and its length then. */
+  const crossfading = useRef<{ id: ClipId; x0: number; orig: number } | null>(null);
   /**
    * A clip's fade being dragged (PLAN 4.7a): which, from where, its length then, and (several
    * selected) theirs.
@@ -1006,6 +1027,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
         g.font = "600 10px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
         g.fillText("IN", x + 4, RANGE_STRIP / 2 + 0.5);
       }
+      const xf = crossfades(doc);
       doc.clips.forEach((clip, i) => {
         const span = { start: starts[i], in: clip.in, out: clip.out };
         const len = clipLength(clip);
@@ -1035,7 +1057,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
         }
         // Its fades: a ramp from each top corner it fades at, darker than markup's (to black),
         // its slope outlined so it reads on any picture.
-        const f = clipFades(clip);
+        const f = fadesOf(doc, i);
         const fx0 = xOf(view, span.start + f.fadeIn);
         const fx1 = xOf(view, span.start + len - f.fadeOut);
         g.fillStyle = "rgb(0 0 0 / 0.45)";
@@ -1104,7 +1126,9 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
         ) {
           g.fillStyle = "#fff";
           g.strokeStyle = "rgb(0 0 0 / 0.6)";
-          for (const fx of [fx0, fx1]) {
+          const ends = [xf[i] ? null : fx0, xf[i + 1] ? null : fx1];
+          for (const fx of ends) {
+            if (fx === null) continue;
             g.beginPath();
             g.moveTo(fx - 5, CLIP_TOP);
             g.lineTo(fx + 5, CLIP_TOP);
@@ -1129,6 +1153,51 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
           g.lineWidth = 1;
         }
       });
+
+      // Crossfades (PLAN 4.7b): a band over where the clips overlap, crossed out corner to
+      // corner (the usual sign of one). Each cut's handle along the foot of the row, while a
+      // clip either side of it is selected or hovered, or its crossfade dragged.
+      const near = (i: number) => {
+        const ids = [doc.clips[i - 1].id, doc.clips[i].id];
+        const hv = hover.current;
+        return (
+          ids.some((id) => selectedClips.includes(id)) ||
+          (!!hv && "clip" in hv && ids.includes(hv.clip.id)) ||
+          crossfading.current?.id === ids[1]
+        );
+      };
+      for (let i = 1; i < doc.clips.length; i++) {
+        const bx0 = xOf(view, starts[i]);
+        const bx1 = xOf(view, starts[i] + xf[i]);
+        if (bx1 < HEADER - 10 || bx0 > W + 10) continue;
+        if (xf[i]) {
+          g.fillStyle = "rgb(0 0 0 / 0.35)";
+          g.fillRect(bx0, CLIP_TOP, bx1 - bx0, CLIP_H);
+          g.strokeStyle = "rgb(255 255 255 / 0.85)";
+          g.beginPath();
+          g.moveTo(bx0, CLIP_TOP);
+          g.lineTo(bx1, CLIP_TOP + CLIP_H);
+          g.moveTo(bx0, CLIP_TOP + CLIP_H);
+          g.lineTo(bx1, CLIP_TOP);
+          g.stroke();
+          g.strokeStyle = "rgb(255 255 255 / 0.6)";
+          g.strokeRect(bx0 + 0.5, CLIP_TOP + 0.5, bx1 - bx0 - 1, CLIP_H - 1);
+        }
+        if (xf[i] || near(i)) {
+          // A diamond on the foot of the cut, outlined to read on any picture.
+          const hy = CLIP_TOP + CLIP_H - 7;
+          g.fillStyle = "#fff";
+          g.strokeStyle = "rgb(0 0 0 / 0.6)";
+          g.beginPath();
+          g.moveTo(bx0, hy - 6);
+          g.lineTo(bx0 + 6, hy);
+          g.lineTo(bx0, hy + 6);
+          g.lineTo(bx0 - 6, hy);
+          g.closePath();
+          g.fill();
+          g.stroke();
+        }
+      }
 
       // Markup: a bar in its lane, saying what it is (the selected one outlined), within the
       // lanes' area.
@@ -1741,6 +1810,28 @@ ${d.group.length} items`,
   };
 
   /**
+   * A crossfade follows the pointer: the clip after the cut starts where it is, over the end of
+   * the one before (left, longer; right, shorter, to none), as far as the clips let it.
+   */
+  const crossfadeTo = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+    d: NonNullable<typeof crossfading.current>,
+  ) => {
+    const { x, view } = at(e);
+    const asked = Math.max(0, d.orig + Math.round((d.x0 - x) / view.zoom));
+    useDoc.getState().setCrossfade(d.id, asked);
+    const doc = useDoc.getState().doc;
+    const now = crossfades(doc)[doc.clips.findIndex((c) => c.id === d.id)] ?? 0;
+    const fmt = formatter();
+    showReadout(
+      now ? `Crossfade ${fmt(now)}${now < asked ? "\n(as long as it goes)" : ""}` : "No crossfade",
+      e.clientX,
+      e.clientY,
+    );
+    draw.current();
+  };
+
+  /**
    * An Alt-drag let go: copies of what was dragged (with its fades, if Settings say so) placed
    * where its ghost was, as a drop of the originals would be (on a busy lane, a new one above or
    * below), and selected. One undo step with the drag.
@@ -1845,6 +1936,7 @@ ${d.group.length} items`,
   /** What's being dragged, for the hint line's modifiers (`scrubbing`: the playhead). */
   const dragHintNow = (scrubbing: boolean): DragHint | null => {
     const d = marking.current;
+    if (crossfading.current) return "crossfade";
     if (clipFading.current) return "fade";
     if (trim.current) return "trim";
     if (moving.current !== null) return "clipMove";
@@ -1873,6 +1965,10 @@ ${d.group.length} items`,
     }
     if (clipFading.current) {
       clipFading.current = null;
+      docState.endGesture();
+    }
+    if (crossfading.current) {
+      crossfading.current = null;
       docState.endGesture();
     }
     if (ranging.current) {
@@ -1923,6 +2019,16 @@ ${d.group.length} items`,
         targets: trimTargets(docState.doc, index, hit.kind, player.getState().frame),
       };
       player.peek(hit.kind === "in" ? hit.clip.in : hit.clip.out - 1, hit.clip.source);
+      return;
+    }
+    if (hit.kind === "crossfade") {
+      docState.beginGesture();
+      const index = docState.doc.clips.findIndex((c) => c.id === hit.clip.id);
+      crossfading.current = {
+        id: hit.clip.id,
+        x0: x,
+        orig: crossfades(docState.doc)[index] ?? 0,
+      };
       return;
     }
     if (hit.kind === "clipFadeIn" || hit.kind === "clipFadeOut") {
@@ -2127,6 +2233,10 @@ ${d.group.length} items`,
             clipFadeTo(e, clipFading.current);
             return;
           }
+          if (crossfading.current) {
+            crossfadeTo(e, crossfading.current);
+            return;
+          }
           if (ranging.current) {
             rangeTo(e, ranging.current);
             return;
@@ -2223,6 +2333,30 @@ ${d.group.length} items`,
                 ...arrangeItems(useDoc.getState().doc, useDoc.getState().selectedMarks),
                 "-",
                 { label: "Delete", hint: "Delete", run: deleteSelected },
+              ],
+            });
+            return;
+          }
+          // A cut's crossfade handle or band (PLAN 4.7b): one of the default length, or none.
+          if (hit?.kind === "crossfade") {
+            const { id } = hit.clip;
+            const index = docState.doc.clips.findIndex((c) => c.id === id);
+            const has = (crossfades(docState.doc)[index] ?? 0) > 0;
+            setMenu({
+              x: e.clientX,
+              y: e.clientY,
+              items: [
+                {
+                  label: has ? "Default Crossfade" : "Add Crossfade",
+                  title: "As long as Settings › Timeline › Default clip fade",
+                  run: () =>
+                    useDoc.getState().setCrossfade(id, useDoc.getState().options.defaultClipFade),
+                },
+                {
+                  label: "Remove Crossfade",
+                  disabled: !has,
+                  run: () => useDoc.getState().setCrossfade(id, 0),
+                },
               ],
             });
             return;
@@ -2340,6 +2474,7 @@ ${d.group.length} items`,
             ranging.current ||
             marking.current ||
             clipFading.current ||
+            crossfading.current ||
             moving.current !== null ||
             !hover.current
           ) {

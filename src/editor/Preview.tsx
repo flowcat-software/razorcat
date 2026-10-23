@@ -4,7 +4,7 @@ import { MarkupLayer } from "../markup/MarkupLayer";
 import { connectMarkup } from "../markup/model/store";
 import type { SourceInfo } from "../shared/ipc";
 import { CropOverlay } from "./CropOverlay";
-import { clipOpacityAt } from "./doc";
+import { clipOpacityAt, clipStarts, crossfadeAt, crossfadeMix, crossfades, type Doc } from "./doc";
 import { useDoc } from "./docStore";
 import { fitRect, videoTransform } from "./fit";
 import { growColour, growMode, NO_GROW, outputSize, SIDES } from "./frame";
@@ -137,6 +137,7 @@ export function Preview({ sources, player, proxyUrls, onError, onUnplayable }: P
                 onUnplayable={onUnplayable}
               />
             ))}
+            <CrossfadeMix sources={sources} first={source} picture={picture} player={player} />
           </div>
         </div>
         {!cropping && <ClipFade player={player} />}
@@ -186,15 +187,19 @@ export function Preview({ sources, player, proxyUrls, onError, onUnplayable }: P
 /**
  * The clips' fades (PLAN 4.7a): black over the whole frame, as opaque as the picture under the
  * playhead is faded (`clipOpacityAt`, the export's ramp), and the sound as loud as the picture
- * shows. Set straight on the element as the playhead moves, not re-rendered.
+ * shows (in a crossfade, the outgoing clip's as much as it's left: `CrossfadeMix`). Set straight
+ * on the element as the playhead moves, not re-rendered.
  */
 function ClipFade({ player }: { player: Player }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const update = () => {
-      const shows = clipOpacityAt(useDoc.getState().doc, player.getState().frame);
+      const { doc } = useDoc.getState();
+      const { frame } = player.getState();
+      const shows = clipOpacityAt(doc, frame);
       if (ref.current) ref.current.style.opacity = String(1 - shows);
-      player.setLevel(shows);
+      const xf = crossfadeAt(doc, frame);
+      player.setLevel(shows * (xf ? 1 - crossfadeMix(xf.k, xf.length) : 1));
     };
     update();
     const stopPlayer = player.subscribe(update);
@@ -206,6 +211,178 @@ function ClipFade({ player }: { player: Player }) {
     };
   }, [player]);
   return <div ref={ref} className={styles.clipFade} />;
+}
+
+/**
+ * A crossfade's incoming clip (PLAN 4.7b), over the outgoing one the player shows: a second video
+ * of each file (the outgoing clip is often from the same one), in the picture as its deck is,
+ * on black (fitted in, the rest black, as the export pads it), as opaque as it's mixed in
+ * (`crossfadeMix`, the export's `xfade`), its sound as loud. Set straight on the elements as the
+ * playhead moves.
+ *
+ * Paused or stepping, it's sought to the exact frame. Playing, it's made ready a second ahead:
+ * sought to the incoming clip's first frame and held there, so the crossfade only has to start
+ * it; then it plays along, sought again only if it falls well behind (seeking a playing video
+ * stutters). At the crossfade's end the player moves its own video on to the incoming clip,
+ * which takes a seek when both are from one file: till its picture's there, this one stays on
+ * top, all of it, playing on (Richard, 2026-10-23: playing across a crossfade stuttered).
+ */
+function CrossfadeMix({
+  sources,
+  first,
+  picture,
+  player,
+}: {
+  sources: readonly SourceInfo[];
+  first: SourceInfo;
+  picture: { width: number; height: number };
+  player: Player;
+}) {
+  const wrap = useRef<HTMLDivElement>(null);
+  const videos = useRef(new Map<string, HTMLVideoElement>());
+  useEffect(() => {
+    /** The video showing (its file), and the clip it's playing or held ready for. */
+    let on: string | null = null;
+    let ready: { source: string; time: number } | null = null;
+    let handing: { source: string } | null = null;
+    const show = (source: string | null, opacity: number) => {
+      if (wrap.current) wrap.current.style.opacity = String(opacity);
+      if (source === on) return;
+      on = source;
+      for (const [id, v] of videos.current) {
+        const deck = v.parentElement;
+        if (deck) deck.style.visibility = id === source ? "visible" : "hidden";
+      }
+    };
+    const pauseOthers = (keep: string | null) => {
+      for (const [id, v] of videos.current) if (id !== keep && !v.paused) v.pause();
+    };
+    const update = () => {
+      const { doc } = useDoc.getState();
+      const { frame, speed } = player.getState();
+      const fps = player.fps;
+      const at = crossfadeAt(doc, frame);
+      const v = at && videos.current.get(at.clip.source);
+      const time = at && player.frameTime(at.clip.source, at.clip.in + at.k);
+      if (at && v && time !== null) {
+        handing = null;
+        pauseOthers(at.clip.source);
+        const mix = crossfadeMix(at.k, at.length);
+        show(at.clip.source, mix);
+        if (speed > 0) {
+          // Started from where it was held ready, or sought if it's well off.
+          const off = Math.abs(v.currentTime - time);
+          if (v.paused ? off > 1.5 / fps : off > 0.25) v.currentTime = time;
+          v.playbackRate = speed;
+          v.muted = doc.muted || !!at.clip.muted;
+          v.volume = mix;
+          if (v.paused) void v.play().catch(() => {});
+          ready = { source: at.clip.source, time };
+        } else {
+          if (!v.paused) v.pause();
+          v.muted = true;
+          if (ready?.source !== at.clip.source || ready.time !== time) v.currentTime = time;
+          ready = { source: at.clip.source, time };
+        }
+        return;
+      }
+      // Just past a crossfade, playing, its video playing: on top till the player's own video
+      // shows the clip (it's moving on to it, `crossing`).
+      if (speed > 0 && on && player.crossingCut && (handing || ready?.source === on)) {
+        const h = videos.current.get(on);
+        if (h && !h.paused) {
+          handing = { source: on };
+          h.volume = 1;
+          show(on, 1);
+          return;
+        }
+      }
+      handing = null;
+      show(null, 0);
+      // Playing towards a crossfade: its video held at the incoming clip's first frame.
+      const next = speed > 0 ? upcoming(doc, frame, fps) : null;
+      const nv = next && videos.current.get(next.source);
+      const nt = next && player.frameTime(next.source, next.in);
+      pauseOthers(null);
+      if (next && nv && nt !== null && (ready?.source !== next.source || ready.time !== nt)) {
+        nv.muted = true;
+        nv.currentTime = nt;
+        ready = { source: next.source, time: nt };
+      }
+    };
+    update();
+    const stopPlayer = player.subscribe(update);
+    const stopDoc = useDoc.subscribe(update);
+    const all = videos.current;
+    return () => {
+      stopPlayer();
+      stopDoc();
+      for (const v of all.values()) v.pause();
+    };
+  }, [player]);
+  return (
+    <div ref={wrap} className={styles.crossfadeMix} style={{ opacity: 0 }}>
+      {sources.map((s) => (
+        <MixVideo
+          key={s.id}
+          source={s}
+          box={fitIn(s, first, picture)}
+          onVideo={(v) => {
+            if (v) videos.current.set(s.id, v);
+            else videos.current.delete(s.id);
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** The incoming clip of the next crossfade within a second after timeline frame `f`, if any. */
+function upcoming(doc: Doc, f: number, fps: number) {
+  const xf = crossfades(doc);
+  const starts = clipStarts(doc);
+  const i = starts.findIndex((s, k) => xf[k] > 0 && s > f && s - f <= fps);
+  return i < 0 ? null : doc.clips[i];
+}
+
+/** One file's video for `CrossfadeMix`: placed and turned as its deck's is (`Deck`). */
+function MixVideo({
+  source,
+  box,
+  onVideo,
+}: {
+  source: SourceInfo;
+  box: { left: number; top: number; width: number; height: number };
+  onVideo: (v: HTMLVideoElement | null) => void;
+}) {
+  const [measured, setMeasured] = useState<{ url: string; width: number; height: number } | null>(
+    null,
+  );
+  const natural = measured?.url === source.url ? measured : null;
+  const transform = natural ? videoTransform(natural, source, box) : null;
+  return (
+    // Shown by `CrossfadeMix`, straight on the element.
+    <div className={styles.deck} style={{ ...box, visibility: "hidden" }}>
+      <video
+        key={source.url}
+        ref={onVideo}
+        className={styles.video}
+        src={source.url}
+        crossOrigin="anonymous"
+        preload="auto"
+        muted
+        style={
+          transform
+            ? { width: transform.width, height: transform.height, transform: transform.css }
+            : { visibility: "hidden" }
+        }
+        onLoadedMetadata={(e) => {
+          const { videoWidth: width, videoHeight: height } = e.currentTarget;
+          if (width > 0) setMeasured({ url: source.url, width, height });
+        }}
+      />
+    </div>
+  );
 }
 
 /** Where `s` shows in the picture (`picture`, the first file's): fitted in, centred. */

@@ -148,6 +148,8 @@ export const CONTROL_HINTS = {
     "Drag right to fade the clip in from black for longer · several selected fade together, [Shift] all as long · Right-click for the default fade",
   "timeline.clipFadeOut":
     "Drag left to fade the clip out to black for longer · several selected fade together, [Shift] all as long · Right-click for the default fade",
+  "timeline.crossfade":
+    "Drag left to crossfade: this clip blends in over the end of the one before, the timeline that much shorter · Right-click to add or remove one",
   "timeline.speaker": "[Shift+M] Mute or unmute all the sound · [M] the selected clips",
   "timeline.lanes":
     "Drag to select markup, or clips from their row · [Ctrl] or [Shift] keeps the selection · Right-click to clean up the lanes",
@@ -178,6 +180,7 @@ export type DragHint =
   | "markCopy"
   | "markEdge"
   | "fade"
+  | "crossfade"
   | "range"
   | "scrub"
   | "box";
@@ -203,6 +206,8 @@ const DRAG_HINTS: Record<DragHint, string> = {
     "Let go to place the copy · [Shift] no snapping · Over something on its lane, a new lane, above or below by the pointer",
   markEdge: "[Shift] no snapping · The others selected change by as much, each as far as it can",
   fade: "[Shift] all the same length (several selected) · press and let go of it while dragging",
+  crossfade:
+    "Left: a longer crossfade, the clips after it moving along · Right: shorter, all the way for none",
   range: "[Shift] no snapping · Ranges stop against each other",
   scrub: "[Shift] no snapping",
   box: "Touching the clip row, it selects clips; else markup · [Ctrl] or [Shift] keeps what was selected",
@@ -293,6 +298,8 @@ const MARKS_SELECTED =
 export const WHY = {
   "split.cut": "Nothing to split: the playhead is on a cut",
   "split.start": "Nothing to split at the very start",
+  "split.crossfade":
+    "Nothing splits in a crossfade: move the playhead out of it, or remove it first",
   "range.on":
     "No new range: the playhead is on one already · drag its edges, or move the playhead off it",
   "out.early": "No range: the playhead is before the in-point · move it later, or [I] again",

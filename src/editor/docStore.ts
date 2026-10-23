@@ -8,7 +8,8 @@
 //
 // After an edit of the clips, the ranges and markup follow their video (each range kept in one
 // place), or, with Settings › Timeline › "Ranges and markup follow their video" off, stay where
-// they were on the timeline (where they were when the drag started, for a drag).
+// they were on the timeline (where they were when the drag started, for a drag). After any
+// edit, a clip with another clip before it now loses its crossfade (`keepCrossfades`).
 
 import { create } from "zustand";
 import {
@@ -23,6 +24,8 @@ import {
   moveClips,
   fadeEnds,
   fadeClipEnds,
+  keepCrossfades,
+  setCrossfade,
   setClipFades,
   setClipsFades,
   deleteClip,
@@ -150,6 +153,8 @@ export interface DocState {
   clipRemoveFades: (ids: readonly ClipId[], ends: "both" | "in" | "out") => boolean;
   /** Clips `ids` fading in and out over these (Paste Fades). */
   setClipsFades: (ids: readonly ClipId[], fadeIn: number, fadeOut: number) => boolean;
+  /** Clip `id` crossfades with the one before it over so many frames (0: none; PLAN 4.7b). */
+  setCrossfade: (id: ClipId, frames: number) => boolean;
 
   /** Adds a range over timeline frames `a` to `b` and selects it; its id, or null. */
   addRange: (a: number, b: number) => RangeId | null;
@@ -235,7 +240,7 @@ export const useDoc = create<DocState>()((set, get) => {
    */
   const apply = (edit: (doc: Doc) => Doc, yielding: readonly MarkId[] = []): boolean => {
     const s = get();
-    const doc = settleLanes(edit(s.doc), yielding);
+    const doc = settleLanes(keepCrossfades(s.gestureStart ?? s.doc, s.doc, edit(s.doc)), yielding);
     if (doc === s.doc) return false;
     if (s.gestureStart) set({ doc });
     else set({ doc, past: pushLimited(s.past, s.doc), future: [] });
@@ -370,6 +375,8 @@ export const useDoc = create<DocState>()((set, get) => {
     clipRemoveFades: (ids, ends) => apply((doc) => fadeClipEnds(doc, ids, 0, ends)),
     setClipsFades: (ids, fadeIn, fadeOut) =>
       apply((doc) => setClipsFades(doc, ids, fadeIn, fadeOut)),
+    // It moves what comes after: ranges and markup follow, or keep their place.
+    setCrossfade: (id, frames) => applyClips((doc) => setCrossfade(doc, id, frames)),
 
     addRange: (a, b) => {
       const id = get().doc.nextRangeId;

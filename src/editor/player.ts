@@ -199,6 +199,19 @@ export class Player {
     this.show(this.state.frame);
   }
 
+  /** Playing, moving on to the next clip: its first picture isn't on screen yet. */
+  get crossingCut() {
+    return this.crossing;
+  }
+
+  /**
+   * Where to seek a video of `source` to show its grid frame `frame` (the middle of its picture),
+   * once its frame times are read; null till then (PLAN 4.7b: a crossfade's incoming clip).
+   */
+  frameTime(source: SourceId, frame: number): number | null {
+    return this.decks.get(source)?.times?.seek[frame] ?? null;
+  }
+
   /**
    * How loud the sound plays, 0 to 1 (a clip's fades, PLAN 4.7a, ramp it with the picture). A
    * muted clip stays silent.
@@ -585,12 +598,16 @@ export class Player {
       return;
     }
     this.playing++;
+    const ready = !v.busy && Math.abs(v.shownTime - deck.times.start[next.in]) < 1e-3;
+    const playOn = next.source !== now.source && ready;
+    // Crossing (till its first picture's on screen) before the playhead moves: a crossfade's
+    // video stays on top through it (Preview.tsx's `CrossfadeMix`).
+    this.crossing = !playOn;
     this.set({ frame: next.start, source: next.source });
     v.video.muted = next.muted;
     v.video.playbackRate = this.state.speed;
     this.preload();
-    const ready = !v.busy && Math.abs(v.shownTime - deck.times.start[next.in]) < 1e-3;
-    if (next.source !== now.source && ready) {
+    if (playOn) {
       // Sought there already, while the last clip played: play on at once.
       void v.video.play().catch((e: unknown) => {
         console.error("[player] play:", e);
@@ -598,7 +615,6 @@ export class Player {
       });
       return;
     }
-    this.crossing = true;
     v.seek(deck.times.seek[next.in]);
   }
 

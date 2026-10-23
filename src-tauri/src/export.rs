@@ -11,7 +11,9 @@
 //! over it, each item (drawn by the page, markup.rs) on the frames it shows on. A muted clip's
 //! sound is silenced (`concat` still joins it); with every clip muted, the file has no audio.
 //! A clip's fades (PLAN 4.7a) are black laid over the whole frame, under the markup, its alpha
-//! ramped frame by frame as the preview's is; its sound fades with it.
+//! ramped frame by frame as the preview's is; its sound fades with it. A clip that crossfades
+//! with the one before it (4.7b) is blended in over that one's last frames (`xfade`, the sound
+//! with `acrossfade`), the export that much shorter.
 //!
 //! The encoder is the machine's best that works, found at startup by trying each in turn
 //! (`probe`): NVIDIA's, AMD's, Intel's, Windows' own (Media Foundation), then libx264, which
@@ -55,6 +57,9 @@ pub struct ExportClip {
     pub fade_in: u32,
     #[serde(rename = "fadeOut")]
     pub fade_out: u32,
+    /// How many frames it crossfades with the clip before it in the export over (none for the
+    /// first).
+    pub crossfade: u32,
 }
 
 /// A part of the picture as shown (rotation applied), in its pixels.
@@ -288,6 +293,8 @@ struct Cut {
     /// Its fades from and to black, in frames.
     fade_in: u32,
     fade_out: u32,
+    /// Its crossfade with the cut before it, in frames (the first's doesn't count: `crossfades`).
+    crossfade: u32,
 }
 
 /// How far before a clip's first frame its input is seeked: the frame is kept whatever the
@@ -355,12 +362,16 @@ fn overlays(clips: &[ExportClip], markup: &Markup) -> Vec<Overlay> {
 }
 
 /// The export's stretches on which timeline frames `start` to `end` show, joined where they
-/// meet in both the export and the item.
+/// meet (or overlap, over a crossfade) in both the export and the item.
 fn shown(clips: &[ExportClip], start: u32, end: u32) -> Vec<Show> {
     let mut shows: Vec<Show> = Vec::new();
-    let mut at = 0;
-    for c in clips {
+    let mut at = 0u32;
+    for (i, c) in clips.iter().enumerate() {
         let length = c.out - c.from;
+        // Over the end of the one before, crossfading.
+        if i > 0 {
+            at = at.saturating_sub(c.crossfade);
+        }
         let (a, b) = (start.max(c.start), end.min(c.start + length));
         if a < b {
             let show = Show {
@@ -370,9 +381,11 @@ fn shown(clips: &[ExportClip], start: u32, end: u32) -> Vec<Show> {
             };
             match shows.last_mut() {
                 Some(last)
-                    if last.to == show.from && last.at + (last.to - last.from) == show.at =>
+                    if last.to >= show.from
+                        && show.from >= last.from
+                        && last.at + (show.from - last.from) == show.at =>
                 {
-                    last.to = show.to;
+                    last.to = last.to.max(show.to);
                 }
                 _ => shows.push(show),
             }
@@ -398,7 +411,27 @@ fn cut(input: &Input, first: &Input, c: &ExportClip) -> Cut {
         fit: fitted.then_some((first.width, first.height)),
         fade_in,
         fade_out: c.fade_out.min(length - fade_in),
+        crossfade: c.crossfade.min(length.saturating_sub(1)),
     }
+}
+
+/// Each cut's crossfade with the one before it, kept to the frames that one has (none for the
+/// first: an export of one clip, or of clips apart, has none at its start).
+fn crossfades(cuts: &[Cut]) -> Vec<u32> {
+    let mut xf: Vec<u32> = Vec::with_capacity(cuts.len());
+    for (i, c) in cuts.iter().enumerate() {
+        xf.push(match i.checked_sub(1) {
+            Some(p) => c.crossfade.min(cuts[p].out - cuts[p].from - xf[p]),
+            None => 0,
+        });
+    }
+    xf
+}
+
+/// How many frames the export of `cuts` has: theirs, less their crossfades.
+fn export_frames(cuts: &[Cut]) -> u32 {
+    let lengths: u32 = cuts.iter().map(|c| c.out - c.from).sum();
+    lengths - crossfades(cuts).iter().sum::<u32>()
 }
 
 /// The size of the black a clip fades to: the frame's, and never smaller than the picture (an
@@ -571,20 +604,58 @@ fn graph(
         ));
     }
     let n = cuts.len();
-    let joined: String = (0..n)
-        .map(|i| {
-            if audio {
-                format!("[v{i}][a{i}]")
+    let xf = crossfades(cuts);
+    if xf.iter().all(|&x| x == 0) {
+        let joined: String = (0..n)
+            .map(|i| {
+                if audio {
+                    format!("[v{i}][a{i}]")
+                } else {
+                    format!("[v{i}]")
+                }
+            })
+            .collect();
+        f.push(format!(
+            "{joined}concat=n={n}:v=1:a={}[vc]{}",
+            u8::from(audio),
+            if audio { "[ac]" } else { "" }
+        ));
+    } else {
+        // Crossfades: two at a time, a crossfading clip blended in over the end of what's
+        // before it from its start in the export (the same picture format and clock both sides,
+        // as `xfade` needs), the others joined.
+        let (mut v, mut a) = ("v0".to_string(), "a0".to_string());
+        let mut at = cuts[0].out - cuts[0].from;
+        for i in 1..n {
+            if xf[i] > 0 {
+                at -= xf[i];
+                let d = f64::from(xf[i]) / fps;
+                let clock = format!("format=yuv444p,settb={}/{}", rate.den, rate.num);
+                f.push(format!("[{v}]{clock}[xa{i}];[v{i}]{clock}[xb{i}]"));
+                f.push(format!(
+                    "[xa{i}][xb{i}]xfade=transition=fade:duration={d:.6}:offset={:.6}[vj{i}]",
+                    f64::from(at) / fps
+                ));
+                if audio {
+                    f.push(format!(
+                        "[{a}][a{i}]acrossfade=d={d:.6}:c1=tri:c2=tri[aj{i}]"
+                    ));
+                }
             } else {
-                format!("[v{i}]")
+                f.push(format!("[{v}][v{i}]concat=n=2:v=1:a=0[vj{i}]"));
+                if audio {
+                    f.push(format!("[{a}][a{i}]concat=n=2:v=0:a=1[aj{i}]"));
+                }
             }
-        })
-        .collect();
-    f.push(format!(
-        "{joined}concat=n={n}:v=1:a={}[vc]{}",
-        u8::from(audio),
-        if audio { "[ac]" } else { "" }
-    ));
+            v = format!("vj{i}");
+            a = format!("aj{i}");
+            at += cuts[i].out - cuts[i].from;
+        }
+        f.push(format!("[{v}]null[vc]"));
+        if audio {
+            f.push(format!("[{a}]anull[ac]"));
+        }
+    }
     // The frame, then the markup over it, back to front: in full colour (4:4:4), as the frame is
     // made, so each item lands on the pixels the preview shows it on. Each item is made YUV
     // once, not on every frame (spike 0.3), and is on only between its frames (`n` counts the
@@ -608,7 +679,7 @@ fn graph(
                 // The spotlights all at once, at the first of them.
                 if !darkened {
                     darkened = true;
-                    let total = cuts.iter().map(|c| c.out - c.from).sum();
+                    let total = export_frames(cuts);
                     at = dark(&mut f, &at, overlays, &inputs, total, rate);
                 }
                 continue;
@@ -699,9 +770,12 @@ fn clip_fades(
     rate: Rate,
 ) -> String {
     let mut at = at.to_string();
+    let xf = crossfades(cuts);
     let mut start = 0;
     for (i, c) in cuts.iter().enumerate() {
         let length = c.out - c.from;
+        // Over the end of the one before, crossfading.
+        start -= xf[i];
         // The black's own fade: out as the clip fades in (all black on its first frame); in as
         // it fades out, a frame early and that frame dropped (all black on its last).
         let fades = [
@@ -1081,7 +1155,7 @@ fn render_mp4(
     stop: &AtomicBool,
 ) -> Result<Outcome, String> {
     let (input, cuts) = prepare(app, clips, output)?;
-    let frames: u64 = clips.iter().map(|c| u64::from(c.out - c.from)).sum();
+    let frames = u64::from(export_frames(&cuts));
     let made = frame_filter(frame, input.width, input.height);
     let marks = overlays(clips, markup);
     let (width, height) = output_size(frame, input.width, input.height);
@@ -1134,7 +1208,7 @@ fn render_gif(
         let settings = state.settings.read().unwrap();
         (settings.export.gif_fps, settings.export.gif_size)
     };
-    let grid: u64 = clips.iter().map(|c| u64::from(c.out - c.from)).sum();
+    let grid = u64::from(export_frames(&cuts));
     let frames = ((grid as f64) * f64::from(gif_fps) / input.rate.fps())
         .ceil()
         .max(1.0);
@@ -2130,7 +2204,55 @@ mod tests {
             start,
             fade_in: 0,
             fade_out: 0,
+            crossfade: 0,
         }
+    }
+
+    #[test]
+    fn a_crossfading_clip_is_blended_in_over_the_end_of_the_one_before() {
+        let rate = Rate { num: 30, den: 1 };
+        let cut = |from: u32, crossfade: u32| Cut {
+            from,
+            out: from + 30,
+            crossfade,
+            ..Default::default()
+        };
+        // Three clips of 30 frames: the second crossfades over 6, the third is joined.
+        let c = [cut(0, 0), cut(100, 6), cut(200, 0)];
+        let a = joined(&one_file(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            1,
+            None,
+            &[],
+            Encoder::X264,
+            6_000_000,
+        ));
+        assert!(a.contains(
+            "[v0]format=yuv444p,settb=1/30[xa1];[v1]format=yuv444p,settb=1/30[xb1];\
+             [xa1][xb1]xfade=transition=fade:duration=0.200000:offset=0.800000[vj1]"
+        ));
+        assert!(a.contains("[a0][a1]acrossfade=d=0.200000:c1=tri:c2=tri[aj1]"));
+        assert!(a.contains("[vj1][v2]concat=n=2:v=1:a=0[vj2];[aj1][a2]concat=n=2:v=0:a=1[aj2]"));
+        assert!(a.contains("[vj2]null[vc];[aj2]anull[ac]"));
+        assert_eq!(export_frames(&c), 84);
+        // A first clip's crossfade (one exported alone) doesn't count.
+        assert_eq!(export_frames(&c[1..2]), 30);
+        // Markup over the crossfade shows once, from its start to its end.
+        let clips = [
+            ExportClip {
+                crossfade: 0,
+                ..clip(1, 0, 30, 0)
+            },
+            ExportClip {
+                crossfade: 6,
+                ..clip(2, 100, 130, 24)
+            },
+        ];
+        let show = |from, to, at| Show { from, to, at };
+        assert_eq!(shown(&clips, 20, 40), [show(20, 40, 0)]);
     }
 
     #[test]

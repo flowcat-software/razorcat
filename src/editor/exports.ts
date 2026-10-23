@@ -5,7 +5,7 @@
 import { drawMarks } from "../markup/drawMarks";
 import { playheadFrame } from "../markup/model/store";
 import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
-import { clipFades, clipStarts, markFades, type ClipId, type Doc } from "./doc";
+import { clipStarts, crossfades, fadesOf, markFades, type ClipId, type Doc } from "./doc";
 import { useDoc } from "./docStore";
 import { darkLayer } from "./spotlights";
 import { growColour, outputSize, type Side } from "./frame";
@@ -15,21 +15,31 @@ import type { MenuItems } from "./Menu";
 export type ExportFormat = "mp4" | "gif";
 
 /**
- * The clips as export reads them, in timeline order: their numbers, files and source frames,
- * whether they're heard (the track's mute mutes them all), where they start on the timeline
- * (which the markup's frames count on), and their fades (PLAN 4.7a).
+ * The clips as export reads them (`ids` of them, or all), in timeline order: their numbers, files
+ * and source frames, whether they're heard (the track's mute mutes them all), where they start
+ * on the timeline (which the markup's frames count on), their fades as they take effect (PLAN
+ * 4.7a), and their crossfades with the clip before (4.7b), if that one's exported with them.
  */
-export function exportClips(doc: Doc) {
+export function exportClips(doc: Doc, ids?: readonly ClipId[]) {
   const starts = clipStarts(doc);
-  return doc.clips.map((c, i) => ({
-    id: c.id,
-    source: c.source,
-    in: c.in,
-    out: c.out,
-    muted: doc.muted || !!c.muted,
-    start: starts[i],
-    ...clipFades(c),
-  }));
+  const xf = crossfades(doc);
+  const picked = (i: number) => !ids || ids.includes(doc.clips[i].id);
+  return doc.clips.flatMap((c, i) =>
+    picked(i)
+      ? [
+          {
+            id: c.id,
+            source: c.source,
+            in: c.in,
+            out: c.out,
+            muted: doc.muted || !!c.muted,
+            start: starts[i],
+            ...fadesOf(doc, i),
+            crossfade: i > 0 && picked(i - 1) ? xf[i] : 0,
+          },
+        ]
+      : [],
+  );
 }
 
 /** The project's frame as export reads it: the crop, and each side's grow in its colour. */
@@ -106,7 +116,7 @@ export function exportTimeline(format: ExportFormat = "mp4") {
 /** One clip, as its own file. */
 export function exportClip(id: ClipId, format: ExportFormat = "mp4") {
   const { doc } = useDoc.getState();
-  const clips = exportClips(doc).filter((c) => c.id === id);
+  const clips = exportClips(doc, [id]);
   if (!clips.length) return;
   withMarkup(doc, (marks) => commands.export(clips, exportFrame(doc), marks, id, format));
 }
@@ -125,7 +135,7 @@ export function exportEach(format: ExportFormat = "mp4") {
  */
 export function exportClipsJoined(ids: readonly ClipId[], format: ExportFormat = "mp4") {
   const { doc } = useDoc.getState();
-  const clips = exportClips(doc).filter((c) => ids.includes(c.id));
+  const clips = exportClips(doc, ids);
   if (!clips.length) return;
   const one = clips.length === 1 ? clips[0].id : null;
   withMarkup(doc, (marks) => commands.export(clips, exportFrame(doc), marks, one, format));
@@ -134,7 +144,7 @@ export function exportClipsJoined(ids: readonly ClipId[], format: ExportFormat =
 /** Clips `ids` each as its own file, into a folder (PLAN 4.5f3). */
 export function exportEachOf(ids: readonly ClipId[], format: ExportFormat = "mp4") {
   const { doc } = useDoc.getState();
-  const clips = exportClips(doc).filter((c) => ids.includes(c.id));
+  const clips = exportClips(doc, ids);
   if (!clips.length) return;
   withMarkup(doc, (marks) => commands.exportEach(clips, exportFrame(doc), marks, format));
 }

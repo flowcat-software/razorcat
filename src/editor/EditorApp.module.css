@@ -505,6 +505,15 @@
   background: #000;
 }
 
+/* A crossfade's incoming clip (PLAN 4.7b), over the picture, on black; its opacity set as the
+   playhead moves. */
+.crossfadeMix {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  pointer-events: none;
+}
+
 /* The clips' fades (PLAN 4.7a): black over the whole frame, its opacity set as the playhead moves. */
 .clipFade {
   position: absolute;

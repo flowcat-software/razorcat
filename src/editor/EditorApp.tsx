@@ -11,7 +11,7 @@ import { commands, events, type Settings, type SourceInfo, type ThumbsInfo } fro
 import { CommandBar } from "./CommandBar";
 import { useToolKeys } from "./cropTool";
 import { EmptyEditor } from "./EmptyEditor";
-import { total } from "./doc";
+import { playedClips, total, type Doc } from "./doc";
 import { useDoc } from "./docStore";
 import {
   addRangeAtPlayhead,
@@ -52,6 +52,9 @@ const addVideo = () => void commands.openDialog(true);
 
 /** Thumbnails are made from proxies: none without them. */
 const thumbsOn = (s: Settings) => s.timeline.thumbnails && s.proxies.enabled;
+
+/** The edit as the player plays it: each clip from after its crossfade (`playedClips`). */
+const played = (doc: Doc) => ({ clips: playedClips(doc), muted: doc.muted });
 
 /** Settings › Timeline › Ranges and markup: how they take edits of the clips. */
 const rangeOptions = (s: Settings) =>
@@ -237,9 +240,9 @@ export function EditorApp() {
   // The player plays the edit (after the load above, so never another source's).
   useEffect(() => {
     if (!player) return;
-    player.setEdit(useDoc.getState().doc);
+    player.setEdit(played(useDoc.getState().doc));
     return useDoc.subscribe((s, before) => {
-      if (s.doc !== before.doc) player.setEdit(s.doc);
+      if (s.doc !== before.doc) player.setEdit(played(s.doc));
     });
   }, [player]);
 
