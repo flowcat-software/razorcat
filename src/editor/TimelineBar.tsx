@@ -207,7 +207,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
         <svg viewBox="0 0 24 24" aria-hidden>
           <path d="M12 3v18M8 7l-4 5 4 5M16 7l4 5-4 5" />
         </svg>
-        Split <span className={styles.kbd}>S</span>
+        Split
       </button>
       <button
         type="button"
@@ -221,7 +221,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
         <svg viewBox="0 0 24 24" aria-hidden>
           <path d="M4 6v12M20 6v12M4 12h16" />
         </svg>
-        Range <span className={styles.kbd}>R</span>
+        Range
       </button>
       {selected && (
         <button
@@ -244,7 +244,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
           <svg viewBox="0 0 24 24" aria-hidden>
             <path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" />
           </svg>
-          Delete <span className={styles.kbd}>Del</span>
+          Delete
         </button>
       )}
       {selected === "clip" && (
@@ -264,7 +264,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
           <svg viewBox="0 0 24 24" aria-hidden>
             <path d="M9 9h11v11H9zM5 15V4h11" />
           </svg>
-          Duplicate <span className={styles.kbd}>Ctrl+D</span>
+          Duplicate
         </button>
       )}
       {selected === "clip" && clipId !== null && (
