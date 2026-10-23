@@ -9,7 +9,7 @@ import {
   seekEdit,
   splitAtPlayhead,
 } from "./edits";
-import { exportClip } from "./exports";
+import { clipsExportItems, exportClip } from "./exports";
 import { Menu } from "./Menu";
 import type { Player, PlayerState } from "./player";
 import { needsHours, timecode } from "./timecode";
@@ -112,6 +112,10 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
   const deletable = useDoc((s) => s.selectedRange !== null || s.doc.clips.length > 1);
   const ranges = useDoc((s) => shownRanges(s.doc).length);
   const clipId = useDoc((s) => s.selected);
+  const picked = useDoc((s) => s.selectedClips);
+  /** Several clips selected (PLAN 4.5f): the buttons act on them all. */
+  const several = picked.length > 1;
+  const deletesAll = useDoc((s) => s.selectedClips.length >= s.doc.clips.length);
   /** The Export clip button's menu (MP4 or GIF), where it opens. */
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   return (
@@ -184,13 +188,15 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
           type="button"
           className={`${styles.barButton} ${styles.withText}`}
           title={
-            !deletable
-              ? "The last clip can't be deleted"
+            !deletable || (selected === "clip" && deletesAll)
+              ? "The timeline keeps at least one clip"
               : selected === "range"
                 ? "Delete the range (Delete)"
-                : "Delete the clip (Delete)"
+                : several
+                  ? "Delete the selected clips (Delete)"
+                  : "Delete the clip (Delete)"
           }
-          disabled={!deletable}
+          disabled={!deletable || (selected === "clip" && deletesAll)}
           onMouseDown={keepFocus}
           onClick={deleteSelected}
         >
@@ -204,7 +210,11 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
         <button
           type="button"
           className={`${styles.barButton} ${styles.withText}`}
-          title="Put a copy of the clip straight after it (Ctrl+D); Ctrl+C and Ctrl+V copy it and paste it at the cut nearest the playhead"
+          title={
+            several
+              ? "Put copies of the selected clips after the last of them (Ctrl+D); Ctrl+C and Ctrl+V copy them and paste them at the cut nearest the playhead"
+              : "Put a copy of the clip straight after it (Ctrl+D); Ctrl+C and Ctrl+V copy it and paste it at the cut nearest the playhead"
+          }
           disabled={off}
           onMouseDown={keepFocus}
           onClick={() => player && duplicateSelectedClip(player)}
@@ -219,7 +229,11 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
         <button
           type="button"
           className={`${styles.barButton} ${styles.withText}`}
-          title="Export this clip (MP4 or GIF)"
+          title={
+            several
+              ? "Export the selected clips, as one file or a file each (MP4 or GIF)"
+              : "Export this clip (MP4 or GIF)"
+          }
           aria-expanded={menu !== null}
           onMouseDown={keepFocus}
           onClick={(e) => {
@@ -231,7 +245,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
           <svg viewBox="0 0 24 24" aria-hidden>
             <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
           </svg>
-          Export clip…
+          {several ? "Export clips…" : "Export clip…"}
         </button>
       )}
       {menu && clipId !== null && (
@@ -239,10 +253,14 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          items={[
-            { label: "As MP4…", run: () => exportClip(clipId, "mp4") },
-            { label: "As GIF…", run: () => exportClip(clipId, "gif") },
-          ]}
+          items={
+            several
+              ? clipsExportItems(picked, "As")
+              : [
+                  { label: "As MP4…", run: () => exportClip(clipId, "mp4") },
+                  { label: "As GIF…", run: () => exportClip(clipId, "gif") },
+                ]
+          }
         />
       )}
       {ranges > 0 && (

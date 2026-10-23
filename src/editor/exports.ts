@@ -8,6 +8,7 @@ import { clipStarts, markFades, type ClipId, type Doc } from "./doc";
 import { useDoc } from "./docStore";
 import { growColour, outputSize, type Side } from "./frame";
 import { checkMarkup } from "./markupCheck";
+import type { MenuItems } from "./Menu";
 
 export type ExportFormat = "mp4" | "gif";
 
@@ -98,6 +99,45 @@ export function exportEach(format: ExportFormat = "mp4") {
   withMarkup(doc, (marks) =>
     commands.exportEach(exportClips(doc), exportFrame(doc), marks, format),
   );
+}
+
+/**
+ * Clips `ids` as one file, joined in timeline order (PLAN 4.5f3), named as the timeline's export
+ * (one clip: as that clip's).
+ */
+export function exportClipsJoined(ids: readonly ClipId[], format: ExportFormat = "mp4") {
+  const { doc } = useDoc.getState();
+  const clips = exportClips(doc).filter((c) => ids.includes(c.id));
+  if (!clips.length) return;
+  const one = clips.length === 1 ? clips[0].id : null;
+  withMarkup(doc, (marks) => commands.export(clips, exportFrame(doc), marks, one, format));
+}
+
+/** Clips `ids` each as its own file, into a folder (PLAN 4.5f3). */
+export function exportEachOf(ids: readonly ClipId[], format: ExportFormat = "mp4") {
+  const { doc } = useDoc.getState();
+  const clips = exportClips(doc).filter((c) => ids.includes(c.id));
+  if (!clips.length) return;
+  withMarkup(doc, (marks) => commands.exportEach(clips, exportFrame(doc), marks, format));
+}
+
+/**
+ * The export menu's items for several selected clips (the timeline's right-click menu and its
+ * toolbar): as one file, joined, or a file each; `prefix` starts each label.
+ */
+export function clipsExportItems(ids: readonly ClipId[], prefix = "Export clips"): MenuItems {
+  const formats = ["mp4", "gif"] as const;
+  return [
+    ...formats.map((f) => ({
+      label: `${prefix} as one ${f.toUpperCase()}…`,
+      run: () => exportClipsJoined(ids, f),
+    })),
+    "-",
+    ...formats.map((f) => ({
+      label: `${prefix} as separate ${f.toUpperCase()}s…`,
+      run: () => exportEachOf(ids, f),
+    })),
+  ];
 }
 
 /** A GIF this big (bytes) gets a word about its size. */

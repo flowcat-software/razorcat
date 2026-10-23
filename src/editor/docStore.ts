@@ -15,6 +15,11 @@ import {
   addMark,
   addRange,
   addSource,
+  deleteClips,
+  duplicateClips,
+  insertClips,
+  muteClips,
+  moveClips,
   fadeEnds,
   deleteClip,
   deleteMarks,
@@ -83,6 +88,11 @@ export interface DocState {
    * undo or redo takes it away.
    */
   selected: ClipId | null;
+  /**
+   * The selected clips (several at once, PLAN 4.5f), `selected` among them: the one a single
+   * clip's action (a trim, a split) takes.
+   */
+  selectedClips: readonly ClipId[];
   selectedRange: RangeId | null;
   /** The selected markup (several at once, as Vandal's selection). */
   selectedMarks: readonly MarkId[];
@@ -111,6 +121,15 @@ export interface DocState {
   paste: (copy: ClipCopy, at: number) => ClipId | null;
   /** Mutes clip `id`, or unmutes it. */
   muteClip: (id: ClipId, muted: boolean) => boolean;
+  /** Several clips at once (PLAN 4.5f): one undo step each. Never every clip. */
+  removeClips: (ids: readonly ClipId[]) => boolean;
+  /** Copies of clips `ids` after the last of them, selected; their ids. */
+  duplicateClips: (ids: readonly ClipId[]) => ClipId[];
+  /** Inserts `copies` from position `at` on, selected; their ids. */
+  pasteClips: (copies: readonly ClipCopy[], at: number) => ClipId[];
+  muteClips: (ids: readonly ClipId[], muted: boolean) => boolean;
+  /** Moves clips `ids` together (gathered, in order) to place `at` among the others. */
+  moveClips: (ids: readonly ClipId[], at: number) => boolean;
   /** Mutes all the sound, or unmutes it. */
   muteTrack: (muted: boolean) => boolean;
 
@@ -166,6 +185,8 @@ export interface DocState {
   redo: () => void;
 
   select: (id: ClipId | null) => void;
+  /** Selects clips `ids`; the last is `selected`. */
+  selectClips: (ids: readonly ClipId[]) => void;
   selectRange: (id: RangeId | null) => void;
   selectMarks: (ids: readonly MarkId[]) => void;
   setOptions: (options: RangeOptions) => void;
@@ -216,19 +237,40 @@ export const useDoc = create<DocState>()((set, get) => {
   const added = (ok: boolean): ClipId | null => {
     if (!ok) return null;
     const id = get().doc.nextId - 1;
-    set({ selected: id, selectedRange: null, selectedMarks: [] });
+    set({ selected: id, selectedClips: [id], selectedRange: null, selectedMarks: [] });
     return id;
+  };
+
+  /** Clips were added (or not): they're selected; their ids. */
+  const addedMany = (ok: boolean, n: number): ClipId[] => {
+    if (!ok) return [];
+    const next = get().doc.nextId;
+    const ids = Array.from({ length: n }, (_, k) => next - n + k);
+    set({
+      selected: ids[n - 1] ?? null,
+      selectedClips: ids,
+      selectedRange: null,
+      selectedMarks: [],
+    });
+    return ids;
   };
 
   /** The selection, if what's selected is gone (or hidden). */
   const prune = () => {
-    const { doc, selected, selectedRange, selectedMarks } = get();
+    const { doc, selected, selectedClips, selectedRange, selectedMarks } = get();
     if (selectedMarks.length) {
       const shown = new Set(shownMarks(doc).map((m) => m.id));
       const kept = selectedMarks.filter((id) => shown.has(id));
       if (kept.length !== selectedMarks.length) set({ selectedMarks: kept });
     }
-    if (selected !== null && !doc.clips.some((c) => c.id === selected)) set({ selected: null });
+    const there = (id: ClipId) => doc.clips.some((c) => c.id === id);
+    if (selectedClips.some((id) => !there(id))) {
+      const kept = selectedClips.filter(there);
+      set({
+        selectedClips: kept,
+        selected: there(selected!) ? selected : (kept[kept.length - 1] ?? null),
+      });
+    } else if (selected !== null && !there(selected)) set({ selected: null });
     if (selectedRange !== null && !shownRanges(doc).some((r) => r.id === selectedRange)) {
       set({ selectedRange: null });
     }
@@ -240,6 +282,7 @@ export const useDoc = create<DocState>()((set, get) => {
     future: [],
     gestureStart: null,
     selected: null,
+    selectedClips: [],
     selectedRange: null,
     selectedMarks: [],
     pendingIn: null,
@@ -258,6 +301,7 @@ export const useDoc = create<DocState>()((set, get) => {
         future: [],
         gestureStart: null,
         selected: null,
+        selectedClips: [],
         selectedRange: null,
         selectedMarks: [],
         pendingIn: null,
@@ -273,12 +317,27 @@ export const useDoc = create<DocState>()((set, get) => {
     duplicate: (id) => added(applyClips((doc) => duplicateClip(doc, id))),
     paste: (copy, at) => added(applyClips((doc) => insertClip(doc, copy, at))),
     muteClip: (id, muted) => apply((doc) => muteClip(doc, id, muted)),
+    removeClips: (ids) => applyClips((doc) => deleteClips(doc, ids, get().options.deleteWithClip)),
+    duplicateClips: (ids) => {
+      const n = get().doc.clips.filter((c) => ids.includes(c.id)).length;
+      return addedMany(
+        applyClips((doc) => duplicateClips(doc, ids)),
+        n,
+      );
+    },
+    pasteClips: (copies, at) =>
+      addedMany(
+        applyClips((doc) => insertClips(doc, copies, at)),
+        copies.length,
+      ),
+    muteClips: (ids, muted) => apply((doc) => muteClips(doc, ids, muted)),
+    moveClips: (ids, at) => applyClips((doc) => moveClips(doc, ids, at)),
     muteTrack: (muted) => apply((doc) => muteTrack(doc, muted)),
 
     addRange: (a, b) => {
       const id = get().doc.nextRangeId;
       if (!apply((doc) => addRange(doc, a, b))) return null;
-      set({ selected: null, selectedRange: id, selectedMarks: [] });
+      set({ selected: null, selectedClips: [], selectedRange: id, selectedMarks: [] });
       return id;
     },
     setRange: (id, a, b) => apply((doc) => setRange(doc, id, a, b)),
@@ -355,10 +414,31 @@ export const useDoc = create<DocState>()((set, get) => {
     },
 
     // One thing selected at a time: either null selects nothing.
-    select: (id) => set({ selected: id, selectedRange: null, selectedMarks: [] }),
-    selectRange: (id) => set({ selectedRange: id, selected: null, selectedMarks: [] }),
+    select: (id) =>
+      set({
+        selected: id,
+        selectedClips: id === null ? [] : [id],
+        selectedRange: null,
+        selectedMarks: [],
+      }),
+    selectClips: (ids) => {
+      const unique = [...new Set(ids)];
+      set({
+        selected: unique[unique.length - 1] ?? null,
+        selectedClips: unique,
+        selectedRange: null,
+        selectedMarks: [],
+      });
+    },
+    selectRange: (id) =>
+      set({ selectedRange: id, selected: null, selectedClips: [], selectedMarks: [] }),
     selectMarks: (ids) =>
-      set({ selectedMarks: [...new Set(ids)], selected: null, selectedRange: null }),
+      set({
+        selectedMarks: [...new Set(ids)],
+        selected: null,
+        selectedClips: [],
+        selectedRange: null,
+      }),
     setOptions: (options) => set({ options }),
   };
 });

@@ -316,6 +316,15 @@ export function deleteClip(doc: Doc, id: ClipId, withRanges = true): Doc {
 }
 
 /**
+ * Deletes clips `ids` (each as `deleteClip`), one edit. Not all of them: the same document (the
+ * timeline keeps a clip).
+ */
+export function deleteClips(doc: Doc, ids: readonly ClipId[], withRanges = true): Doc {
+  if (doc.clips.every((c) => ids.includes(c.id))) return doc;
+  return ids.reduce((d, id) => deleteClip(d, id, withRanges), doc);
+}
+
+/**
  * Where clip `id` belongs when dragged `df` frames from its place in `doc` (the document when
  * the drag started): it passes a clip once its leading edge is past that clip's middle. Not
  * dragged, it stays where it is.
@@ -333,6 +342,44 @@ export function moveSlot(doc: Doc, id: ClipId, df: number): number {
     if (j < from && left < middle) slot--;
   });
   return slot;
+}
+
+/**
+ * Where clips `ids` belong, gathered in their order, when clip `grab` (one of them) is dragged
+ * `df` frames in `doc` (the document when the drag started; PLAN 4.5f2): their place among the
+ * other clips. The block passes a clip once its leading edge is past that clip's middle, as one
+ * clip does (`moveSlot`).
+ */
+export function moveGroupSlot(doc: Doc, ids: readonly ClipId[], grab: ClipId, df: number): number {
+  const g = doc.clips.findIndex((c) => c.id === grab);
+  if (g < 0) return -1;
+  const starts = clipStarts(doc);
+  const picked = (c: Clip) => ids.includes(c.id);
+  const length = (cs: readonly Clip[]) => cs.reduce((n, c) => n + clipLength(c), 0);
+  // The block's edges: the grabbed clip where it's dragged, the picked ones before it in front.
+  const left = starts[g] - length(doc.clips.slice(0, g).filter(picked)) + df;
+  const right = left + length(doc.clips.filter(picked));
+  let slot = doc.clips.slice(0, g).filter((c) => !picked(c)).length;
+  doc.clips.forEach((c, j) => {
+    if (picked(c)) return;
+    const middle = starts[j] + clipLength(c) / 2;
+    if (j > g && right > middle) slot++;
+    if (j < g && left < middle) slot--;
+  });
+  return slot;
+}
+
+/**
+ * Moves clips `ids` together, gathered in their order, to place `at` among the other clips
+ * (clamped); the rest close up. The same document if nothing moves.
+ */
+export function moveClips(doc: Doc, ids: readonly ClipId[], at: number): Doc {
+  const group = doc.clips.filter((c) => ids.includes(c.id));
+  if (!group.length) return doc;
+  const rest = doc.clips.filter((c) => !ids.includes(c.id));
+  const k = Math.max(0, Math.min(rest.length, at));
+  const clips = [...rest.slice(0, k), ...group, ...rest.slice(k)];
+  return clips.every((c, i) => c === doc.clips[i]) ? doc : { ...doc, clips };
 }
 
 /** A clip as copied (Ctrl+C), for `insertClip`: its source frames and its markup. */
@@ -372,6 +419,32 @@ export function insertClip(doc: Doc, copy: ClipCopy, at: number): Doc {
   let nextMarkId = doc.nextMarkId;
   const marks = [...doc.marks, ...copy.marks.map((m) => ({ ...m, id: nextMarkId++, clip: id }))];
   return { ...doc, clips, nextId: id + 1, marks, nextMarkId };
+}
+
+/** Inserts `copies` as new clips from position `at` on, in order (`insertClip` each). */
+export function insertClips(doc: Doc, copies: readonly ClipCopy[], at: number): Doc {
+  return copies.reduce((d, copy, k) => insertClip(d, copy, at + k), doc);
+}
+
+/** Clips `ids` in timeline order, as copies (`copyClip`). */
+export function copyClips(doc: Doc, ids: readonly ClipId[]): ClipCopy[] {
+  return doc.clips.filter((c) => ids.includes(c.id)).map((c) => copyClip(doc, c.id)!);
+}
+
+/**
+ * Ctrl+D with several selected: copies of clips `ids`, in timeline order, straight after the last
+ * of them. The same document if there are none.
+ */
+export function duplicateClips(doc: Doc, ids: readonly ClipId[]): Doc {
+  const copies = copyClips(doc, ids);
+  if (!copies.length) return doc;
+  const last = Math.max(...doc.clips.flatMap((c, i) => (ids.includes(c.id) ? [i] : [])));
+  return insertClips(doc, copies, last + 1);
+}
+
+/** Mutes clips `ids`, or unmutes them. */
+export function muteClips(doc: Doc, ids: readonly ClipId[], muted: boolean): Doc {
+  return ids.reduce((d, id) => muteClip(d, id, muted), doc);
 }
 
 /** Mutes clip `id`, or unmutes it. The same document if nothing changes. */

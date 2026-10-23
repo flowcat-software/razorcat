@@ -6,7 +6,7 @@ import { patchAnnotation } from "../markup/restyle";
 import type { Annotation } from "../markup/model/types";
 import {
   clipStarts,
-  copyClip,
+  copyClips,
   editPoints,
   freeLane,
   markFades,
@@ -29,15 +29,15 @@ export function splitAtPlayhead(player: Player) {
 }
 
 /**
- * Delete: deletes the selected markup or range, or the selected clip (the rest close up; the
- * last clip stays).
+ * Delete: deletes the selected markup or range, or the selected clips (the rest close up; the
+ * timeline keeps a clip).
  */
 export function deleteSelected() {
-  const { selected, selectedRange, selectedMarks, remove, removeRange, removeMarks } =
+  const { selectedClips, selectedRange, selectedMarks, removeClips, removeRange, removeMarks } =
     useDoc.getState();
   if (selectedMarks.length) removeMarks(selectedMarks);
   else if (selectedRange !== null) removeRange(selectedRange);
-  else if (selected !== null) remove(selected);
+  else if (selectedClips.length) removeClips(selectedClips);
 }
 
 /**
@@ -72,10 +72,21 @@ export function rangeOut(player: Player) {
 
 /**
  * Ctrl+[ / Ctrl+]: moves the selected clip one place earlier or later; with Shift, to the start
- * or the end. The playhead goes to its new start.
+ * or the end. The playhead goes to its new start. Several selected move together (gathered, in
+ * order, PLAN 4.5f2), past one other clip at a time.
  */
 export function moveSelected(player: Player, to: -1 | 1 | "first" | "last") {
-  const { doc, selected, move } = useDoc.getState();
+  const { doc, selected, selectedClips, move, moveClips } = useDoc.getState();
+  if (selectedClips.length > 1) {
+    const rest = doc.clips.filter((c) => !selectedClips.includes(c.id));
+    const first = doc.clips.findIndex((c) => selectedClips.includes(c.id));
+    const slot = doc.clips.slice(0, first).filter((c) => !selectedClips.includes(c.id)).length;
+    const at = to === "first" ? 0 : to === "last" ? rest.length : slot + to;
+    if (!moveClips(selectedClips, at)) return;
+    const now = useDoc.getState().doc;
+    player.seek(clipStarts(now)[now.clips.findIndex((c) => selectedClips.includes(c.id))]);
+    return;
+  }
   const from = doc.clips.findIndex((c) => c.id === selected);
   if (from < 0) return;
   const at = to === "first" ? 0 : to === "last" ? doc.clips.length - 1 : from + to;
@@ -96,11 +107,18 @@ function showNewClip(player: Player, id: ClipId) {
   view.flashClip(id);
 }
 
-/** M: mutes the selected clip, or unmutes it. False with no clip selected. */
+/**
+ * M: mutes the selected clips, or (all muted already) unmutes them. False with no clip
+ * selected.
+ */
 export function muteSelectedClip(): boolean {
-  const { doc, selected, muteClip } = useDoc.getState();
-  const clip = doc.clips.find((c) => c.id === selected);
-  return !!clip && muteClip(clip.id, !clip.muted);
+  const { doc, selectedClips, muteClips } = useDoc.getState();
+  const clips = doc.clips.filter((c) => selectedClips.includes(c.id));
+  if (!clips.length) return false;
+  return muteClips(
+    clips.map((c) => c.id),
+    !clips.every((c) => c.muted),
+  );
 }
 
 /** Shift+M: mutes all the sound, or unmutes it. */
@@ -109,12 +127,12 @@ export function muteSound() {
   muteTrack(!doc.muted);
 }
 
-/** Ctrl+D: a copy of the selected clip straight after it, selected. */
+/** Ctrl+D: copies of the selected clips straight after the last of them, selected. */
 export function duplicateSelectedClip(player: Player): boolean {
-  const { selected, duplicate } = useDoc.getState();
-  const id = selected === null ? null : duplicate(selected);
-  if (id === null) return false;
-  showNewClip(player, id);
+  const { selectedClips, duplicateClips } = useDoc.getState();
+  const ids = duplicateClips(selectedClips);
+  if (!ids.length) return false;
+  showNewClip(player, ids[0]);
   return true;
 }
 
@@ -131,14 +149,14 @@ export interface MarkCopy {
  * What Ctrl+C copied last, a clip or markup (the app's own clipboard: neither goes to
  * Windows'). Markup is kept top lane first; its first is what Paste Style takes.
  */
-let copied: { clip: ClipCopy } | { marks: MarkCopy[] } | null = null;
+let copied: { clips: ClipCopy[] } | { marks: MarkCopy[] } | null = null;
 
-/** Ctrl+C: copies the selected clip and its markup. False with no clip selected. */
+/** Ctrl+C: copies the selected clips (in timeline order) and their markup. False with none. */
 export function copySelectedClip(): boolean {
-  const { doc, selected } = useDoc.getState();
-  const copy = selected === null ? null : copyClip(doc, selected);
-  if (!copy) return false;
-  copied = { clip: copy };
+  const { doc, selectedClips } = useDoc.getState();
+  const clips = copyClips(doc, selectedClips);
+  if (!clips.length) return false;
+  copied = { clips };
   return true;
 }
 
@@ -168,17 +186,17 @@ export function copiedMarks(): readonly MarkCopy[] | null {
 }
 
 /**
- * Ctrl+V: the copied clip at the cut nearest the playhead, or the copied markup from the
- * playhead on (as far apart as it was, in front of what's there), selected. False with nothing
- * copied.
+ * Ctrl+V: the copied clips at the cut nearest the playhead, in order, or the copied markup from
+ * the playhead on (as far apart as it was, in front of what's there), selected. False with
+ * nothing copied.
  */
 export function pasteClip(player: Player): boolean {
   if (!copied) return false;
   if ("marks" in copied) return pasteMarks(copied.marks, player.getState().frame);
-  const { doc, paste } = useDoc.getState();
-  const id = paste(copied.clip, pasteSlot(doc, player.getState().frame));
-  if (id === null) return false;
-  showNewClip(player, id);
+  const { doc, pasteClips } = useDoc.getState();
+  const ids = pasteClips(copied.clips, pasteSlot(doc, player.getState().frame));
+  if (!ids.length) return false;
+  showNewClip(player, ids[0]);
   return true;
 }
 

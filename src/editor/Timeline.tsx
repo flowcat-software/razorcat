@@ -13,6 +13,7 @@ import {
   clipStarts,
   laneCount,
   longestSource,
+  moveGroupSlot,
   moveSlot,
   markFades,
   markLabel,
@@ -42,7 +43,7 @@ import {
   pasteTiming,
   splitAtPlayhead,
 } from "./edits";
-import { exportClip } from "./exports";
+import { clipsExportItems, exportClip } from "./exports";
 import { Menu, type MenuItems } from "./Menu";
 import { markTargets, rangeTargets, scrubTargets, snap, trimTargets } from "./snap";
 import { useTimeline } from "./timelineStore";
@@ -616,15 +617,21 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
   const hover = useRef<Hit | null>(null);
   const trim = useRef<Trim | null>(null);
   /** A clip being moved by its title bar: from where, in the document as the drag started. */
-  const moving = useRef<{ id: ClipId; x0: number; start: Doc } | null>(null);
+  const moving = useRef<{
+    id: ClipId;
+    x0: number;
+    start: Doc;
+    /** Several selected, moving with it (PLAN 4.5f2). */
+    group: readonly ClipId[] | null;
+  } | null>(null);
   /** A range (or the pending in-point) being dragged. */
   const ranging = useRef<RangeDrag | null>(null);
   /** Markup being dragged. */
   const marking = useRef<MarkDrag | null>(null);
   /**
-   * A box being dragged over the lanes from an empty spot, selecting the markup it touches
-   * (with Ctrl or Shift, added to what was selected); until the pointer moves, a click, which
-   * moves the playhead there.
+   * A box being dragged from an empty spot, selecting what it touches (with Ctrl or Shift, added
+   * to what was selected): the clips if it reaches the clip row, else the markup (PLAN 4.5f).
+   * Until the pointer moves, a click, which moves the playhead there.
    */
   const boxing = useRef<{
     x0: number;
@@ -632,6 +639,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
     x: number;
     y: number;
     kept: readonly MarkId[];
+    keptClips: readonly ClipId[];
     moved: boolean;
   } | null>(null);
   /** How far the markup lanes are scrolled (px), and the selection last kept in view. */
@@ -810,7 +818,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
 
       // The clips, each inset by half a pixel so a cut shows as a 1 px gap, with 8 px corners
       // notching it top and bottom.
-      const { doc, selected, selectedRange, selectedMarks, pendingIn } = useDoc.getState();
+      const { doc, selectedClips, selectedRange, selectedMarks, pendingIn } = useDoc.getState();
       const starts = clipStarts(doc);
       const { flash } = useTimeline.getState();
       const now = performance.now();
@@ -941,7 +949,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
           flashing = true;
         }
         g.restore();
-        if (clip.id === selected) {
+        if (selectedClips.includes(clip.id)) {
           g.strokeStyle = c["accent"];
           g.lineWidth = 2;
           g.beginPath();
@@ -1491,7 +1499,10 @@ ${d.group.length} items`,
       );
   };
 
-  /** The selection box follows the pointer: the markup it touches is selected. */
+  /**
+   * The selection box follows the pointer: the clips it touches are selected if it reaches the
+   * clip row, else the markup it touches.
+   */
   const boxTo = (
     e: React.PointerEvent<HTMLCanvasElement>,
     box: NonNullable<typeof boxing.current>,
@@ -1503,6 +1514,19 @@ ${d.group.length} items`,
     const [x0, x1] = [Math.min(box.x0, x), Math.max(box.x0, x)];
     const [y0, y1] = [Math.min(box.y0, y), Math.max(box.y0, y)];
     const { doc } = useDoc.getState();
+    if (y1 >= CLIP_TOP && y0 <= CLIP_TOP + CLIP_H) {
+      const starts = clipStarts(doc);
+      const touched = doc.clips
+        .filter((c, i) => xOf(view, starts[i]) < x1 && xOf(view, starts[i] + clipLength(c)) > x0)
+        .map((c) => c.id);
+      const ids = [...new Set([...box.keptClips, ...touched])];
+      const now = useDoc.getState().selectedClips;
+      if (ids.length !== now.length || ids.some((id, i) => id !== now[i])) {
+        useDoc.getState().selectClips(ids);
+      }
+      draw.current();
+      return;
+    }
     const touched = shownMarks(doc)
       .filter((m) => {
         const top = laneY(L, m.lane);
@@ -1548,7 +1572,7 @@ ${d.group.length} items`,
       const box = boxing.current;
       boxing.current = null;
       if (!box.moved && e.type === "pointerup") {
-        if (!box.kept.length) docState.select(null);
+        if (!box.kept.length && !box.keptClips.length) docState.select(null);
         scrubTo(e);
       }
     }
@@ -1581,9 +1605,27 @@ ${d.group.length} items`,
       return;
     }
     if (hit.kind === "move") {
-      docState.select(hit.clip.id);
+      // Ctrl or Shift adds it to the selection or takes it out (PLAN 4.5f), nothing dragged; a
+      // press on one of several selected keeps them.
+      const sel = docState.selectedClips;
+      if (e.ctrlKey || e.shiftKey) {
+        docState.selectClips(
+          sel.includes(hit.clip.id)
+            ? sel.filter((id) => id !== hit.clip.id)
+            : [...sel, hit.clip.id],
+        );
+        return;
+      }
+      if (!sel.includes(hit.clip.id)) docState.select(hit.clip.id);
       docState.beginGesture();
-      moving.current = { id: hit.clip.id, x0: x, start: docState.doc };
+      // One of several selected: they all move, gathered (PLAN 4.5f2).
+      const group = useDoc.getState().selectedClips;
+      moving.current = {
+        id: hit.clip.id,
+        x0: x,
+        start: docState.doc,
+        group: group.length > 1 ? group : null,
+      };
       e.currentTarget.style.cursor = "grabbing";
       return;
     }
@@ -1680,13 +1722,35 @@ ${d.group.length} items`,
             draw.current();
             return;
           }
-          if (x >= HEADER && y >= LANE_TOP && y < LANE_TOP + LANES_H) {
-            const kept = e.ctrlKey || e.shiftKey ? docState.selectedMarks : [];
-            boxing.current = { x0: x, y0: y, x, y, kept, moved: false };
+          const adding = e.ctrlKey || e.shiftKey;
+          const under =
+            y >= CLIP_TOP && y <= CLIP_TOP + CLIP_H
+              ? clipAt(docState.doc, Math.floor(fOf(view, x)))
+              : null;
+          // An empty spot (the lanes', or the clip row's past the clips or below them): a box.
+          const lanesSpot = y >= LANE_TOP && y < LANE_TOP + LANES_H;
+          if (x >= HEADER && (lanesSpot || (y >= CLIP_TOP && !under))) {
+            boxing.current = {
+              x0: x,
+              y0: y,
+              x,
+              y,
+              kept: adding ? docState.selectedMarks : [],
+              keptClips: adding ? docState.selectedClips : [],
+              moved: false,
+            };
+            return;
+          }
+          if (under && adding) {
+            // Ctrl or Shift+click on a clip: added to the selection, or taken out.
+            const sel = docState.selectedClips;
+            const id = under.clip.id;
+            docState.selectClips(sel.includes(id) ? sel.filter((s) => s !== id) : [...sel, id]);
+            draw.current();
             return;
           }
           if (y >= CLIP_TOP && x >= HEADER) {
-            docState.select(clipAt(docState.doc, Math.floor(fOf(view, x)))?.clip.id ?? null);
+            docState.select(under?.clip.id ?? null);
           } else if (y >= RULER && x >= HEADER) {
             // An empty lane: nothing selected.
             docState.select(null);
@@ -1716,7 +1780,10 @@ ${d.group.length} items`,
             const m = moving.current;
             const { x, view } = at(e);
             if (Math.abs(x - m.x0) < DRAG_PX) return;
-            useDoc.getState().move(m.id, moveSlot(m.start, m.id, (x - m.x0) / view.zoom));
+            const df = (x - m.x0) / view.zoom;
+            if (m.group)
+              useDoc.getState().moveClips(m.group, moveGroupSlot(m.start, m.group, m.id, df));
+            else useDoc.getState().move(m.id, moveSlot(m.start, m.id, df));
             return;
           }
           if (canvas.hasPointerCapture(e.pointerId)) {
@@ -1806,6 +1873,31 @@ ${d.group.length} items`,
           const under = clipAt(docState.doc, Math.floor(fOf(view, x)));
           if (!under) return;
           const { clip } = under;
+          // On one of several selected: their menu (PLAN 4.5f), what works on them all.
+          const group = docState.selectedClips;
+          if (group.length > 1 && group.includes(clip.id)) {
+            setMenu({
+              x: e.clientX,
+              y: e.clientY,
+              items: [
+                ...clipsExportItems(group),
+                "-",
+                {
+                  label: "Duplicate clips",
+                  hint: "Ctrl+D",
+                  run: () => duplicateSelectedClip(player),
+                },
+                { label: "Copy clips", hint: "Ctrl+C", run: copySelectedClip },
+                {
+                  label: "Delete clips (close the gap)",
+                  hint: "Delete",
+                  disabled: group.length >= docState.doc.clips.length,
+                  run: deleteSelected,
+                },
+              ],
+            });
+            return;
+          }
           docState.select(clip.id);
           const full = sourceLength(docState.doc, clip);
           const whole = clip.in === 0 && clip.out === full;

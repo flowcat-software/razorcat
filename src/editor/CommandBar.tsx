@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { commands, type Settings } from "../shared/ipc";
 import { canRedo, canUndo, useDoc } from "./docStore";
 import { muteSound } from "./edits";
-import { exportClip, exportEach, exportTimeline } from "./exports";
+import { exportClip, exportClipsJoined, exportEach, exportEachOf, exportTimeline } from "./exports";
 import { Menu, type MenuItems } from "./Menu";
 import { useTool, type Tool } from "./toolStore";
 import styles from "./EditorApp.module.css";
@@ -83,6 +83,7 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }:
   const undoable = useDoc(canUndo);
   const redoable = useDoc(canRedo);
   const selected = useDoc((s) => s.selected);
+  const picked = useDoc((s) => s.selectedClips);
   const clips = useDoc((s) => s.doc.clips.length);
   const muted = useDoc((s) => s.doc.muted);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -97,15 +98,29 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }:
       return [
         "-",
         {
-          label: `Each clip as ${as}`,
+          label: `All clips as separate ${as}s`,
           disabled: clips < 2,
           run: () => exportEach(format),
         },
-        {
-          label: `Selected clip as ${as}`,
-          disabled: selected === null,
-          run: () => selected !== null && exportClip(selected, format),
-        },
+        // Several selected (PLAN 4.5f3): joined into one file, or a file each.
+        ...(picked.length > 1
+          ? [
+              {
+                label: `Selected clips as one ${as}`,
+                run: () => exportClipsJoined(picked, format),
+              },
+              {
+                label: `Selected clips as separate ${as}s`,
+                run: () => exportEachOf(picked, format),
+              },
+            ]
+          : [
+              {
+                label: `Selected clip as ${as}`,
+                disabled: selected === null,
+                run: () => selected !== null && exportClip(selected, format),
+              },
+            ]),
       ];
     }),
     "-",
