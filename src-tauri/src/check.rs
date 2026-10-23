@@ -1,8 +1,9 @@
 //! Development: the preview = export check (PLAN 1.8). `razorcat --check-frames <file>` opens a
 //! barcoded test clip (`spikes/make-test-media.mjs`) and the page steps and seeks the preview
 //! over it, reading the barcode of the frame on screen; `--check-edit` does it on an edited
-//! timeline (clips cut out and moved), plays across the cuts, and exports it (export = preview),
-//! then again cropped, and with test markup (PLAN 4.3c), read at points of the picture.
+//! timeline (clips cut out and moved, and the file added again as a second one, PLAN 4.5e),
+//! plays across the cuts, and exports it (export = preview), then again cropped, and with test
+//! markup (PLAN 4.3c), read at points of the picture.
 //! Here: the frames export would pick (the `fps` filter over the original, as export reads it),
 //! the edit's export read back frame by frame, and the report. Release builds do none of it.
 
@@ -59,6 +60,21 @@ pub fn opened(app: &AppHandle, id: String) {
         let edit = EDITED.load(Ordering::Relaxed);
         let _ = CheckFrames { source: id, edit }.emit_to(app, LABEL);
     }
+}
+
+/// Adds the first file again, on the end of the timeline: the edited check's second file, whose
+/// barcodes are the first's.
+pub fn add_again(app: &AppHandle) -> Result<(), String> {
+    if !cfg!(debug_assertions) {
+        return Err("development only".into());
+    }
+    let path = {
+        let state = app.state::<AppState>();
+        let open = state.sources.lock().unwrap();
+        open.first().ok_or("nothing open")?.path.clone()
+    };
+    crate::editor::request_open(app, path, true);
+    Ok(())
 }
 
 /// The source frame (by barcode) export would show at each grid frame of the open source.

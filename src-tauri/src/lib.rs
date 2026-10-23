@@ -56,6 +56,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::cancel_export,
             commands::show_in_folder,
             commands::frame_check_export,
+            commands::frame_check_add,
             commands::list_fonts,
             commands::get_tool_styles,
             commands::set_tool_styles,

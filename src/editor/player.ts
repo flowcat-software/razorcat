@@ -291,6 +291,13 @@ export class Player {
       s.source === this.state.source
     )
       return;
+    // Another file on screen: the others' proxies go, or one left showing would stay over it
+    // (its deck is hidden, but a child shown in a hidden parent still shows).
+    if (s.source !== this.state.source) {
+      for (const deck of this.decks.values()) {
+        if (deck.id !== s.source && deck.proxy) deck.proxy.video.style.visibility = "hidden";
+      }
+    }
     this.state = s;
     this.listeners.forEach((fn) => fn());
   }
@@ -608,6 +615,17 @@ export class Player {
   video(which: "original" | "proxy") {
     const deck = this.onScreenDeck();
     return (which === "original" ? deck?.original : deck?.proxy)?.video;
+  }
+
+  /** Every file's original video, attached (playing across files, any may be on screen). */
+  originals() {
+    return [...this.decks.values()].flatMap((d) => (d.original ? [d.original.video] : []));
+  }
+
+  /** Whether `source`'s deck can show its frames: its frame times read, its video attached. */
+  loaded(source: SourceId) {
+    const deck = this.decks.get(source);
+    return !!deck?.times && !!deck.original;
   }
 
   /** The original: the time of the picture on screen, the one wanted, and whether it's seeking. */

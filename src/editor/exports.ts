@@ -12,14 +12,15 @@ import { checkMarkup } from "./markupCheck";
 export type ExportFormat = "mp4" | "gif";
 
 /**
- * The clips as export reads them, in timeline order: their numbers, source frames, whether
- * they're heard (the track's mute mutes them all), and where they start on the timeline (which
- * the markup's frames count on).
+ * The clips as export reads them, in timeline order: their numbers, files and source frames,
+ * whether they're heard (the track's mute mutes them all), and where they start on the timeline
+ * (which the markup's frames count on).
  */
 export function exportClips(doc: Doc) {
   const starts = clipStarts(doc);
   return doc.clips.map((c, i) => ({
     id: c.id,
+    source: c.source,
     in: c.in,
     out: c.out,
     muted: doc.muted || !!c.muted,
@@ -65,18 +66,6 @@ export function onExportFailed(report: (message: string) => void) {
   failed = report;
 }
 
-/**
- * Whether export can read `ids`' clips (all of them without): until PLAN 4.5e2 it reads only the
- * first file, so a clip of another refuses, with a word why.
- */
-function readable(doc: Doc, ids?: readonly ClipId[]): boolean {
-  const first = doc.sources[0]?.id;
-  const clips = ids ? doc.clips.filter((c) => ids.includes(c.id)) : doc.clips;
-  if (clips.every((c) => c.source === first)) return true;
-  failed("Exporting clips of an added video comes next: for now, only the first video's clips.");
-  return false;
-}
-
 /** Runs `start` with the markup sent; if it can't be, says why. */
 function withMarkup(doc: Doc, start: (marks: ExportMark[]) => Promise<unknown>) {
   sendMarkup(doc)
@@ -90,7 +79,6 @@ function withMarkup(doc: Doc, start: (marks: ExportMark[]) => Promise<unknown>) 
 /** The whole timeline, as one file (Ctrl+E: MP4). */
 export function exportTimeline(format: ExportFormat = "mp4") {
   const { doc } = useDoc.getState();
-  if (!readable(doc)) return;
   withMarkup(doc, (marks) =>
     commands.export(exportClips(doc), exportFrame(doc), marks, null, format),
   );
@@ -100,14 +88,13 @@ export function exportTimeline(format: ExportFormat = "mp4") {
 export function exportClip(id: ClipId, format: ExportFormat = "mp4") {
   const { doc } = useDoc.getState();
   const clips = exportClips(doc).filter((c) => c.id === id);
-  if (!clips.length || !readable(doc, [id])) return;
+  if (!clips.length) return;
   withMarkup(doc, (marks) => commands.export(clips, exportFrame(doc), marks, id, format));
 }
 
 /** Each clip as its own file, into a folder. */
 export function exportEach(format: ExportFormat = "mp4") {
   const { doc } = useDoc.getState();
-  if (!readable(doc)) return;
   withMarkup(doc, (marks) =>
     commands.exportEach(exportClips(doc), exportFrame(doc), marks, format),
   );

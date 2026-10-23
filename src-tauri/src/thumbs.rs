@@ -33,6 +33,7 @@ const RECIPE: &str = "thumbs rgba v1";
 pub const EXTENSION: &str = "thumbs";
 
 /// The open source's thumbnails, made or being made.
+#[derive(Clone)]
 pub struct Thumbs {
     /// Where they are: the cache file, or its `.part` while ffmpeg writes it.
     pub file: PathBuf,
@@ -124,12 +125,22 @@ pub fn start(app: &AppHandle, generation: u64) {
     }
     let state = app.state::<AppState>();
     let mut open = state.sources.lock().unwrap();
-    let Some(s) = open
-        .iter_mut()
-        .find(|s| s.generation == generation && s.thumbs.is_none())
+    let Some(k) = open
+        .iter()
+        .position(|s| s.generation == generation && s.thumbs.is_none())
     else {
         return;
     };
+    // Being made for a twin (the same file again): they're this one's too.
+    let making = open
+        .iter()
+        .filter(|t| t.path == open[k].path)
+        .find_map(|t| t.thumbs.clone().filter(|t| !t.ready));
+    if let Some(thumbs) = making {
+        open[k].thumbs = Some(thumbs);
+        return;
+    }
+    let s = &mut open[k];
     let info = s.info();
     let (width, step, count) = layout(info.width, info.height, info.frames);
     let recipe = format!("{RECIPE} {width}x{HEIGHT} step {step}");
@@ -177,38 +188,53 @@ pub fn start(app: &AppHandle, generation: u64) {
         );
         args.extend(["-frames:v".into(), count.to_string().into()]);
         args.extend(["-fps_mode", "passthrough", "-f", "rawvideo"].map(OsString::from));
+        // It and its twins, which wait for these.
         let progress = |_: f64| {
-            emit(&app, generation);
+            for g in proxy::twins(&app, generation) {
+                emit(&app, g);
+            }
         };
         let stop = || !still_open(&app, generation) || !enabled(&app);
         let made = ffmpeg::run(&args, &file, Some(u64::from(count)), progress, stop);
+        let all = proxy::twins(&app, generation);
         let state = app.state::<AppState>();
         let mut open = state.sources.lock().unwrap();
-        let Some(s) = open.iter_mut().find(|s| s.generation == generation) else {
+        let Some(path) = open
+            .iter()
+            .find(|s| s.generation == generation)
+            .map(|s| s.path.clone())
+        else {
             return;
         };
+        let waiting = open
+            .iter_mut()
+            .filter(|s| all.contains(&s.generation) && s.thumbs.as_ref().is_some_and(|t| !t.ready));
         match made {
             Ok(Outcome::Finished) => {
                 eprintln!(
                     "[thumbs] made {count} for {} in {:.1} s",
-                    s.path.display(),
+                    path.display(),
                     started.elapsed().as_secs_f64(),
                 );
-                if let Some(t) = s.thumbs.as_mut() {
-                    t.file = file.clone();
-                    t.ready = true;
+                for s in waiting {
+                    if let Some(t) = s.thumbs.as_mut() {
+                        t.file = file.clone();
+                        t.ready = true;
+                    }
                 }
                 drop(open);
-                emit(&app, generation);
+                for &g in &all {
+                    emit(&app, g);
+                }
                 if let Some(folder) = file.parent() {
                     proxy::trim(folder, &proxy::in_use(&app), proxy::limit(&app));
                 }
             }
-            Ok(Outcome::Stopped) => s.thumbs = None,
+            Ok(Outcome::Stopped) => waiting.for_each(|s| s.thumbs = None),
             // The timeline does without (the clip shows its colour).
             Err(e) => {
-                eprintln!("[thumbs] {}: {e}", s.path.display());
-                s.thumbs = None;
+                eprintln!("[thumbs] {}: {e}", path.display());
+                waiting.for_each(|s| s.thumbs = None);
             }
         }
     });

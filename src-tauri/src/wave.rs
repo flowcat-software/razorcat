@@ -35,6 +35,7 @@ pub const EXTENSION: &str = "wave";
 pub const PCM_EXTENSION: &str = "pcm";
 
 /// The open source's waveform, made or being made.
+#[derive(Clone)]
 pub struct Wave {
     pub file: PathBuf,
     pub ready: bool,
@@ -77,12 +78,22 @@ pub fn start(app: &AppHandle, generation: u64) {
     }
     let state = app.state::<AppState>();
     let mut open = state.sources.lock().unwrap();
-    let Some(s) = open
-        .iter_mut()
-        .find(|s| s.generation == generation && s.wave.is_none() && s.info.audio_tracks > 0)
+    let Some(k) = open
+        .iter()
+        .position(|s| s.generation == generation && s.wave.is_none() && s.info.audio_tracks > 0)
     else {
         return;
     };
+    // Being made for a twin (the same file again): it's this one's too.
+    let making = open
+        .iter()
+        .filter(|t| t.path == open[k].path)
+        .find_map(|t| t.wave.clone().filter(|w| !w.ready));
+    if let Some(wave) = making {
+        open[k].wave = Some(wave);
+        return;
+    }
+    let s = &mut open[k];
     let Some(file) =
         proxy::folder(app).and_then(|f| proxy::file_for(&f, &s.path, RECIPE, EXTENSION))
     else {
@@ -107,32 +118,45 @@ pub fn start(app: &AppHandle, generation: u64) {
     std::thread::spawn(move || {
         let started = Instant::now();
         let made = make(&app, generation, &input, tracks, rate, frames, &file);
+        // It and its twins, which wait for it.
+        let all = proxy::twins(&app, generation);
         let state = app.state::<AppState>();
         let mut open = state.sources.lock().unwrap();
-        let Some(s) = open.iter_mut().find(|s| s.generation == generation) else {
+        let Some(path) = open
+            .iter()
+            .find(|s| s.generation == generation)
+            .map(|s| s.path.clone())
+        else {
             return;
         };
+        let waiting = open
+            .iter_mut()
+            .filter(|s| all.contains(&s.generation) && s.wave.as_ref().is_some_and(|w| !w.ready));
         match made {
             Ok(true) => {
                 eprintln!(
                     "[wave] made for {} in {:.1} s",
-                    s.path.display(),
+                    path.display(),
                     started.elapsed().as_secs_f64()
                 );
-                if let Some(w) = s.wave.as_mut() {
-                    w.ready = true;
+                for s in waiting {
+                    if let Some(w) = s.wave.as_mut() {
+                        w.ready = true;
+                    }
                 }
                 drop(open);
-                emit(&app, generation);
+                for &g in &all {
+                    emit(&app, g);
+                }
                 if let Some(folder) = file.parent() {
                     proxy::trim(folder, &proxy::in_use(&app), proxy::limit(&app));
                 }
             }
-            Ok(false) => s.wave = None,
+            Ok(false) => waiting.for_each(|s| s.wave = None),
             // The timeline does without.
             Err(e) => {
-                eprintln!("[wave] {}: {e}", s.path.display());
-                s.wave = None;
+                eprintln!("[wave] {}: {e}", path.display());
+                waiting.for_each(|s| s.wave = None);
             }
         }
     });

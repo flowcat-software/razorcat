@@ -254,6 +254,14 @@ pub async fn frame_check_export(
     .map_err(|e| e.to_string())?
 }
 
+/// Development: adds the first file again, on the end of the timeline: the edited check's
+/// second file (check.rs).
+#[tauri::command]
+#[specta::specta]
+pub fn frame_check_add(app: AppHandle) -> Result<(), String> {
+    crate::check::add_again(&app)
+}
+
 /// Development: keeps the check's report (JSON) and logs `summary`; returns the report's path.
 #[tauri::command]
 #[specta::specta]

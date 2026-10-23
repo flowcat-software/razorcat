@@ -11,6 +11,7 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{Instant, SystemTime};
 
 use serde::Serialize;
@@ -177,6 +178,28 @@ fn resume_one(
     }
 }
 
+/// The open sources of the same file as `generation`, itself among them: a file on the timeline
+/// more than once (PLAN 4.5e) has its proxy, thumbnails and waveform made once, for them all.
+pub fn twins(app: &AppHandle, generation: u64) -> Vec<u64> {
+    let state = app.state::<AppState>();
+    let open = state.sources.lock().unwrap();
+    let Some(path) = open
+        .iter()
+        .find(|s| s.generation == generation)
+        .map(|s| &s.path)
+    else {
+        return Vec::new();
+    };
+    open.iter()
+        .filter(|s| &s.path == path)
+        .map(|s| s.generation)
+        .collect()
+}
+
+/// The files whose proxies are being made: one at a time each (they'd be written to the same
+/// cache file).
+static MAKING: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
 /// The cached files the open sources are using: their proxies, converted copies, thumbnails.
 pub fn in_use(app: &AppHandle) -> Vec<PathBuf> {
     let state = app.state::<AppState>();
@@ -341,7 +364,8 @@ pub fn sweep(app: &AppHandle) {
 }
 
 /// Makes the proxy for the source opened as `generation`, on a thread, from `input` (the source,
-/// or its converted copy). It stops if another file is opened meanwhile.
+/// or its converted copy), and its twins' (the same file again). It stops if another file is
+/// opened meanwhile. Nothing if it's being made already (for a twin): it's this one's too.
 pub fn make(
     app: &AppHandle,
     generation: u64,
@@ -350,25 +374,42 @@ pub fn make(
     rate: Rate,
     frames: u32,
 ) {
+    {
+        let mut making = MAKING.lock().unwrap();
+        if making.contains(&source) {
+            return;
+        }
+        making.push(source.clone());
+    }
     let app = app.clone();
     std::thread::spawn(move || {
         let url = crate::protocol::source_url(generation);
         let started = Instant::now();
-        match run(&app, generation, &source, &input, rate, frames, &url) {
+        let made = run(&app, generation, &source, &input, rate, frames, &url);
+        MAKING.lock().unwrap().retain(|p| p != &source);
+        // Who's told: it and its twins (none left, if they were let go: it alone).
+        let mut all = twins(&app, generation);
+        if all.is_empty() {
+            all.push(generation);
+        }
+        match made {
             Ok(Some(file)) => {
                 eprintln!(
                     "[proxy] made {} in {:.1} s",
                     file.display(),
                     started.elapsed().as_secs_f64()
                 );
-                let state = app.state::<AppState>();
-                let mut open = state.sources.lock().unwrap();
-                if let Some(s) = open.iter_mut().find(|s| s.generation == generation) {
-                    s.proxy = Some(file.clone());
-                    drop(open);
+                {
+                    let state = app.state::<AppState>();
+                    let mut open = state.sources.lock().unwrap();
+                    for s in open.iter_mut().filter(|s| all.contains(&s.generation)) {
+                        s.proxy = Some(file.clone());
+                    }
+                }
+                for &g in &all {
                     let _ = ProxyReady {
-                        source: url,
-                        url: crate::protocol::proxy_url(generation),
+                        source: crate::protocol::source_url(g),
+                        url: crate::protocol::proxy_url(g),
                     }
                     .emit_to(&app, LABEL);
                 }
@@ -377,22 +418,29 @@ pub fn make(
                     keep.push(file.clone());
                     trim(parent, &keep, limit(&app));
                 }
-                crate::thumbs::start(&app, generation);
+                for &g in &all {
+                    crate::thumbs::start(&app, g);
+                }
             }
             // Another file was opened, or proxies were turned off.
             Ok(None) => {
                 eprintln!("[proxy] stopped for {}", source.display());
-                let _ = ProxyStopped { source: url }.emit_to(&app, LABEL);
+                for &g in &all {
+                    let source = crate::protocol::source_url(g);
+                    let _ = ProxyStopped { source }.emit_to(&app, LABEL);
+                }
             }
             Err(message) => {
                 eprintln!("[proxy] {}: {message}", source.display());
-                let _ = ProxyFailed {
-                    source: url,
-                    message: format!(
-                        "Couldn't make the preview copy, so stepping may be slow ({message})."
-                    ),
+                for &g in &all {
+                    let _ = ProxyFailed {
+                        source: crate::protocol::source_url(g),
+                        message: format!(
+                            "Couldn't make the preview copy, so stepping may be slow ({message})."
+                        ),
+                    }
+                    .emit_to(&app, LABEL);
                 }
-                .emit_to(&app, LABEL);
             }
         }
     });

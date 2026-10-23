@@ -6,9 +6,11 @@
 // way if it's ready by then.
 //
 // Edited (`--check-edit`), the timeline is cut up first (split four times, a piece deleted,
-// another moved to the front), the steps and seeks cross the cuts, and a last pass plays across
-// them, reading every picture presented: none may come from anywhere but the next frames of the
-// edit (nothing cut out, nothing out of order). Then the edit is exported whole; cropped (two
+// another moved to the front), and the file is added again as a second one (PLAN 4.5e: the same
+// barcodes), its second half moved to second place, so cuts change files. The steps and seeks
+// cross the cuts, and a last pass plays across them, reading every picture presented: none may
+// come from anywhere but the next frames of the edit (nothing cut out, nothing out of order).
+// Then the edit is exported whole (an input per file); cropped (two
 // barcode cells off each side and the top quarter off, odd sizes, which export evens), so the
 // export must show the twelve cells between; and cropped and grown (white where the two cells
 // were on each side, and on top), so the four outer cells read white. Last, with markup (PLAN
@@ -103,6 +105,20 @@ export async function checkFrames(
     const clips = useDoc.getState().doc.clips;
     doc.remove(clips[1].id);
     doc.move(clips[3].id, 0);
+    // The second file: on the end once Rust has it, then split, its second half second.
+    progress("Checking frames: adding the second file…");
+    const added = await commands.frameCheckAdd();
+    if (added.status === "error") throw new Error(added.error);
+    const second = () => useDoc.getState().doc.sources[1]?.id;
+    if (!(await until(() => !!second() && player.loaded(second()!), 30_000))) {
+      throw new Error("the second file didn't load");
+    }
+    const now = useDoc.getState().doc;
+    const last = now.clips[now.clips.length - 1];
+    const from = clipStarts(now)[now.clips.length - 1];
+    doc.split(from + Math.round((last.out - last.in) / 2));
+    const split = useDoc.getState().doc.clips;
+    doc.move(split[split.length - 1].id, 1);
   }
   progress("Checking frames: reading what export picks…");
   const got = await commands.frameCheckExpected();
@@ -183,7 +199,7 @@ export async function checkFrames(
   // every picture presented, in order; and the longest pause between two, at a cut.
   let gap = 0;
   if (edited) {
-    const video = player.video("original")!;
+    const videos = player.originals();
     const second = Math.round(player.fps);
     const cuts = clipStarts(useDoc.getState().doc).slice(1, 4);
     let played = 0;
@@ -196,12 +212,17 @@ export async function checkFrames(
       await until(() => player.onScreen() !== null);
       const seen: { shown: number; at: number }[] = [];
       let recording = true;
-      const onFrame = (now: number) => {
-        if (!recording) return;
-        seen.push({ shown: read(video), at: now });
+      // Each file's video, counted only while it's the one on screen (the next is loaded
+      // ahead, hidden).
+      const watch = (video: HTMLVideoElement) => {
+        const onFrame = (now: number) => {
+          if (!recording) return;
+          if (player.video("original") === video) seen.push({ shown: read(video), at: now });
+          video.requestVideoFrameCallback(onFrame);
+        };
         video.requestVideoFrameCallback(onFrame);
       };
-      video.requestVideoFrameCallback(onFrame);
+      videos.forEach(watch);
       player.toggle();
       await until(() => player.getState().frame >= last || player.getState().speed === 0, 30_000);
       recording = false;
@@ -361,7 +382,7 @@ export async function checkFrames(
 
   const wrongs = misses.length;
   const summary =
-    `${bySource.length} frames${edited ? `, edited to ${n}` : ""}: ` +
+    `${bySource.length} frames${edited ? `, edited to ${n} over two files` : ""}: ` +
     passes
       .map(
         (p) =>

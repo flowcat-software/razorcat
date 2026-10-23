@@ -87,6 +87,11 @@ export const commands = {
 	 *  each frame's barcode and the colours at `probes` (the export check, check.rs).
 	 */
 	frameCheckExport: (clips: ExportClip[], frame: ExportFrame, marks: ExportMark[], probes: Probe[], cells: number) => typedError<Exported, string>(__TAURI_INVOKE("frame_check_export", { clips, frame, marks, probes, cells })),
+	/**
+	 *  Development: adds the first file again, on the end of the timeline: the edited check's
+	 *  second file (check.rs).
+	 */
+	frameCheckAdd: () => typedError<null, string>(__TAURI_INVOKE("frame_check_add")),
 	/**  Installed font families for the text tool's font picker (cached after the first call). */
 	listFonts: () => __TAURI_INVOKE<string[]>("list_fonts"),
 	/**
@@ -223,6 +228,8 @@ export type Export = {
  */
 export type ExportClip = {
 	id: number,
+	/**  Its file (`SourceInfo::id`). */
+	source: string,
 	in: number,
 	out: number,
 	muted: boolean,

@@ -1,10 +1,12 @@
 //! Export (PLAN 2.5): the edit rendered to MP4 by ffmpeg, the way spike 0.3 measured it exact.
 //!
-//! Each clip is its own input, seeked half a second before its first frame. Its timestamps are
-//! put back on the source's clock (from its first shown frame, as the grid counts), the `fps`
-//! filter puts it on the timeline's grid (the same rule the grid and the preview follow,
-//! grid.rs), and `trim` keeps the clip's grid frames. The audio is cut at the same times (all
-//! its tracks mixed, as the waveform shows them). The clips are joined with `concat`, then the
+//! Each clip is its own input (of its file: PLAN 4.5e), seeked half a second before its first
+//! frame. Its timestamps are put back on its file's clock (from its first shown frame, as the
+//! grid counts), the `fps` filter puts it on the timeline's grid (the same rule the grid and the
+//! preview follow, grid.rs), and `trim` keeps the clip's grid frames. A file of another size than
+//! the first is fitted into the first's picture, black round it, as the preview shows it. The
+//! audio is cut at the same times (all its tracks mixed, as the waveform shows them); a file with
+//! none is silence there. The clips are joined with `concat`, then the
 //! joined picture is cropped and grown (the project's frame, frame.ts), and the markup is laid
 //! over it, each item (drawn by the page, markup.rs) on the frames it shows on. A muted clip's
 //! sound is silenced (`concat` still joins it); with every clip muted, the file has no audio.
@@ -37,6 +39,8 @@ use crate::state::AppState;
 #[derive(Debug, Clone, Deserialize, Type)]
 pub struct ExportClip {
     pub id: u32,
+    /// Its file (`SourceInfo::id`).
+    pub source: String,
     #[serde(rename = "in")]
     pub from: u32,
     pub out: u32,
@@ -244,8 +248,10 @@ fn bitrate(width: u32, height: u32, fps: f64) -> u64 {
     (bits as u64).clamp(2_000_000, 80_000_000)
 }
 
-/// What export reads of the open source.
+/// What export reads of an open file.
 struct Input {
+    /// What the page names it by (`SourceInfo::id`).
+    id: String,
     path: PathBuf,
     rate: Rate,
     /// When each grid frame's source frame starts showing, in seconds on the source's clock.
@@ -256,13 +262,21 @@ struct Input {
 }
 
 /// A clip as ffmpeg seeks it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 struct Cut {
+    /// Its file.
+    path: PathBuf,
     /// Where its input is seeked to, in seconds: before its first frame.
     seek: f64,
+    /// When its file's first frame starts showing, on its clock: the grid counts from there.
+    origin: f64,
     from: u32,
     out: u32,
     muted: bool,
+    /// Its file's audio tracks (none: silence, if the export has sound).
+    tracks: u32,
+    /// A file of another size than the first: fitted into the first's picture, this size.
+    fit: Option<(u32, u32)>,
 }
 
 /// How far before a clip's first frame its input is seeked: the frame is kept whatever the
@@ -346,54 +360,45 @@ fn shown(clips: &[ExportClip], start: u32, end: u32) -> Vec<Show> {
     shows
 }
 
-fn cuts(starts: &[f64], clips: &[ExportClip]) -> Vec<Cut> {
-    clips
-        .iter()
-        .map(|c| Cut {
-            seek: (starts[c.from as usize] - SEEK_EARLY).max(0.0),
-            from: c.from,
-            out: c.out,
-            muted: c.muted,
-        })
-        .collect()
+/// Clip `c` of `input`, as ffmpeg seeks it, in the picture of `first` (the timeline's file).
+fn cut(input: &Input, first: &Input, c: &ExportClip) -> Cut {
+    let fitted = (input.width, input.height) != (first.width, first.height);
+    Cut {
+        path: input.path.clone(),
+        seek: (input.starts[c.from as usize] - SEEK_EARLY).max(0.0),
+        origin: input.starts[0],
+        from: c.from,
+        out: c.out,
+        muted: c.muted,
+        tracks: input.audio_tracks,
+        fit: fitted.then_some((first.width, first.height)),
+    }
 }
 
-/// The ffmpeg arguments for `cuts` of `path`, up to the output file: inputs, the graph, the
-/// encoder and the container.
-#[allow(clippy::too_many_arguments)]
+/// Whether there's anything to hear: a clip with sound, not muted.
+fn heard(cuts: &[Cut]) -> bool {
+    cuts.iter().any(|c| !c.muted && c.tracks > 0)
+}
+
+/// The ffmpeg arguments for `cuts`, up to the output file: inputs, the graph, the encoder and
+/// the container.
 fn args(
-    path: &Path,
     cuts: &[Cut],
     rate: Rate,
-    origin: f64,
-    audio_tracks: u32,
     frame: Option<&str>,
     overlays: &[Overlay],
     encoder: Encoder,
     bitrate: u64,
 ) -> Vec<OsString> {
     // Nothing to hear: no audio at all.
-    let audio_tracks = if cuts.iter().all(|c| c.muted) {
-        0
-    } else {
-        audio_tracks
-    };
+    let audio = heard(cuts);
     // Even dimensions, as 4:2:0 needs (for a source of odd size, with no frame).
     let last = format!(
         "scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,format={}",
         encoder.pixels()
     );
-    let mut a = graph(
-        path,
-        cuts,
-        rate,
-        origin,
-        audio_tracks,
-        frame,
-        overlays,
-        &last,
-    );
-    if audio_tracks > 0 {
+    let mut a = graph(cuts, rate, audio, frame, overlays, &last);
+    if audio {
         a.extend(["-c:a", "aac", "-b:a", "192k"].map(OsString::from));
     }
     a.extend(encoder.args(bitrate).into_iter().map(OsString::from));
@@ -413,12 +418,9 @@ fn args(
 
 /// The ffmpeg arguments for a GIF of `cuts`: the picture alone at `gif_fps`, its longer side at
 /// most `size` (0: as it is), as raw frames (YUV4MPEG) on stdout for gifski.
-#[allow(clippy::too_many_arguments)]
 fn gif_args(
-    path: &Path,
     cuts: &[Cut],
     rate: Rate,
-    origin: f64,
     frame: Option<&str>,
     overlays: &[Overlay],
     gif_fps: u32,
@@ -433,21 +435,18 @@ fn gif_args(
         )
     };
     let last = format!("fps={gif_fps},{scale},setsar=1,format=yuv420p");
-    let mut a = graph(path, cuts, rate, origin, 0, frame, overlays, &last);
+    let mut a = graph(cuts, rate, false, frame, overlays, &last);
     a.extend(["-f", "yuv4mpegpipe", "-"].map(OsString::from));
     a
 }
 
 /// The inputs and the graph for `cuts`, mapped: the joined picture, made into the `frame`
 /// (crop and grow), with the `overlays` laid over it, through `last` (a filter chain) as
-/// `[vout]`; and the joined sound as `[ac]` if there are `audio_tracks`.
-#[allow(clippy::too_many_arguments)]
+/// `[vout]`; and the joined sound as `[ac]` if there's `audio`.
 fn graph(
-    path: &Path,
     cuts: &[Cut],
     rate: Rate,
-    origin: f64,
-    audio_tracks: u32,
+    audio: bool,
     frame: Option<&str>,
     overlays: &[Overlay],
     last: &str,
@@ -456,7 +455,7 @@ fn graph(
     let mut a: Vec<OsString> = Vec::new();
     for c in cuts {
         a.extend(["-ss".into(), format!("{:.6}", c.seek).into()]);
-        a.extend(["-i".into(), path.as_os_str().to_owned()]);
+        a.extend(["-i".into(), c.path.as_os_str().to_owned()]);
     }
     // Each item's pixels: one picture, raw RGBA.
     for o in overlays {
@@ -466,35 +465,48 @@ fn graph(
     }
     let mut f: Vec<String> = Vec::new();
     for (i, c) in cuts.iter().enumerate() {
-        // Back on the source's clock from its first shown frame, then onto the grid, then the
-        // clip's grid frames (`fps` gives frame k the timestamp k).
+        // Back on its file's clock from its first shown frame, then onto the grid, then the
+        // clip's grid frames (`fps` gives frame k the timestamp k); fitted into the first file's
+        // picture if it's another size.
+        let fit = c.fit.map_or(String::new(), |(w, h)| {
+            format!(
+                ",scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
+            )
+        });
         f.push(format!(
-            "[{i}:v:0]setpts=PTS+({:.6})/TB,fps={}/{},trim=start_pts={}:end_pts={},setpts=PTS-STARTPTS[v{i}]",
-            c.seek - origin,
+            "[{i}:v:0]setpts=PTS+({:.6})/TB,fps={}/{},trim=start_pts={}:end_pts={},setpts=PTS-STARTPTS{fit}[v{i}]",
+            c.seek - c.origin,
             rate.num,
             rate.den,
             c.from,
             c.out
         ));
-        if audio_tracks > 0 {
-            let tracks: String = (0..audio_tracks).map(|t| format!("[{i}:a:{t}]")).collect();
-            let mix = if audio_tracks > 1 {
-                format!("amix=inputs={audio_tracks}:normalize=0:duration=longest,")
-            } else {
-                String::new()
-            };
-            // The same stretch of time: from grid frame `from` on the source's clock, which
-            // the seek put at 0.
-            let start = (origin + f64::from(c.from) / fps - c.seek).max(0.0);
-            let length = f64::from(c.out - c.from) / fps;
-            let silence = if c.muted { ",volume=0" } else { "" };
-            f.push(format!(
-                "{tracks}{mix}atrim=start={start:.6}:duration={length:.6},asetpts=PTS-STARTPTS{silence}[a{i}]"
-            ));
+        if !audio {
+            continue;
         }
+        let length = f64::from(c.out - c.from) / fps;
+        if c.tracks == 0 {
+            // A file with no sound: silence for as long.
+            f.push(format!(
+                "anullsrc=r=48000:cl=stereo,atrim=duration={length:.6}[a{i}]"
+            ));
+            continue;
+        }
+        let tracks: String = (0..c.tracks).map(|t| format!("[{i}:a:{t}]")).collect();
+        let mix = if c.tracks > 1 {
+            format!("amix=inputs={}:normalize=0:duration=longest,", c.tracks)
+        } else {
+            String::new()
+        };
+        // The same stretch of time: from grid frame `from` on its file's clock, which the seek
+        // put at 0.
+        let start = (c.origin + f64::from(c.from) / fps - c.seek).max(0.0);
+        let silence = if c.muted { ",volume=0" } else { "" };
+        f.push(format!(
+            "{tracks}{mix}atrim=start={start:.6}:duration={length:.6},asetpts=PTS-STARTPTS{silence}[a{i}]"
+        ));
     }
     let n = cuts.len();
-    let audio = audio_tracks > 0;
     let joined: String = (0..n)
         .map(|i| {
             if audio {
@@ -648,29 +660,36 @@ fn encoders(app: &AppHandle) -> Vec<Encoder> {
 
 // --- exporting ---
 
-/// The open source, as export reads it: the first file (several come in PLAN 4.5e2; until then
-/// the page exports only clips of the first).
-fn input(app: &AppHandle) -> Result<Input, String> {
+/// The open files, as export reads them, first first (it sets the picture and the rate).
+fn inputs(app: &AppHandle) -> Result<Vec<Input>, String> {
     let state = app.state::<AppState>();
     let open = state.sources.lock().unwrap();
-    let s = open.first().ok_or("No video is open.")?;
-    let (w, h) = (s.info.width, s.info.height);
-    let (width, height) = if s.info.rotation % 180 == 90 {
-        (h, w)
-    } else {
-        (w, h)
-    };
-    Ok(Input {
-        path: s.path.clone(),
-        rate: s.grid.rate,
-        starts: grid::times(&s.info.video, &s.grid)
-            .into_iter()
-            .map(|(start, _)| start)
-            .collect(),
-        audio_tracks: s.info.audio_tracks,
-        width,
-        height,
-    })
+    if open.is_empty() {
+        return Err("No video is open.".into());
+    }
+    Ok(open
+        .iter()
+        .map(|s| {
+            let (w, h) = (s.info.width, s.info.height);
+            let (width, height) = if s.info.rotation % 180 == 90 {
+                (h, w)
+            } else {
+                (w, h)
+            };
+            Input {
+                id: crate::protocol::source_url(s.generation),
+                path: s.path.clone(),
+                rate: s.grid.rate,
+                starts: grid::times(&s.info.video, &s.grid)
+                    .into_iter()
+                    .map(|(start, _)| start)
+                    .collect(),
+                audio_tracks: s.info.audio_tracks,
+                width,
+                height,
+            }
+        })
+        .collect())
 }
 
 /// What an export makes.
@@ -690,27 +709,33 @@ impl Format {
     }
 }
 
-/// The open source and the cuts for `clips`, checked: the clips fit it, and `output` isn't it.
+/// The first file (the picture and the rate) and the cuts for `clips`, checked: each clip fits
+/// its file, and `output` isn't one of them.
 fn prepare(
     app: &AppHandle,
     clips: &[ExportClip],
     output: &Path,
 ) -> Result<(Input, Vec<Cut>), String> {
-    let input = input(app)?;
+    let mut inputs = inputs(app)?;
     if clips.is_empty() {
         return Err("There's nothing to export.".into());
     }
-    if clips
-        .iter()
-        .any(|c| c.from >= c.out || c.out as usize > input.starts.len())
-    {
-        return Err("The edit doesn't fit the video.".into());
+    if inputs.iter().any(|i| i.path == output) {
+        return Err("The export can't replace a video it's made from.".into());
     }
-    if output == input.path {
-        return Err("The export can't replace the video it's made from.".into());
+    let first = &inputs[0];
+    let mut cuts = Vec::with_capacity(clips.len());
+    for c in clips {
+        let input = inputs
+            .iter()
+            .find(|i| i.id == c.source)
+            .ok_or("The edit names a video that isn't open.")?;
+        if c.from >= c.out || c.out as usize > input.starts.len() {
+            return Err("The edit doesn't fit the video.".into());
+        }
+        cuts.push(cut(input, first, c));
     }
-    let cuts = cuts(&input.starts, clips);
-    Ok((input, cuts))
+    Ok((inputs.swap_remove(0), cuts))
 }
 
 /// Renders `clips` of the open source to `output` as `format`, blocking. `progress` gets 0
@@ -759,17 +784,7 @@ fn render_mp4(
     let rate = bitrate(width, height, input.rate.fps());
     let mut last = String::new();
     for encoder in encoders(app) {
-        let a = args(
-            &input.path,
-            &cuts,
-            input.rate,
-            input.starts[0],
-            input.audio_tracks,
-            made.as_deref(),
-            &marks,
-            encoder,
-            rate,
-        );
+        let a = args(&cuts, input.rate, made.as_deref(), &marks, encoder, rate);
         match ffmpeg::run_now(&a, output, Some(frames), &mut progress, || {
             stop.load(Ordering::Relaxed)
         }) {
@@ -816,10 +831,8 @@ fn render_gif(
     ffmpeg
         .args(["-hide_banner", "-nostdin", "-loglevel", "error"])
         .args(gif_args(
-            &input.path,
             &cuts,
             input.rate,
-            input.starts[0],
             frame_filter(frame, input.width, input.height).as_deref(),
             &overlays(clips, markup),
             gif_fps,
@@ -1292,28 +1305,133 @@ mod tests {
             .join(" ")
     }
 
+    /// A file of 300 frames at 30 fps, `width` × `height`, with `tracks` of sound.
+    fn input(id: &str, width: u32, height: u32, tracks: u32) -> Input {
+        Input {
+            id: id.into(),
+            path: PathBuf::from(format!("{id}.mp4")),
+            rate: Rate { num: 30, den: 1 },
+            starts: (0..300).map(|k| f64::from(k) / 30.0).collect(),
+            audio_tracks: tracks,
+            width,
+            height,
+        }
+    }
+
+    /// `cuts` all of `path`, its first frame at `origin`, with `tracks` of sound.
+    fn of(path: &Path, cuts: &[Cut], origin: f64, tracks: u32) -> Vec<Cut> {
+        cuts.iter()
+            .map(|c| Cut {
+                path: path.into(),
+                origin,
+                tracks,
+                ..c.clone()
+            })
+            .collect()
+    }
+
+    /// The MP4 arguments for `cuts` of one file.
+    #[allow(clippy::too_many_arguments)]
+    fn one_file(
+        path: &Path,
+        cuts: &[Cut],
+        rate: Rate,
+        origin: f64,
+        tracks: u32,
+        frame: Option<&str>,
+        overlays: &[Overlay],
+        encoder: Encoder,
+        bitrate: u64,
+    ) -> Vec<OsString> {
+        args(
+            &of(path, cuts, origin, tracks),
+            rate,
+            frame,
+            overlays,
+            encoder,
+            bitrate,
+        )
+    }
+
+    /// The GIF arguments for `cuts` of one file.
+    #[allow(clippy::too_many_arguments)]
+    fn one_file_gif(
+        path: &Path,
+        cuts: &[Cut],
+        rate: Rate,
+        origin: f64,
+        frame: Option<&str>,
+        overlays: &[Overlay],
+        gif_fps: u32,
+        size: u32,
+    ) -> Vec<OsString> {
+        gif_args(
+            &of(path, cuts, origin, 0),
+            rate,
+            frame,
+            overlays,
+            gif_fps,
+            size,
+        )
+    }
+
     #[test]
     fn each_clip_is_seeked_before_its_first_frame() {
-        let starts: Vec<f64> = (0..300).map(|k| f64::from(k) / 30.0).collect();
-        let clips = [
-            ExportClip {
-                id: 1,
-                from: 0,
-                out: 30,
-                muted: false,
-                start: 0,
-            },
-            ExportClip {
-                id: 2,
-                from: 240,
-                out: 270,
-                muted: false,
-                start: 0,
-            },
+        let a = input("a", 1920, 1080, 1);
+        let c = [
+            cut(&a, &a, &clip(1, 0, 30, 0)),
+            cut(&a, &a, &clip(2, 240, 270, 0)),
         ];
-        let c = cuts(&starts, &clips);
         assert_eq!(c[0].seek, 0.0);
         assert!((c[1].seek - 7.5).abs() < 1e-9);
+        assert_eq!(c[0].fit, None);
+        // Another file, of another size: its own, fitted into the first's picture.
+        let b = input("b", 1280, 1024, 0);
+        let d = cut(
+            &b,
+            &a,
+            &ExportClip {
+                source: "b".into(),
+                ..clip(3, 0, 30, 30)
+            },
+        );
+        assert_eq!(d.path, PathBuf::from("b.mp4"));
+        assert_eq!((d.tracks, d.fit), (0, Some((1920, 1080))));
+    }
+
+    #[test]
+    fn another_file_is_fitted_in_and_silent_without_sound() {
+        let rate = Rate { num: 30, den: 1 };
+        let c = [
+            Cut {
+                path: "a.mp4".into(),
+                out: 30,
+                tracks: 1,
+                ..Cut::default()
+            },
+            Cut {
+                path: "b.mp4".into(),
+                seek: 1.0,
+                origin: 0.2,
+                from: 60,
+                out: 90,
+                fit: Some((1920, 1080)),
+                ..Cut::default()
+            },
+        ];
+        let a = joined(&args(&c, rate, None, &[], Encoder::X264, 6_000_000));
+        assert!(a.starts_with("-ss 0.000000 -i a.mp4 -ss 1.000000 -i b.mp4"));
+        assert!(a.contains(
+            "[1:v:0]setpts=PTS+(0.800000)/TB,fps=30/1,trim=start_pts=60:end_pts=90,setpts=PTS-STARTPTS,\
+             scale=1920:1080:force_original_aspect_ratio=decrease,\
+             pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[v1]"
+        ));
+        assert!(a.contains("anullsrc=r=48000:cl=stereo,atrim=duration=1.000000[a1]"));
+        assert!(a.contains("[v0][a0][v1][a1]concat=n=2:v=1:a=1[vc][ac]"));
+        // Only the silent file heard: no sound at all.
+        let quiet = joined(&args(&c[1..], rate, None, &[], Encoder::X264, 6_000_000));
+        assert!(quiet.contains("[v0]concat=n=1:v=1:a=0[vc];"));
+        assert!(!quiet.contains("anullsrc"));
     }
 
     #[test]
@@ -1324,16 +1442,18 @@ mod tests {
                 from: 0,
                 out: 30,
                 muted: false,
+                ..Default::default()
             },
             Cut {
                 seek: 7.5,
                 from: 240,
                 out: 270,
                 muted: false,
+                ..Default::default()
             },
         ];
         let rate = Rate { num: 30, den: 1 };
-        let a = joined(&args(
+        let a = joined(&one_file(
             Path::new("in.mp4"),
             &c,
             rate,
@@ -1364,9 +1484,10 @@ mod tests {
             from: 0,
             out: 30,
             muted: false,
+            ..Default::default()
         }];
         let rate = Rate { num: 30, den: 1 };
-        let two = joined(&args(
+        let two = joined(&one_file(
             Path::new("in.mp4"),
             &c,
             rate,
@@ -1378,7 +1499,7 @@ mod tests {
             6_000_000,
         ));
         assert!(two.contains("[0:a:0][0:a:1]amix=inputs=2:normalize=0:duration=longest,atrim="));
-        let none = joined(&args(
+        let none = joined(&one_file(
             Path::new("in.mp4"),
             &c,
             rate,
@@ -1401,10 +1522,11 @@ mod tests {
             from,
             out: from + 30,
             muted,
+            ..Default::default()
         };
         let rate = Rate { num: 30, den: 1 };
         let mp4 = |c: &[Cut]| {
-            joined(&args(
+            joined(&one_file(
                 Path::new("in.mp4"),
                 c,
                 rate,
@@ -1434,9 +1556,10 @@ mod tests {
             from: 60,
             out: 90,
             muted: false,
+            ..Default::default()
         }];
         let rate = Rate { num: 30, den: 1 };
-        let a = joined(&args(
+        let a = joined(&one_file(
             Path::new("in.mp4"),
             &c,
             rate,
@@ -1509,9 +1632,10 @@ mod tests {
             from: 0,
             out: 30,
             muted: false,
+            ..Default::default()
         }];
         let rate = Rate { num: 30, den: 1 };
-        let a = joined(&gif_args(
+        let a = joined(&one_file_gif(
             Path::new("in.mp4"),
             &c,
             rate,
@@ -1525,7 +1649,7 @@ mod tests {
             "[v0]concat=n=1:v=1:a=0[vc];[vc]fps=20,scale='if(gte(iw,ih),min(640,iw),-2)'"
         ));
         assert!(a.ends_with("-map [vout] -f yuv4mpegpipe -"));
-        let whole = joined(&gif_args(
+        let whole = joined(&one_file_gif(
             Path::new("in.mp4"),
             &c,
             rate,
@@ -1623,9 +1747,10 @@ mod tests {
             from: 0,
             out: 30,
             muted: false,
+            ..Default::default()
         }];
         let rate = Rate { num: 30, den: 1 };
-        let a = joined(&args(
+        let a = joined(&one_file(
             Path::new("in.mp4"),
             &c,
             rate,
@@ -1637,7 +1762,7 @@ mod tests {
             6_000_000,
         ));
         assert!(a.contains("[vc]format=yuv444p,crop=2:2:0:0:exact=1[vf];[vf]scale=trunc(iw/2)*2"));
-        let g = joined(&gif_args(
+        let g = joined(&one_file_gif(
             Path::new("in.mp4"),
             &c,
             rate,
@@ -1666,6 +1791,7 @@ mod tests {
     fn clip(id: u32, from: u32, out: u32, start: u32) -> ExportClip {
         ExportClip {
             id,
+            source: "a".into(),
             from,
             out,
             muted: false,
@@ -1707,6 +1833,7 @@ mod tests {
             from: 0,
             out: 90,
             muted: false,
+            ..Default::default()
         }];
         let rate = Rate { num: 30, den: 1 };
         let mark = |x, shows: Vec<(u32, u32)>| Overlay {
@@ -1724,7 +1851,7 @@ mod tests {
             fade_out: 0,
         };
         let marks = [mark(2, vec![(5, 10)]), mark(3, vec![(0, 2), (40, 41)])];
-        let a = joined(&args(
+        let a = joined(&one_file(
             Path::new("in.mp4"),
             &c,
             rate,
@@ -1746,7 +1873,7 @@ mod tests {
         ));
         assert!(a.contains("[o1]scale=trunc(iw/2)*2"));
         // No frame: straight onto the joined picture.
-        let bare = joined(&args(
+        let bare = joined(&one_file(
             Path::new("in.mp4"),
             &c,
             rate,
@@ -1758,7 +1885,7 @@ mod tests {
             6_000_000,
         ));
         assert!(bare.contains("[vc][m0]overlay="));
-        let g = joined(&gif_args(
+        let g = joined(&one_file_gif(
             Path::new("in.mp4"),
             &c,
             rate,
@@ -1778,6 +1905,7 @@ mod tests {
             from: 0,
             out: 90,
             muted: false,
+            ..Default::default()
         }];
         let rate = Rate {
             num: 30000,
@@ -1805,7 +1933,7 @@ mod tests {
             fade_in: 4,
             fade_out: 2,
         };
-        let a = joined(&args(
+        let a = joined(&one_file(
             Path::new("in.mp4"),
             &c,
             rate,
