@@ -76,6 +76,8 @@ export interface RangeOptions {
   fadeCuts: boolean;
   /** The fade Apply Default Fades gives markup, in frames. */
   defaultFade: number;
+  /** Markup duplicated, Alt-dragged or pasted keeps the original's fades (else none). */
+  copyFades: boolean;
 }
 
 export interface DocState {
@@ -302,6 +304,7 @@ export const useDoc = create<DocState>()((set, get) => {
       splitMarks: true,
       fadeCuts: false,
       defaultFade: 15,
+      copyFades: true,
     },
 
     load: (frames, size, id) =>
@@ -379,8 +382,13 @@ export const useDoc = create<DocState>()((set, get) => {
     placeMarks: (places) =>
       apply(
         (doc) => {
+          // From where they were as the gesture began; markup it added (copies being dragged)
+          // as it is now.
           const start = get().gestureStart;
-          return placeMarks(start ? { ...doc, marks: start.marks } : doc, places);
+          if (!start) return placeMarks(doc, places);
+          const before = new Set(start.marks.map((m) => m.id));
+          const added = doc.marks.filter((m) => !before.has(m.id));
+          return placeMarks({ ...doc, marks: [...start.marks, ...added] }, places);
         },
         places.map((p) => p.id),
       ),

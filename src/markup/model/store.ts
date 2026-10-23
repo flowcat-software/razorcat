@@ -2,7 +2,8 @@
 // edit (editor/docStore.ts) is what's kept and undone; this is a view of it, the markup showing
 // at the playhead, as one of Vandal's documents (annotations back to front, in output pixels),
 // and its actions edit the edit:
-// - adding an annotation adds markup at the playhead, for two seconds, in a free lane;
+// - adding an annotation adds markup at the playhead, for two seconds, in a free lane (a
+//   duplicate, when its original is, with its fades if Settings say so);
 // - moving, resizing or restyling one changes what its markup shows;
 // - stacking order is the lanes: the top lane's markup is in front;
 // - gestures, undo and redo are the edit's, so a drag on the preview is one undo step there;
@@ -270,7 +271,14 @@ export const docStore = createStore<DocState>()(() => ({
       : Math.round(NEW_MARK_SECONDS * (player?.fps ?? 30));
     player?.pause();
     const id = edit.addMark(annotation, frame, length, freeLane(edit.doc, frame, frame + length));
-    return id === null ? "" : annotationId(id);
+    if (id === null) return "";
+    const kept = original && edit.doc.marks.find((m) => m.id === original.id);
+    if (kept && edit.options.copyFades) {
+      const fades = markFades(kept, length);
+      useEdit.getState().setMarkFades(id, { fadeIn: fades.fadeIn });
+      useEdit.getState().setMarkFades(id, { fadeOut: fades.fadeOut });
+    }
+    return annotationId(id);
   },
   update: (id, update) => {
     const edit = useEdit.getState();
@@ -316,6 +324,12 @@ export const docStore = createStore<DocState>()(() => ({
 
   select: (ids) => useEdit.getState().selectMarks(ids.map(markId)),
 }));
+
+/** Selects all the markup on the timeline, showing at the playhead or not. */
+export function selectAllMarkup(): void {
+  const edit = useEdit.getState();
+  edit.selectMarks(shownMarks(edit.doc).map((m) => m.id));
+}
 
 /**
  * Every spotlight in the edit, showing at the playhead or not: their darkness is shared (Vandal's,

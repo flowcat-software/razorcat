@@ -138,6 +138,9 @@ pub struct Timeline {
     /// The fade Apply Default Fades gives markup, in frames (15 by default; kept to
     /// `DEFAULT_FADE_RANGE`).
     pub default_markup_fade: u32,
+    /// Markup duplicated, Alt-dragged or pasted keeps the original's fades (on by default;
+    /// Richard, 2026-10-23). Off: copies start without.
+    pub copies_keep_fades: bool,
 }
 
 /// The default markup fade's range, in frames.
@@ -153,6 +156,7 @@ impl Default for Timeline {
             split_markup: true,
             fade_split_markup: false,
             default_markup_fade: 15,
+            copies_keep_fades: true,
         }
     }
 }

@@ -36,7 +36,7 @@ export function StatusBar({ notice, empty }: Props) {
       <button
         type="button"
         className={styles.textButton}
-        title="Snapping (hold Alt: off)"
+        title="Snapping (hold Shift: off)"
         aria-pressed={timeline.snap}
         disabled={empty}
         onMouseDown={(e) => e.preventDefault()}

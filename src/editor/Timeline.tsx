@@ -150,8 +150,8 @@ type Hit =
 
 /** What a handle does (the mockup's tooltips). */
 const TIPS: Record<Hit["kind"], [string, string]> = {
-  in: ["Trim the clip's start", "the rest ripples along · Alt: no snap"],
-  out: ["Trim the clip's end", "the rest ripples along · Alt: no snap"],
+  in: ["Trim the clip's start", "the rest ripples along · Shift: no snap"],
+  out: ["Trim the clip's end", "the rest ripples along · Shift: no snap"],
   move: ["Move the clip", "drag left or right · Ctrl+[ ]"],
   rangeA: ["Range start", "drag"],
   rangeB: ["Range end", "drag"],
@@ -160,7 +160,10 @@ const TIPS: Record<Hit["kind"], [string, string]> = {
   pendingIn: ["Pending in-point", "drag to adjust · O sets the out"],
   markStart: ["When it starts", "drag"],
   markEnd: ["When it ends", "drag"],
-  markMove: ["Move it in time", "drag · up or down: another lane · Ctrl/Shift+click: select more"],
+  markMove: [
+    "Move it in time",
+    "drag · up or down: another lane · Alt+drag: a copy · Ctrl/Shift+click: select more",
+  ],
   fadeIn: ["Fade in", "drag right for a longer fade"],
   fadeOut: ["Fade out", "drag left for a longer fade"],
 };
@@ -228,6 +231,15 @@ interface MarkDrag {
   group:
     | { id: MarkId; start: number; end: number; lane: number; fadeIn: number; fadeOut: number }[]
     | null;
+  /**
+   * Alt-dragged (Richard, 2026-10-23): once it moves, copies are made where they are and
+   * placed only on release (`dropCopies`); till then they're drawn faded and dashed where
+   * they'd go (`ghost`, their originals' ids), the originals staying put.
+   */
+  copying: boolean;
+  ghost: { id: MarkId; start: number; end: number; lane: number }[] | null;
+  /** Dropped on a busy lane, the copy goes below it (else above). */
+  below: boolean;
 }
 
 /** The markup lanes as drawn: how many, how tall, how far apart, and how far scrolled. */
@@ -636,16 +648,16 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
   /** Markup being dragged. */
   const marking = useRef<MarkDrag | null>(null);
 
-  // Shift pressed or let go while dragging several items' fades switches between keeping their
-  // lengths and making them all one length: the last move again, with Shift as it is now.
+  // Shift pressed or let go while dragging markup takes effect at once: snapping goes off or on,
+  // and several items' fades switch between keeping their lengths and all one length. The last
+  // move again, with Shift as it is now.
   const lastMove = useRef<{ x: number; y: number; id: number; alt: boolean } | null>(null);
   useEffect(() => {
     const onShift = (e: KeyboardEvent) => {
       const d = marking.current;
       const last = lastMove.current;
       const canvas = canvasRef.current;
-      if (e.key !== "Shift" || e.repeat || !d?.group || !last || !canvas) return;
-      if (d.kind !== "fadeIn" && d.kind !== "fadeOut") return;
+      if (e.key !== "Shift" || e.repeat || !d || !last || !canvas) return;
       canvas.dispatchEvent(
         new PointerEvent("pointermove", {
           bubbles: true,
@@ -1075,6 +1087,33 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
           g.lineWidth = 1;
         }
       }
+      // Alt-dragged copies, not placed yet: faded, outlined dashed, where they'd go (a new lane
+      // above or below, at the lanes' edge).
+      const ghost = marking.current?.ghost;
+      for (const p of ghost ?? []) {
+        const x0 = xOf(view, p.start);
+        const x1 = xOf(view, p.end);
+        const y0 = Math.max(LANE_TOP, Math.min(LANE_TOP + LANES_H - L.h, laneY(L, p.lane)));
+        const w = Math.max(2, x1 - x0);
+        g.globalAlpha = 0.45;
+        g.fillStyle = c["mark"];
+        g.beginPath();
+        g.roundRect(x0, y0, w, L.h, 4);
+        g.fill();
+        g.globalAlpha = 1;
+        g.strokeStyle = "#fff";
+        g.lineWidth = 1.5;
+        g.setLineDash([4, 3]);
+        g.beginPath();
+        g.roundRect(x0 + 1, y0 + 1, Math.max(2, w - 2), L.h - 2, 4);
+        g.stroke();
+        g.setLineDash([]);
+        g.lineWidth = 1;
+        const kept = marks.get(p.id);
+        g.fillStyle = "rgb(255 255 255 / 0.8)";
+        g.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
+        g.fillText(kept ? markLabel(kept.object) : "", Math.max(x0, HEADER) + 8, y0 + L.h / 2 + 1);
+      }
       // The selection box being dragged.
       const box = boxing.current;
       if (box?.moved) {
@@ -1323,8 +1362,8 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
     const r = e.currentTarget.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top, view: useTimeline.getState().view };
   };
-  /** Snapping, unless it's off or Alt is held. */
-  const snapping = (e: React.PointerEvent) => useTimeline.getState().snap && !e.altKey;
+  /** Snapping, unless it's off or Shift is held (Richard, 2026-10-23: as Shift keeps lines straight). */
+  const snapping = (e: React.PointerEvent) => useTimeline.getState().snap && !e.shiftKey;
   const scrubTo = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const { x, view } = at(e);
     const f = fOf(view, Math.max(HEADER, x));
@@ -1446,9 +1485,12 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
    */
   const markTo = (e: React.PointerEvent<HTMLCanvasElement>, d: MarkDrag) => {
     const { x, y, view } = at(e);
+    // An Alt+click isn't a copy: nothing until the pointer has moved.
+    if (d.copying && !d.ghost && Math.hypot(x - d.x0, y - d.y0) < DRAG_PX) return;
     const store = useDoc.getState();
     const length = total(store.doc);
-    const targets = markTargets(store.doc, d.playhead, d.id, store.pendingIn);
+    // A copy snaps to its original's ends too.
+    const targets = markTargets(store.doc, d.playhead, d.copying ? -1 : d.id, store.pendingIn);
     const on = snapping(e);
     const { start, end, lane } = d.orig;
     const len = end - start;
@@ -1494,8 +1536,21 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
       a = Math.max(0, Math.min(length - len, a));
       const L = lanes();
       to = { start: a, end: a + len, lane: laneAt(L, y) };
+      if (d.copying) {
+        const row = (y - LANE_TOP + L.scroll) / L.pitch;
+        d.below = row - Math.floor(row) >= 0.5;
+        d.ghost = d.group ? groupPlaces(d, d.group, a - start, y) : [{ id: d.id, ...to }];
+        const n = d.ghost.length;
+        showReadout(
+          `${fmt(to.start)} → ${fmt(to.end)}\n${n > 1 ? `${n} copies` : "A copy"}`,
+          e.clientX,
+          e.clientY,
+        );
+        draw.current();
+        return;
+      }
       if (d.group) {
-        moveGroup(d, d.group, a - start, y);
+        useDoc.getState().placeMarks(groupPlaces(d, d.group, a - start, y));
         showReadout(
           `${fmt(to.start)} → ${fmt(to.end)}
 ${d.group.length} items`,
@@ -1536,11 +1591,45 @@ ${d.group.length} items`,
   };
 
   /**
-   * Several selected markup items moved together, by `df` frames (kept so all stay on the
-   * timeline) and by as many lanes as the pointer has gone up or down (kept so none goes past a
-   * new lane above or below), each from its place when the drag started.
+   * An Alt-drag let go: copies of what was dragged (with its fades, if Settings say so) placed
+   * where its ghost was, as a drop of the originals would be (on a busy lane, a new one above or
+   * below), and selected. One undo step with the drag.
    */
-  const moveGroup = (d: MarkDrag, group: NonNullable<MarkDrag["group"]>, df: number, y: number) => {
+  const dropCopies = (d: MarkDrag, ghost: NonNullable<MarkDrag["ghost"]>) => {
+    const items = d.group ?? [{ id: d.id, ...d.orig }];
+    const placed: { id: MarkId; start: number; end: number; lane: number }[] = [];
+    for (const p of ghost) {
+      const store = useDoc.getState();
+      const kept = store.doc.marks.find((k) => k.id === p.id);
+      const own = items.find((m) => m.id === p.id);
+      if (!kept || !own) continue;
+      const id = store.addMark(kept.object, p.start, p.end - p.start, Math.max(0, p.lane));
+      if (id === null) continue;
+      if (store.options.copyFades) {
+        store.setMarkFades(id, { fadeIn: own.fadeIn });
+        store.setMarkFades(id, { fadeOut: own.fadeOut });
+      }
+      placed.push({ ...p, id });
+    }
+    const store = useDoc.getState();
+    if (placed.length === 1 && !d.group) {
+      const [p] = placed;
+      store.dropMark(p.id, p.start, p.end, p.lane, d.below);
+    } else store.placeMarks(placed);
+    store.selectMarks(placed.map((p) => p.id));
+  };
+
+  /**
+   * Where several selected markup items go, moved together: by `df` frames (kept so all stay on
+   * the timeline) and by as many lanes as the pointer has gone up or down (kept so none goes
+   * past a new lane above or below), each from its place when the drag started.
+   */
+  const groupPlaces = (
+    d: MarkDrag,
+    group: NonNullable<MarkDrag["group"]>,
+    df: number,
+    y: number,
+  ) => {
     const length = total(useDoc.getState().doc);
     const lo = Math.min(...group.map((m) => m.start));
     const hi = Math.max(...group.map((m) => m.end));
@@ -1551,11 +1640,12 @@ ${d.group.length} items`,
     const { gestureStart, doc } = useDoc.getState();
     const rows = Math.round((y - d.y0) / lanes().pitch);
     const dl = Math.max(-1 - top, Math.min(laneCount(gestureStart ?? doc) - bottom, rows));
-    useDoc
-      .getState()
-      .placeMarks(
-        group.map((m) => ({ id: m.id, start: m.start + dt, end: m.end + dt, lane: m.lane + dl })),
-      );
+    return group.map((m) => ({
+      id: m.id,
+      start: m.start + dt,
+      end: m.end + dt,
+      lane: m.lane + dl,
+    }));
   };
 
   /**
@@ -1621,7 +1711,9 @@ ${d.group.length} items`,
       player.peek(null);
     }
     if (marking.current) {
+      const d = marking.current;
       marking.current = null;
+      if (d.ghost && e.type === "pointerup") dropCopies(d, d.ghost);
       docState.endGesture();
       player.peek(null);
     }
@@ -1731,6 +1823,7 @@ ${d.group.length} items`,
                 ...markFades(docState.doc.marks.find((k) => k.id === id) ?? {}, end - start),
               }))
           : null;
+      const copying = kind === "move" && e.altKey;
       marking.current = {
         kind,
         id: mark.id,
@@ -1739,8 +1832,11 @@ ${d.group.length} items`,
         orig: { start: mark.start, end: mark.end, lane: mark.lane, ...fades },
         playhead: player.getState().frame,
         group,
+        copying,
+        ghost: null,
+        below: false,
       };
-      if (kind === "move") e.currentTarget.style.cursor = "grabbing";
+      if (kind === "move") e.currentTarget.style.cursor = copying ? "copy" : "grabbing";
       return;
     }
     docState.beginGesture();

@@ -212,8 +212,10 @@ function pasteMarks(marks: readonly MarkCopy[], at: number): boolean {
     const lane = freeLane(useDoc.getState().doc, start, start + length);
     const id = store.addMark(m.object, start, length, lane);
     if (id === null) continue;
-    store.setMarkFades(id, { fadeIn: m.fadeIn });
-    store.setMarkFades(id, { fadeOut: m.fadeOut });
+    if (store.options.copyFades) {
+      store.setMarkFades(id, { fadeIn: m.fadeIn });
+      store.setMarkFades(id, { fadeOut: m.fadeOut });
+    }
     ids.push(id);
   }
   store.endGesture();

@@ -3,6 +3,7 @@ import { shownMarks, type MarkObject } from "./doc";
 import { useDoc } from "./docStore";
 import { copySelectedMarks, pasteClip, pasteFades, pasteStyle, pasteTiming } from "./edits";
 import type { Player } from "./player";
+import { duplicateSelection } from "../markup/objectActions";
 
 const s = () => useDoc.getState();
 const style = (color: string, width: number) => ({ color, width, opacity: 1 });
@@ -44,6 +45,32 @@ describe("copying markup", () => {
     expect(s().doc.marks.filter((m) => m.fadeIn === 5)).toHaveLength(2);
     s().undo();
     expect(s().doc.marks).toHaveLength(2);
+  });
+
+  it("duplicates it with its fades, or without when copies don't keep them", () => {
+    const a = s().addMark(rect, 10, 20, 0)!;
+    s().setMarkFades(a, { fadeIn: 5 });
+    s().setMarkFades(a, { fadeOut: 3 });
+    const fadesOfLast = () => {
+      const m = s().doc.marks[s().doc.marks.length - 1];
+      return [m.fadeIn ?? 0, m.fadeOut ?? 0];
+    };
+    s().selectMarks([a]);
+    expect(duplicateSelection()).toBe(true);
+    expect(fadesOfLast()).toEqual([5, 3]);
+    const options = s().options;
+    try {
+      s().setOptions({ ...options, copyFades: false });
+      s().selectMarks([a]);
+      expect(duplicateSelection()).toBe(true);
+      expect(fadesOfLast()).toEqual([0, 0]);
+      s().selectMarks([a]);
+      expect(copySelectedMarks()).toBe(true);
+      expect(pasteClip(at(100))).toBe(true);
+      expect(fadesOfLast()).toEqual([0, 0]);
+    } finally {
+      s().setOptions(options);
+    }
   });
 
   it("pastes its style onto the selected markup, as one undo step", () => {

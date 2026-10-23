@@ -25,7 +25,7 @@ export interface Snapped {
 
 /**
  * Frame `f` (fractional), snapped to the nearest of `targets` within reach at `zoom` (pixels per
- * frame); otherwise `free(f)` (rounded, by default). `on` false: no snapping (off, or Alt held).
+ * frame); otherwise `free(f)` (rounded, by default). `on` false: no snapping (off, or Shift held).
  */
 export function snap(
   f: number,

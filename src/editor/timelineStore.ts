@@ -23,7 +23,7 @@ interface TimelineState {
   isFitted: boolean;
   /** A drag is changing the timeline's length (a trim): the view keeps still until it ends. */
   held: boolean;
-  /** Snapping (the status bar's toggle; Alt held turns it off for a moment). */
+  /** Snapping (the status bar's toggle; Shift held turns it off for a moment). */
   snap: boolean;
   /** A clip lit up to show where it went (a duplicate or a paste), and when (ms). */
   flash: { id: ClipId; at: number } | null;

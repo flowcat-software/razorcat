@@ -139,6 +139,15 @@ export const sections: Section[] = [
             unit: "frames",
             keywords: ["markup", "fade", "default", "in", "out", "length", "frames", "timeline"],
           },
+          {
+            id: "copiesKeepFades",
+            kind: "toggle",
+            path: "timeline.copiesKeepFades",
+            label: "Copies keep their fades",
+            description:
+              "Markup duplicated (Ctrl+D), Alt-dragged or pasted fades as the original does. Off: copies start without fades.",
+            keywords: ["markup", "fade", "copy", "duplicate", "paste", "alt", "drag", "timeline"],
+          },
         ],
       },
     ],
@@ -215,13 +224,31 @@ export const sections: Section[] = [
             keywords: ["draw over", "click", "select", "move", "ctrl", "overlap", "text"],
           },
           {
+            id: "markup-share-color",
+            kind: "toggle",
+            path: "markup.shareColor",
+            label: "All tools use the same color",
+            description:
+              "Picking a color for one tool picks it for the others too (except tools with their own palette, like the highlighter). Off: each tool keeps its own color.",
+            keywords: ["color", "colour", "shared", "same", "sync", "palette"],
+          },
+          {
             id: "markup-remember-tool-styles",
             kind: "toggle",
             path: "markup.rememberToolStyles",
             label: "Remember tool styles",
             description:
-              "The tools start with the colors, fonts and other options you last used, even after a restart. Off: they start from the defaults.",
-            keywords: ["remember", "keep", "persist", "restore", "defaults", "color", "font"],
+              "The tools start with the colors, widths, fonts and other options you last used, even after a restart. Off: they start from the defaults.",
+            keywords: [
+              "remember",
+              "keep",
+              "persist",
+              "restore",
+              "defaults",
+              "color",
+              "width",
+              "font",
+            ],
           },
           {
             id: "markup-shortcut-hints",
@@ -229,7 +256,7 @@ export const sections: Section[] = [
             path: "markup.showShortcutHints",
             label: "Show shortcut hints on the pickers",
             description:
-              "Slot numbers on the sizes, colors and fonts while you hold a number key, Ctrl or Alt, and the keys in their tooltips. The shortcuts work either way.",
+              "Slot numbers on the widths, sizes, colors and fonts while you hold a number key, Ctrl or Alt, and the keys in their tooltips. The shortcuts work either way.",
             keywords: ["shortcut", "hint", "badge", "number", "keyboard", "tooltip", "digit"],
           },
           {
@@ -238,7 +265,7 @@ export const sections: Section[] = [
             path: "markup.showButtonUnits",
             label: "Show units on number buttons",
             description:
-              'Buttons for sizes show their unit after the number, like "10px". Off keeps them shorter.',
+              'Buttons for sizes and darkness show their unit after the number, like "50%" or "10px". Off keeps them shorter.',
             keywords: ["unit", "units", "px", "percent", "pt", "button", "number", "label"],
           },
         ],
@@ -271,6 +298,31 @@ export const sections: Section[] = [
         ],
       },
       {
+        title: "Line width",
+        items: [
+          {
+            id: "styles-width",
+            kind: "numberPicker",
+            path: "styles.width",
+            label: "Width choices",
+            description:
+              "The widths the drawing tools offer, in pixels. Keys 1–9 and 0 pick them while you draw.",
+            unit: "px",
+            lines: true,
+            keywords: [
+              "line",
+              "width",
+              "thickness",
+              "stroke",
+              "size",
+              "picker",
+              "slider",
+              "buttons",
+            ],
+          },
+        ],
+      },
+      {
         title: "Text",
         items: [
           {
@@ -294,10 +346,114 @@ export const sections: Section[] = [
         ],
       },
       {
+        title: "Spotlight",
+        items: [
+          {
+            id: "styles-spotlight",
+            kind: "numberPicker",
+            path: "styles.spotlight",
+            label: "Darkness choices",
+            description:
+              "How dark the spotlight tool makes everything outside it, in percent. Keys 1–9 and 0 pick them while you draw. Values above 100 are lowered to 100.",
+            unit: "%",
+            keywords: ["spotlight", "dim", "darken", "darkness", "opacity", "focus", "highlight"],
+          },
+        ],
+      },
+      {
+        title: "Rounded corners",
+        items: [
+          {
+            id: "styles-corner-radius",
+            kind: "numberPicker",
+            path: "styles.cornerRadius",
+            label: "Corner radius choices",
+            description:
+              "The corner radii the rectangle and the spotlight's rectangle offer, in pixels. 0 (square corners) is always one of them. Alt+1–9 and Alt+0 pick them while you draw.",
+            unit: "px",
+            zero: true,
+            noButtons: true,
+            keywords: ["corner", "round", "rounded", "radius", "rectangle", "spotlight", "square"],
+          },
+        ],
+      },
+      {
+        title: "Step markers",
+        items: [
+          {
+            id: "styles-step-size",
+            kind: "numberPicker",
+            path: "styles.stepSize",
+            label: "Marker sizes",
+            description:
+              "The sizes the step tool offers, in pixels across. Keys 1–9 and 0 pick them while you place markers.",
+            unit: "px",
+            keywords: ["step", "marker", "number", "numbered", "size", "badge", "counter"],
+          },
+          {
+            id: "styles-step-fonts",
+            kind: "fontPicker",
+            path: "styles.stepFont",
+            label: "Marker fonts",
+            description:
+              "The fonts the step tool offers for its labels. Same as Text tool uses the fonts chosen above. With a custom list, Alt+1–9 and Alt+0 pick them.",
+            keywords: ["step", "marker", "font", "typeface", "label", "number", "text"],
+          },
+        ],
+      },
+      {
         title: "Per-tool styles",
         description:
-          "Give a tool its own colors or way of showing colors instead of the ones above. (The other tools join this list in Phase 4.5.)",
+          "Give a tool its own colors, widths or way of showing colors instead of the ones above. The highlighter comes with its own colors.",
         items: [
+          {
+            id: "tool-style-pen",
+            kind: "toolStyle",
+            tool: "pen",
+            label: "Pen",
+            widths: true,
+            keywords: ["own", "custom", "override", "per tool", "palette", "color", "width"],
+          },
+          {
+            id: "tool-style-highlighter",
+            kind: "toolStyle",
+            tool: "highlighter",
+            label: "Highlighter",
+            widths: true,
+            keywords: ["own", "custom", "override", "per tool", "palette", "color", "width"],
+          },
+          {
+            id: "tool-style-line",
+            kind: "toolStyle",
+            tool: "line",
+            label: "Line",
+            widths: true,
+            keywords: ["own", "custom", "override", "per tool", "palette", "color", "width"],
+          },
+          {
+            id: "tool-style-arrow",
+            kind: "toolStyle",
+            tool: "arrow",
+            label: "Arrow",
+            widths: true,
+            keywords: ["own", "custom", "override", "per tool", "palette", "color", "width"],
+          },
+          {
+            id: "tool-style-rect",
+            kind: "toolStyle",
+            tool: "rect",
+            label: "Rectangle",
+            widths: true,
+            keywords: ["own", "custom", "override", "per tool", "palette", "color", "width"],
+          },
+          {
+            id: "tool-style-ellipse",
+            kind: "toolStyle",
+            tool: "ellipse",
+            label: "Ellipse",
+            widths: true,
+            keywords: ["own", "custom", "override", "per tool", "palette", "color", "width"],
+          },
           {
             id: "tool-style-text",
             kind: "toolStyle",
@@ -305,6 +461,22 @@ export const sections: Section[] = [
             label: "Text",
             widths: false,
             keywords: ["own", "custom", "override", "per tool", "palette", "color"],
+          },
+          {
+            id: "tool-style-callout",
+            kind: "toolStyle",
+            tool: "callout",
+            label: "Callout",
+            widths: true,
+            keywords: ["own", "custom", "override", "per tool", "palette", "color", "pointer"],
+          },
+          {
+            id: "tool-style-step",
+            kind: "toolStyle",
+            tool: "step",
+            label: "Step markers",
+            widths: false,
+            keywords: ["own", "custom", "override", "per tool", "palette", "color", "marker"],
           },
         ],
       },

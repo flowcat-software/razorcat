@@ -642,6 +642,11 @@ export type Timeline = {
 	 *  `DEFAULT_FADE_RANGE`).
 	 */
 	defaultMarkupFade?: number,
+	/**
+	 *  Markup duplicated, Alt-dragged or pasted keeps the original's fades (on by default;
+	 *  Richard, 2026-10-23). Off: copies start without.
+	 */
+	copiesKeepFades?: boolean,
 };
 
 /**

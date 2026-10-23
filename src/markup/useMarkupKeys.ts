@@ -6,7 +6,7 @@
 import { useEffect, useRef } from "react";
 import { isTyping } from "../shared/dom";
 import { translateAnnotation } from "./geometry";
-import { docStore } from "./model/store";
+import { docStore, selectAllMarkup } from "./model/store";
 import { digitSlot, pickByDigit, slotIndex, stepIndex } from "./pickers";
 import {
   applyStyle,
@@ -250,10 +250,15 @@ function handleCtrl(e: KeyboardEvent): boolean {
   if (slot !== null) return pickColor(slot, e.shiftKey);
   if ((e.code === "KeyB" || e.code === "KeyI") && !e.shiftKey) return toggleTextStyle(e.code);
   switch (e.code) {
-    case "KeyA":
+    case "KeyA": {
       if (e.shiftKey) return false;
-      store.select(store.doc.annotations.map((a) => a.id));
+      // Razorcat: the markup at the playhead; again (or with none there), all of it on the
+      // timeline (Richard, 2026-10-23).
+      const here = store.doc.annotations.map((a) => a.id);
+      if (here.length && !here.every((id) => store.selection.includes(id))) store.select(here);
+      else selectAllMarkup();
       return true;
+    }
     case "KeyD":
       return !e.shiftKey && duplicateSelection();
   }

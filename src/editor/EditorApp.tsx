@@ -59,6 +59,7 @@ const rangeOptions = (s: Settings) =>
     splitMarks: s.timeline.splitMarkup,
     fadeCuts: s.timeline.fadeSplitMarkup,
     defaultFade: s.timeline.defaultMarkupFade,
+    copyFades: s.timeline.copiesKeepFades,
   });
 
 /** The settings the editor's stores keep (ranges, number fields, the markup's styles). */
