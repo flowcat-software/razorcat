@@ -221,8 +221,13 @@ interface MarkDrag {
   /** The playhead when the drag started, to snap to. */
   playhead: number;
   y0: number;
-  /** Moving several selected: each one's place when it started (the grabbed one's too). */
-  group: { id: MarkId; start: number; end: number; lane: number }[] | null;
+  /**
+   * Several selected, moving, resizing or fading with it: each one's place and fades when it
+   * started (the grabbed one's too).
+   */
+  group:
+    | { id: MarkId; start: number; end: number; lane: number; fadeIn: number; fadeOut: number }[]
+    | null;
 }
 
 /** The markup lanes as drawn: how many, how tall, how far apart, and how far scrolled. */
@@ -630,6 +635,35 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
   const ranging = useRef<RangeDrag | null>(null);
   /** Markup being dragged. */
   const marking = useRef<MarkDrag | null>(null);
+
+  // Shift pressed or let go while dragging several items' fades switches between keeping their
+  // lengths and making them all one length: the last move again, with Shift as it is now.
+  const lastMove = useRef<{ x: number; y: number; id: number; alt: boolean } | null>(null);
+  useEffect(() => {
+    const onShift = (e: KeyboardEvent) => {
+      const d = marking.current;
+      const last = lastMove.current;
+      const canvas = canvasRef.current;
+      if (e.key !== "Shift" || e.repeat || !d?.group || !last || !canvas) return;
+      if (d.kind !== "fadeIn" && d.kind !== "fadeOut") return;
+      canvas.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          clientX: last.x,
+          clientY: last.y,
+          pointerId: last.id,
+          shiftKey: e.type === "keydown",
+          altKey: last.alt,
+        }),
+      );
+    };
+    window.addEventListener("keydown", onShift);
+    window.addEventListener("keyup", onShift);
+    return () => {
+      window.removeEventListener("keydown", onShift);
+      window.removeEventListener("keyup", onShift);
+    };
+  }, []);
   /**
    * A box being dragged from an empty spot, selecting what it touches (with Ctrl or Shift, added
    * to what was selected): the clips if it reaches the clip row, else the markup (PLAN 4.5f).
@@ -1420,15 +1454,29 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
     const len = end - start;
     if (d.kind === "fadeIn" || d.kind === "fadeOut") {
       const df = Math.round((x - d.x0) / view.zoom);
-      if (d.kind === "fadeIn") store.setMarkFades(d.id, { fadeIn: d.orig.fadeIn + df });
-      else store.setMarkFades(d.id, { fadeOut: d.orig.fadeOut - df });
+      const fadeIn = d.kind === "fadeIn";
+      // A fade-in grows to the right, a fade-out to the left.
+      const by = fadeIn ? df : -df;
+      const set = (v: number) => (fadeIn ? { fadeIn: v } : { fadeOut: v });
+      store.setMarkFades(d.id, set((fadeIn ? d.orig.fadeIn : d.orig.fadeOut) + by));
       const f = markFades(useDoc.getState().doc.marks.find((m) => m.id === d.id) ?? {}, len);
+      const own = fadeIn ? f.fadeIn : f.fadeOut;
       const fmt = formatter();
-      showReadout(
-        d.kind === "fadeIn" ? `Fade in ${fmt(f.fadeIn)}` : `Fade out ${fmt(f.fadeOut)}`,
-        e.clientX,
-        e.clientY,
-      );
+      const name = fadeIn ? "Fade in" : "Fade out";
+      if (d.group) {
+        // Several selected (Richard, 2026-10-23): theirs change by as much, each as far as it
+        // can; with Shift held (it can come and go mid-drag), each the dragged one's length.
+        const same = e.shiftKey;
+        for (const m of d.group) {
+          if (m.id === d.id) continue;
+          store.setMarkFades(m.id, set(same ? own : (fadeIn ? m.fadeIn : m.fadeOut) + by));
+        }
+        showReadout(
+          `${name} ${same ? `${fmt(own)} each` : signed(own - (fadeIn ? d.orig.fadeIn : d.orig.fadeOut))}\n${d.group.length} items`,
+          e.clientX,
+          e.clientY,
+        );
+      } else showReadout(`${name} ${fmt(own)}`, e.clientX, e.clientY);
       draw.current();
       return;
     }
@@ -1670,12 +1718,18 @@ ${d.group.length} items`,
         mark.end - mark.start,
       );
       const picked = useDoc.getState().selectedMarks;
-      // Several selected: moving one moves them all; dragging one's edge drags theirs.
+      // Several selected: moving one moves them all; dragging one's edge or fade drags theirs.
       const group =
-        (kind === "move" || kind === "start" || kind === "end") && picked.length > 1
+        picked.length > 1
           ? shownMarks(docState.doc)
               .filter((m) => picked.includes(m.id))
-              .map(({ id, start, end, lane }) => ({ id, start, end, lane }))
+              .map(({ id, start, end, lane }) => ({
+                id,
+                start,
+                end,
+                lane,
+                ...markFades(docState.doc.marks.find((k) => k.id === id) ?? {}, end - start),
+              }))
           : null;
       marking.current = {
         kind,
@@ -1780,6 +1834,7 @@ ${d.group.length} items`,
             return;
           }
           if (marking.current) {
+            lastMove.current = { x: e.clientX, y: e.clientY, id: e.pointerId, alt: e.altKey };
             markTo(e, marking.current);
             return;
           }
