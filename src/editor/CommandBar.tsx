@@ -26,7 +26,8 @@ interface Props {
  * Vandal's order, with its icons.
  */
 const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
-  { id: "select", label: "Select (V)", icon: <path d="M5 3l14 8-6 2-3 6z" /> },
+  // Centred on 12 like the rest (it spans 4 to 20).
+  { id: "select", label: "Select (V)", icon: <path d="M5 4l14 8-6 2-3 6z" /> },
   {
     id: "crop",
     label: "Crop (C)",
