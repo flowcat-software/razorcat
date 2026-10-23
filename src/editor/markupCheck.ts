@@ -23,7 +23,8 @@ export async function checkMarkup(drawn: readonly DrawnMark[], at: number, size:
     await commands.frameCheckReport(`markup: not checked at frame ${at} (fading)`, "{}");
     return;
   }
-  const on = drawn.filter((m) => m.start <= at && at < m.end);
+  // Highlights are the preview's highlight layer, multiplied (the export check reads them).
+  const on = drawn.filter((m) => m.start <= at && at < m.end && !m.highlight);
   const live = renderLayer(markupDoc.getState().doc, "annotations");
   if (!on.length && !live) return;
   const canvas = document.createElement("canvas");

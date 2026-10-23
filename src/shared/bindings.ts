@@ -293,6 +293,8 @@ export type ExportMark = {
 	/**  How many of its frames it fades in over, and out over (fitted to its length). */
 	fadeIn: number,
 	fadeOut: number,
+	/**  A highlighter's: multiplied into the frame, beneath the other markup (PLAN 4.5c). */
+	highlight: boolean,
 };
 
 /**  Rust → editor: an export is this far along. */

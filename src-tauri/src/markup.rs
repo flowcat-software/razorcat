@@ -2,7 +2,9 @@
 //! POSTs its straight-alpha RGBA to `/markup/{id}` (protocol.rs), never over JSON; then the
 //! export command names the items, back to front: where each goes on the frame and on which
 //! timeline frames it shows. They're kept as raw RGBA files, which ffmpeg reads as `rawvideo`
-//! (no image encoder needed), in a folder of the export's own, removed when it's done.
+//! (no image encoder needed), in a folder of the export's own, removed when it's done. A
+//! highlight (PLAN 4.5c) is kept as RGB, laid over white: what the frame under it is multiplied
+//! by.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -30,6 +32,8 @@ pub struct ExportMark {
     /// How many of its frames it fades in over, and out over (fitted to its length).
     pub fade_in: u32,
     pub fade_out: u32,
+    /// A highlighter's: multiplied into the frame, beneath the other markup (PLAN 4.5c).
+    pub highlight: bool,
 }
 
 /// An item ready for ffmpeg: its pixels' file, and where and when it goes.
@@ -84,12 +88,28 @@ pub fn take(app: &AppHandle, marks: Vec<ExportMark>) -> Result<Markup, String> {
     std::fs::create_dir_all(&dir).map_err(|e| format!("The markup couldn't be kept ({e})."))?;
     let pixels = pair(marks, sent)?;
     for (mark, rgba) in pixels {
-        let path = dir.join(format!("{}.rgba", mark.id));
-        std::fs::write(&path, rgba).map_err(|e| format!("The markup couldn't be kept ({e})."))?;
+        let (path, bytes) = if mark.highlight {
+            (dir.join(format!("{}.rgb", mark.id)), over_white(&rgba))
+        } else {
+            (dir.join(format!("{}.rgba", mark.id)), rgba)
+        };
+        std::fs::write(&path, bytes).map_err(|e| format!("The markup couldn't be kept ({e})."))?;
         markup.items.push(MarkFile { path, mark });
     }
     eprintln!("[export] {} markup items", markup.items.len());
     Ok(markup)
+}
+
+/// Straight-alpha RGBA laid over white, as RGB: a highlight's pixels as the frame is multiplied
+/// by them (transparent is white, which leaves the frame as it is).
+fn over_white(rgba: &[u8]) -> Vec<u8> {
+    rgba.chunks_exact(4)
+        .flat_map(|p| {
+            let a = u32::from(p[3]);
+            let over = |c: u8| (255 - ((255 - u32::from(c)) * a + 127) / 255) as u8;
+            [over(p[0]), over(p[1]), over(p[2])]
+        })
+        .collect()
 }
 
 /// Each of `marks` with the pixels `sent` for it, checked: all there, of its size.
@@ -127,7 +147,18 @@ mod tests {
             end: 10,
             fade_in: 0,
             fade_out: 0,
+            highlight: false,
         }
+    }
+
+    #[test]
+    fn a_highlight_is_laid_over_white() {
+        // Opaque yellow; half-clear red; clear anything.
+        let rgba = [255, 255, 0, 255, 255, 0, 0, 128, 10, 20, 30, 0];
+        assert_eq!(
+            over_white(&rgba),
+            [255, 255, 0, 255, 127, 127, 255, 255, 255]
+        );
     }
 
     #[test]

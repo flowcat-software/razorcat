@@ -54,9 +54,10 @@ async function sendMarkup(doc: Doc): Promise<ExportMark[]> {
       console.error("[markup check]", e),
     );
   }
-  return drawn.map(({ id, x, y, width, height, start, end }) => {
+  return drawn.map(({ id, x, y, width, height, start, end, highlight }) => {
     const mark = doc.marks.find((m) => m.id === id);
-    return { id, x, y, width, height, start, end, ...markFades(mark ?? {}, end - start) };
+    const fades = markFades(mark ?? {}, end - start);
+    return { id, x, y, width, height, start, end, ...fades, highlight };
   });
 }
 

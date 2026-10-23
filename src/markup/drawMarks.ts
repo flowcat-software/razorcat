@@ -23,6 +23,8 @@ export interface DrawnMark {
   end: number;
   /** Straight-alpha RGBA, `width` × `height`. */
   pixels: Uint8ClampedArray<ArrayBuffer>;
+  /** A highlighter's: multiplied into the frame, beneath the rest (PLAN 4.5c). */
+  highlight: boolean;
 }
 
 /** The longest the drawing waits for fonts to load (ms). */
@@ -104,6 +106,7 @@ export async function drawMarks(doc: Doc): Promise<DrawnMark[]> {
       start: m.start,
       end: m.end,
       pixels: cut.pixels,
+      highlight: kept.object.kind === "highlighter",
     });
   }
   return drawn;

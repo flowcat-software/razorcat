@@ -283,10 +283,12 @@ struct Cut {
 /// rounding, and a source frame shown for several grid frames (VFR) is there for `fps`.
 const SEEK_EARLY: f64 = 0.5;
 
-/// An item of markup as ffmpeg lays it over the frame: its pixels' file (raw RGBA), its size and
-/// place, the export's stretches it shows on, and its fades (over its own `length` frames).
+/// An item of markup as ffmpeg lays it over the frame: its pixels' file (raw RGBA; a highlight's,
+/// RGB over white, multiplied in), its size and place, the export's stretches it shows on, and
+/// its fades (over its own `length` frames).
 #[derive(Debug, Clone, PartialEq)]
 struct Overlay {
+    highlight: bool,
     path: PathBuf,
     x: u32,
     y: u32,
@@ -309,15 +311,19 @@ struct Show {
 
 /// The markup over `clips` (in the export's order), with the export's frames each item shows
 /// on: what of its timeline frames the clips cover, wherever they are in the export. Items over
-/// none of them are left out.
+/// none of them are left out. The highlights come first, beneath the rest, as the preview draws
+/// them (Vandal's rule, Richard 2026-10-23); otherwise back to front as sent.
 fn overlays(clips: &[ExportClip], markup: &Markup) -> Vec<Overlay> {
-    markup
-        .items
-        .iter()
+    let (highlights, rest): (Vec<_>, Vec<_>) =
+        markup.items.iter().partition(|item| item.mark.highlight);
+    highlights
+        .into_iter()
+        .chain(rest)
         .filter_map(|item| {
             let m = &item.mark;
             let shows = shown(clips, m.start, m.end);
             (!shows.is_empty()).then(|| Overlay {
+                highlight: m.highlight,
                 path: item.path.clone(),
                 x: m.x,
                 y: m.y,
@@ -457,9 +463,10 @@ fn graph(
         a.extend(["-ss".into(), format!("{:.6}", c.seek).into()]);
         a.extend(["-i".into(), c.path.as_os_str().to_owned()]);
     }
-    // Each item's pixels: one picture, raw RGBA.
+    // Each item's pixels: one picture, raw RGBA (a highlight's, RGB).
     for o in overlays {
-        a.extend(["-f", "rawvideo", "-pix_fmt", "rgba", "-video_size"].map(OsString::from));
+        let pixels = if o.highlight { "rgb24" } else { "rgba" };
+        a.extend(["-f", "rawvideo", "-pix_fmt", pixels, "-video_size"].map(OsString::from));
         a.push(format!("{}x{}", o.width, o.height).into());
         a.extend(["-i".into(), o.path.as_os_str().to_owned()]);
     }
@@ -532,6 +539,10 @@ fn graph(
     }
     for (k, o) in overlays.iter().enumerate() {
         let place = format!("x={}:y={}:format=yuv444", o.x, o.y);
+        if o.highlight {
+            at = highlight(&mut f, &at, n + k, k, o, rate);
+            continue;
+        }
         f.push(format!("[{}:v:0]format=yuva444p[m{k}]", n + k));
         if o.fade_in == 0 && o.fade_out == 0 {
             // Unfaded: the one picture, on between its frames.
@@ -593,6 +604,81 @@ fn graph(
         a.extend(["-map", "[ac]"].map(OsString::from));
     }
     a
+}
+
+/// A highlight (input `input`, item `k`) multiplied into the picture `at` (PLAN 4.5c), as the
+/// preview's CSS multiply does: on each stretch it shows on, the frame's region under it cut out,
+/// multiplied with it in RGB (white leaves it as it is), and put back. Faded, the highlight fades
+/// towards white, frame by frame as a faded item's alpha does. The picture's label after it.
+fn highlight(
+    f: &mut Vec<String>,
+    at: &str,
+    input: usize,
+    k: usize,
+    o: &Overlay,
+    rate: Rate,
+) -> String {
+    let region = format!("{}:{}:{}:{}", o.width, o.height, o.x, o.y);
+    let back = |f: &mut Vec<String>, at: &str, by: &str, name: &str, from: u32, to: u32| {
+        f.push(format!("[{at}]split[hb{name}][hc{name}]"));
+        f.push(format!("[hc{name}]crop={region},format=gbrp[hr{name}]"));
+        f.push(format!("[hr{name}][{by}]blend=all_mode=multiply[hm{name}]"));
+        f.push(format!(
+            "[hb{name}][hm{name}]overlay=x={}:y={}:format=yuv444:eof_action=pass:enable='between(n,{from},{})'[h{name}]",
+            o.x,
+            o.y,
+            to - 1
+        ));
+        format!("h{name}")
+    };
+    if o.fade_in == 0 && o.fade_out == 0 {
+        // Unfaded: the one picture, on each stretch.
+        let mut at = at.to_string();
+        for (j, s) in o.shows.iter().enumerate() {
+            let name = format!("{k}_{j}");
+            f.push(format!("[{input}:v:0]format=gbrp[hw{name}]"));
+            at = back(f, &at, &format!("hw{name}"), &name, s.from, s.to);
+        }
+        return at;
+    }
+    // Faded: the picture once per frame of the item, faded to white by frame count (the preview's
+    // ramp), then each stretch's frames timed to the export's.
+    let mut chain = format!(
+        "[{input}:v:0]format=gbrp,loop=loop={}:size=1:start=0",
+        o.length - 1
+    );
+    if o.fade_in > 0 {
+        chain += &format!(",fade=t=in:s=0:n={}:color=white", o.fade_in);
+    }
+    if o.fade_out > 0 {
+        chain += &format!(
+            ",fade=t=out:s={}:n={}:color=white",
+            o.length - o.fade_out,
+            o.fade_out
+        );
+    }
+    let parts = o.shows.len();
+    if parts > 1 {
+        chain += &format!(",split={parts}");
+    }
+    chain += &(0..parts)
+        .map(|j| format!("[hf{k}_{j}]"))
+        .collect::<String>();
+    f.push(chain);
+    let mut at = at.to_string();
+    for (j, s) in o.shows.iter().enumerate() {
+        let name = format!("{k}_{j}");
+        f.push(format!(
+            "[hf{name}]trim=start_frame={}:end_frame={},settb=AVTB,setpts=(N+{})/({}/{}*TB)[hw{name}]",
+            s.at,
+            s.at + s.to - s.from,
+            s.from,
+            rate.num,
+            rate.den
+        ));
+        at = back(f, &at, &format!("hw{name}"), &name, s.from, s.to);
+    }
+    at
 }
 
 // --- the encoder ---
@@ -1837,6 +1923,7 @@ mod tests {
         }];
         let rate = Rate { num: 30, den: 1 };
         let mark = |x, shows: Vec<(u32, u32)>| Overlay {
+            highlight: false,
             path: PathBuf::from("m.rgba"),
             x,
             y: 4,
@@ -1912,6 +1999,7 @@ mod tests {
             den: 1001,
         };
         let faded = Overlay {
+            highlight: false,
             path: PathBuf::from("m.rgba"),
             x: 2,
             y: 4,
@@ -1957,5 +2045,102 @@ mod tests {
              enable='between(n,5,14)'[o0_0];"
         ));
         assert!(a.contains("[o0_1]scale="));
+    }
+
+    #[test]
+    fn a_highlight_is_multiplied_into_its_region_beneath_the_rest() {
+        let rate = Rate { num: 30, den: 1 };
+        let c = [Cut {
+            out: 90,
+            ..Default::default()
+        }];
+        let item = |highlight: bool, fade_in: u32| Overlay {
+            highlight,
+            path: PathBuf::from(if highlight { "h.rgb" } else { "m.rgba" }),
+            x: 10,
+            y: 20,
+            width: 30,
+            height: 40,
+            shows: vec![Show {
+                from: 5,
+                to: 15,
+                at: 0,
+            }],
+            length: 10,
+            fade_in,
+            fade_out: 0,
+        };
+        let a = joined(&one_file(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            0,
+            None,
+            &[item(true, 0)],
+            Encoder::X264,
+            6_000_000,
+        ));
+        assert!(a.contains("-f rawvideo -pix_fmt rgb24 -video_size 30x40 -i h.rgb"));
+        assert!(a.contains("[vc]split[hb0_0][hc0_0];[hc0_0]crop=30:40:10:20,format=gbrp[hr0_0]"));
+        assert!(a.contains("[hr0_0][hw0_0]blend=all_mode=multiply[hm0_0]"));
+        assert!(a.contains(
+            "[hb0_0][hm0_0]overlay=x=10:y=20:format=yuv444:eof_action=pass:enable='between(n,5,14)'[h0_0]"
+        ));
+        assert!(a.contains("[h0_0]scale="));
+        // Faded: towards white.
+        let faded = joined(&one_file(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            0,
+            None,
+            &[item(true, 4)],
+            Encoder::X264,
+            6_000_000,
+        ));
+        assert!(faded.contains(
+            "format=gbrp,loop=loop=9:size=1:start=0,fade=t=in:s=0:n=4:color=white[hf0_0]"
+        ));
+        // Sent after other markup, a highlight still goes beneath it.
+        let mut markup = Markup::default();
+        markup.items = vec![
+            markup::MarkFile {
+                path: "m.rgba".into(),
+                mark: ExportMark {
+                    id: 1,
+                    x: 0,
+                    y: 0,
+                    width: 2,
+                    height: 2,
+                    start: 0,
+                    end: 10,
+                    fade_in: 0,
+                    fade_out: 0,
+                    highlight: false,
+                },
+            },
+            markup::MarkFile {
+                path: "h.rgb".into(),
+                mark: ExportMark {
+                    id: 2,
+                    x: 0,
+                    y: 0,
+                    width: 2,
+                    height: 2,
+                    start: 0,
+                    end: 10,
+                    fade_in: 0,
+                    fade_out: 0,
+                    highlight: true,
+                },
+            },
+        ];
+        let order: Vec<bool> = overlays(&[clip(1, 0, 90, 0)], &markup)
+            .iter()
+            .map(|o| o.highlight)
+            .collect();
+        assert_eq!(order, [true, false]);
     }
 }

@@ -6,12 +6,23 @@ import { docStore as markupDoc } from "../markup/model/store";
 import { useToolStore as useMarkupTools } from "../markup/toolStore";
 import type { DragSpeed } from "../shared/ipc";
 
-/** The picture's tools that work so far (4.5c adds the highlighter). */
+/** The picture's tools that work so far. */
 export type Tool =
-  "select" | "crop" | "grow" | "text" | "arrow" | "line" | "rect" | "ellipse" | "step" | "callout";
+  | "select"
+  | "crop"
+  | "grow"
+  | "text"
+  | "arrow"
+  | "line"
+  | "rect"
+  | "ellipse"
+  | "step"
+  | "callout"
+  | "highlighter";
 
 /** A markup tool, as Vandal's markup code names it. */
-type MarkupTool = "text" | "arrow" | "line" | "rect" | "ellipse" | "step" | "callout";
+type MarkupTool =
+  "text" | "arrow" | "line" | "rect" | "ellipse" | "step" | "callout" | "highlighter";
 
 /** The tools that are Vandal's markup tools (the markup layer runs them). */
 export const MARKUP_TOOLS: readonly Tool[] = [
@@ -22,6 +33,7 @@ export const MARKUP_TOOLS: readonly Tool[] = [
   "ellipse",
   "step",
   "callout",
+  "highlighter",
 ] satisfies MarkupTool[];
 const isMarkupTool = (tool: Tool): tool is MarkupTool => MARKUP_TOOLS.includes(tool);
 

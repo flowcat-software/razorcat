@@ -19,6 +19,8 @@
 // the export without them is there too (the picture under them is anything). A third fades in
 // and out (4.4c): on each of its frames, its corners must be magenta laid over the export
 // without it at the ramp's opacity (`markOpacity`, the preview's).
+// Two highlights (PLAN 4.5c), yellow: each pixel under one must be the export without markup
+// multiplied by it (towards white as it fades), and one under item 2 must leave it on top.
 import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
 import { clipStarts, markOpacity, total } from "./doc";
 import { useDoc } from "./docStore";
@@ -303,13 +305,15 @@ export async function checkFrames(
     useDoc.getState().crop({ x: 0, y: 0, width, height });
     useDoc.getState().grow({ ...useDoc.getState().doc.frame.grow, top: 0, left: 0, right: 0 });
 
-    // Markup: two items, at even places and sizes (whole 4:2:0 blocks, so the corners keep
-    // their colour), one from 5 frames before the first cut to 5 after it.
+    // Markup: three items, at even places and sizes (whole 4:2:0 blocks, so the corners keep
+    // their colour), one from 5 frames before the first cut to 5 after it; and two highlights
+    // (PLAN 4.5c), yellow, multiplied in: the first under the second item, a little longer, so
+    // the item must stay on top; the second fading in and out, towards white.
     progress("Checking frames: exporting the edit with markup…");
     const even = (v: number) => Math.round(v / 2) * 2;
     const cut = clipStarts(useDoc.getState().doc)[1];
     const size = { width: even(width / 10), height: even(height / 10) };
-    const still = { fadeIn: 0, fadeOut: 0 };
+    const still = { fadeIn: 0, fadeOut: 0, highlight: false };
     const marks: ExportMark[] = [
       {
         id: 1,
@@ -330,8 +334,32 @@ export async function checkFrames(
         end: 52,
         fadeIn: 4,
         fadeOut: 4,
+        highlight: false,
+      },
+      {
+        id: 4,
+        x: even(width * 0.6),
+        y: even(height / 5),
+        ...size,
+        start: 5,
+        end: 25,
+        ...still,
+        highlight: true,
+      },
+      {
+        id: 5,
+        x: even(width / 4),
+        y: even(height * 0.6),
+        ...size,
+        start: 60,
+        end: 72,
+        fadeIn: 4,
+        fadeOut: 4,
+        highlight: true,
       },
     ];
+    const MAGENTA = [255, 0, 255];
+    const YELLOW = [255, 255, 0];
     const probes = marks.flatMap((m) => [
       { x: m.x, y: m.y },
       { x: m.x + m.width - 1, y: m.y + m.height - 1 },
@@ -339,40 +367,56 @@ export async function checkFrames(
     const bare = await exportPass("export unmarked", BITS, want, [], probes);
     for (const m of marks) {
       const pixels = new Uint8ClampedArray(m.width * m.height * 4);
-      for (let i = 0; i < pixels.length; i += 4) pixels.set([255, 0, 255, 255], i);
+      const [r, g, b] = m.highlight ? YELLOW : MAGENTA;
+      for (let i = 0; i < pixels.length; i += 4) pixels.set([r, g, b, 255], i);
       await uploadPixels(`http://media.localhost/markup/${m.id}`, pixels);
     }
     const marked = await exportPass("export marked", BITS, want, marks, probes);
+    // Highlights first (beneath), then the rest, back to front, as the export lays them.
+    const layered = [...marks.filter((m) => m.highlight), ...marks.filter((m) => !m.highlight)];
     let wrongMarks = 0;
     for (let k = 0; k < n; k++) {
-      probes.forEach((_, p) => {
-        const m = marks[Math.floor(p / 2)];
-        const on = m.start <= k && k < m.end;
+      probes.forEach((at, p) => {
         const [r, g, b] = marked[k]?.slice(p * 3, p * 3 + 3) ?? [];
         const [r0, g0, b0] = bare[k]?.slice(p * 3, p * 3 + 3) ?? [];
-        // Off its frames, an item shows as magenta where the export without it isn't, and isn't
-        // close to it (a pixel of two encodes can differ a little anywhere: the encoder spends
-        // its bits differently; purple in the picture can pass for magenta).
+        // What should be there: the export without markup, then each item over the probe on
+        // this frame, at its opacity: a highlight multiplied in, an item laid over.
+        let want3 = [r0, g0, b0];
+        let covered = false;
+        let solid = false;
+        for (const m of layered) {
+          const inside =
+            m.x <= at.x && at.x < m.x + m.width && m.y <= at.y && at.y < m.y + m.height;
+          if (!inside || k < m.start || k >= m.end) continue;
+          covered = true;
+          const a = markOpacity(m, m.end - m.start, k - m.start);
+          want3 = m.highlight
+            ? want3.map((c, i) => c * (1 - a + (a * YELLOW[i]) / 255))
+            : want3.map((c, i) => a * MAGENTA[i] + (1 - a) * c);
+          solid = !m.highlight && a === 1;
+        }
+        // Magenta, more or less (an encode's colour at a block's corner wanders a little).
         const magenta = (r: number, g: number, b: number) => r > 180 && g < 80 && b > 180;
-        const length = m.end - m.start;
-        const a = on ? markOpacity(m, length, k - m.start) : 0;
-        // Fading: magenta over what's under it, at its opacity (within the encodes' noise).
-        const over = (c0: number, top: number) => a * top + (1 - a) * c0;
-        const near = Math.max(Math.abs(r - r0), Math.abs(g - g0), Math.abs(b - b0)) <= FADE_NOISE;
-        const right = !on
-          ? !magenta(r, g, b) || magenta(r0, g0, b0) || near
-          : a === 1
+        const near = (c: number[]) =>
+          Math.max(Math.abs(r - c[0]), Math.abs(g - c[1]), Math.abs(b - c[2])) <= FADE_NOISE;
+        // Nothing over it: not magenta where the export without markup isn't, or close to it (a
+        // pixel of two encodes can differ a little anywhere: the encoder spends its bits
+        // differently; purple in the picture can pass for magenta). An item on top: magenta.
+        // Otherwise (a highlight, a fade): what's worked out, within the encodes' noise.
+        const right = !covered
+          ? !magenta(r, g, b) || magenta(r0, g0, b0) || near([r0, g0, b0])
+          : solid
             ? magenta(r, g, b)
-            : Math.abs(r - over(r0, 255)) <= FADE_NOISE &&
-              Math.abs(g - over(g0, 0)) <= FADE_NOISE &&
-              Math.abs(b - over(b0, 255)) <= FADE_NOISE;
+            : near(want3);
         if (right) return;
         wrongMarks++;
+        const m = marks[Math.floor(p / 2)];
+        const rgb = (c: number[]) =>
+          (Math.round(c[0]) << 16) | (Math.round(c[1]) << 8) | Math.round(c[2]);
         misses.push({
           pass: `markup ${m.id} ${p % 2 ? "end" : "start"} corner`,
           frame: k,
-          // Off its frames, what the export without it shows there.
-          expected: on ? 1 : (r0 << 16) | (g0 << 8) | b0,
+          expected: solid ? 1 : rgb(want3),
           shown: (r << 16) | (g << 8) | b,
         });
       });

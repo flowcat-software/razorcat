@@ -75,6 +75,17 @@ const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
       </>
     ),
   },
+  {
+    id: "highlighter",
+    label: "Highlighter (H)",
+    // Vandal's: a marker's chisel tip.
+    icon: (
+      <>
+        <path d="M9 15l-2 5h5l1-2" />
+        <path d="M9 15l8-11 4 3-8 11z" />
+      </>
+    ),
+  },
 ];
 
 /** The editor's top row: the picture's tools on the left, file actions on the right. */
