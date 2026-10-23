@@ -1025,6 +1025,33 @@ export function settleLanes(doc: Doc, yielding: readonly MarkId[] = []): Doc {
 }
 
 /**
+ * Several markup items' starts (or ends) moved `df` frames together, as one is dragged (Richard,
+ * 2026-10-23): each goes as far towards that as it can, stopped by the item next to it in its
+ * lane, the timeline's start or end, or a frame's length, the rest going on. Their places, from
+ * where they are in `doc` (the document when the drag started).
+ */
+export function resizeEdges(
+  doc: Doc,
+  ids: readonly MarkId[],
+  edge: "start" | "end",
+  df: number,
+): { id: MarkId; start: number; end: number; lane: number }[] {
+  const shown = shownMarks(doc);
+  const length = total(doc);
+  return shown
+    .filter((m) => ids.includes(m.id))
+    .map(({ id, start, end, lane }) => {
+      const others = shown.filter((o) => o.id !== id && o.lane === lane);
+      if (edge === "start") {
+        const lo = Math.max(0, ...others.filter((o) => o.end <= start).map((o) => o.end));
+        return { id, start: Math.max(lo, Math.min(end - 1, start + df)), end, lane };
+      }
+      const hi = Math.min(length, ...others.filter((o) => o.start >= end).map((o) => o.start));
+      return { id, start, end: Math.min(hi, Math.max(start + 1, end + df)), lane };
+    });
+}
+
+/**
  * Clean up timeline (Richard, 2026-10-23): the lanes closed up as far as they go. Each item,
  * the front lanes' first, goes up to the first lane below everything it overlaps in time that's
  * in front of it, so nothing changes its frames, or its order front to back against what it

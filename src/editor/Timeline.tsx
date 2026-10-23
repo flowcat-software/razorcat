@@ -15,6 +15,7 @@ import {
   longestSource,
   moveGroupSlot,
   packLanes,
+  resizeEdges,
   moveSlot,
   markFades,
   markLabel,
@@ -1463,6 +1464,15 @@ ${d.group.length} items`,
       else to.end = Math.max(start + 1, Math.min(length, s.frame));
       // The preview shows the frame at the moving edge, the playhead staying put (as a trim).
       player.peekAt(d.kind === "start" ? to.start : to.end - 1);
+      if (d.group && (d.kind === "start" || d.kind === "end")) {
+        // Several selected: theirs follow by as much, each as far as it can (`resizeEdges`).
+        const df = d.kind === "start" ? to.start - start : to.end - end;
+        const ids = d.group.map((m) => m.id);
+        store.resizeMarks(resizeEdges(store.gestureStart ?? store.doc, ids, d.kind, df));
+        showReadout(`${signed(df)}\n${d.group.length} items`, e.clientX, e.clientY);
+        draw.current();
+        return;
+      }
     }
     if (d.kind === "move") {
       // Dropped on a busy lane: a new one above it, or below it from its lower half.
@@ -1660,8 +1670,9 @@ ${d.group.length} items`,
         mark.end - mark.start,
       );
       const picked = useDoc.getState().selectedMarks;
+      // Several selected: moving one moves them all; dragging one's edge drags theirs.
       const group =
-        kind === "move" && picked.length > 1
+        (kind === "move" || kind === "start" || kind === "end") && picked.length > 1
           ? shownMarks(docState.doc)
               .filter((m) => picked.includes(m.id))
               .map(({ id, start, end, lane }) => ({ id, start, end, lane }))

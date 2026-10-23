@@ -20,6 +20,7 @@ import {
   packLanes,
   placeMarks,
   removeRanges,
+  resizeEdges,
   setMark,
   setMarkFades,
   settleLanes,
@@ -442,5 +443,44 @@ describe("cleaning up the lanes", () => {
       [50, 60, 3],
     ]);
     expect(lanes(packLanes(doc))).toEqual([0, 1, 0]);
+  });
+});
+
+describe("resizing several items' edges together", () => {
+  // Lane 0: A 20-40, B 50-70 (B's neighbour on the left: A); lane 1: C 10-30.
+  const doc = (() => {
+    let d = wholeSource(100);
+    for (const [start, end] of [
+      [20, 40],
+      [50, 70],
+      [10, 30],
+    ]) {
+      d = addMark(d, text(""), start, end - start, 0);
+    }
+    return { ...d, marks: d.marks.map((m, i) => ({ ...m, lane: [0, 0, 1][i] })) };
+  })();
+  const spans = (places: { start: number; end: number }[]) => places.map((p) => [p.start, p.end]);
+
+  it("moves each start by as much, each stopping where it's blocked", () => {
+    // 15 earlier: B stops at A's end (40), C at the timeline's start.
+    expect(spans(resizeEdges(doc, [2, 3], "start", -15))).toEqual([
+      [40, 70],
+      [0, 30],
+    ]);
+    // 25 later: C stops a frame short of its end; B goes all the way.
+    expect(spans(resizeEdges(doc, [2, 3], "start", 25))).toEqual([
+      [69, 70],
+      [29, 30],
+    ]);
+  });
+
+  it("moves each end by as much, each stopping where it's blocked", () => {
+    // 20 later: A stops at B's start (50); C goes all the way.
+    expect(spans(resizeEdges(doc, [1, 3], "end", 20))).toEqual([
+      [20, 50],
+      [10, 50],
+    ]);
+    // Past the timeline's end: B stops there.
+    expect(spans(resizeEdges(doc, [2], "end", 60))).toEqual([[50, 100]]);
   });
 });
