@@ -4,6 +4,7 @@ import { hint } from "../markup/HintLine";
 import {
   clipFades,
   clipLength,
+  clipStarts,
   fadeColours,
   longestSource,
   MARK_NAMES,
@@ -12,6 +13,8 @@ import {
   shownRanges,
   sourceLength,
   total,
+  type Clip,
+  type ClipId,
   type MarkId,
   type RangeId,
 } from "./doc";
@@ -62,6 +65,7 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
   const selected = useDoc((s) => s.doc.clips.find((c) => c.id === s.selected) ?? null);
   const selectedRange = useDoc((s) => s.selectedRange);
   const selectedMarks = useDoc((s) => s.selectedMarks);
+  const selectedClips = useDoc((s) => s.selectedClips);
   const pendingIn = useDoc((s) => s.pendingIn);
   if (!source) {
     return (
@@ -85,6 +89,15 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
     width: inFrames ? 64 : hours ? 92 : 76,
   };
   const fade = { ...time, gain: FADE_GAIN };
+  // Several clips selected, Shift makes their fades all as long, as on their handles.
+  const severalClips = selectedClips.length > 1;
+  const clipFadeField = severalClips
+    ? {
+        ...fade,
+        hint: "time.clipsFade" as const,
+        shift: { by: 1, label: "all the selected clips as long", live: true },
+      }
+    : fade;
   // Dragging an edge's field shows its frame, the playhead staying put (as dragging the edge
   // does); letting go shows the playhead's again.
   const peek = (f: number, dragging: boolean) => {
@@ -126,11 +139,72 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
     return m && kept ? markFades(kept, m.end - m.start)[which] : v;
   };
 
-  // A clip's fades (PLAN 4.7a), kept to its length as markup's are.
-  const clipFade = (id: number, which: "fadeIn" | "fadeOut", v: number) => {
-    useDoc.getState().setClipFades(id, which === "fadeIn" ? { fadeIn: v } : { fadeOut: v });
-    const clip = useDoc.getState().doc.clips.find((c) => c.id === id);
-    return clip ? clipFades(clip)[which] : v;
+  // A clip: In and Out trim it (as dragging its edge, the frame at that end shown), Length
+  // moves its Out. In its file's frames, as shown.
+  const clipTrim = (id: ClipId, inF: (c: Clip) => number, outF: (c: Clip) => number) => {
+    const c = useDoc.getState().doc.clips.find((k) => k.id === id);
+    if (c) useDoc.getState().trim(id, inF(c), outF(c));
+    const doc = useDoc.getState().doc;
+    const i = doc.clips.findIndex((k) => k.id === id);
+    return { clip: doc.clips[i], start: clipStarts(doc)[i] };
+  };
+  const clipIn = (id: ClipId, v: number, dragging: boolean) => {
+    const { clip, start } = clipTrim(
+      id,
+      () => v,
+      (c) => c.out,
+    );
+    if (!clip) return v;
+    peek(start, dragging);
+    return clip.in;
+  };
+  const clipOut = (id: ClipId, v: number, dragging: boolean) => {
+    const { clip, start } = clipTrim(
+      id,
+      (c) => c.in,
+      () => v,
+    );
+    if (!clip) return v;
+    peek(start + clipLength(clip) - 1, dragging);
+    return clip.out;
+  };
+  const clipLengthTo = (id: ClipId, v: number) => {
+    const { clip } = clipTrim(
+      id,
+      (c) => c.in,
+      (c) => c.in + Math.max(1, v),
+    );
+    return clip ? clipLength(clip) : v;
+  };
+
+  // A clip's fades (PLAN 4.7a), kept to its length as markup's are. With several clips selected,
+  // theirs change with it as dragging its handle does: by as much, each as far as it can; with
+  // Shift, or typed, each as long as it.
+  const clipFade = (
+    id: ClipId,
+    which: "fadeIn" | "fadeOut",
+    v: number,
+    dragging: boolean,
+    same: boolean,
+  ) => {
+    const store = useDoc.getState();
+    const before = store.gestureStart ?? store.doc;
+    const group = store.selectedClips.includes(id) ? store.selectedClips : [id];
+    const set = (n: number) => (which === "fadeIn" ? { fadeIn: n } : { fadeOut: n });
+    const fadeOf = (doc: typeof before, k: ClipId) => {
+      const clip = doc.clips.find((c) => c.id === k);
+      return clip ? clipFades(clip)[which] : 0;
+    };
+    // Typed: one undo step for them all (a drag is one already).
+    if (!dragging) store.beginGesture();
+    store.setClipFades(id, set(v));
+    const own = fadeOf(useDoc.getState().doc, id);
+    const by = own - fadeOf(before, id);
+    for (const k of group) {
+      if (k !== id) store.setClipFades(k, set(same || !dragging ? own : fadeOf(before, k) + by));
+    }
+    if (!dragging) store.endGesture();
+    return own;
   };
 
   // A range: the same, kept off its neighbours (setRange).
@@ -248,16 +322,33 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
       ) : selected ? (
         <>
           <b>Clip {selected.id}</b>
-          <Field label="In" value={fmt(selected.in)} />
-          <Field label="Out" value={fmt(selected.out)} />
-          <Field label="Length" value={fmt(clipLength(selected))} />
+          <NumberField
+            label="In"
+            value={selected.in}
+            onChange={(v, dragging) => clipIn(selected.id, v, dragging)}
+            onDragEnd={unpeek}
+            {...time}
+          />
+          <NumberField
+            label="Out"
+            value={selected.out}
+            onChange={(v, dragging) => clipOut(selected.id, v, dragging)}
+            onDragEnd={unpeek}
+            {...time}
+          />
+          <NumberField
+            label="Length"
+            value={clipLength(selected)}
+            onChange={(v) => clipLengthTo(selected.id, v)}
+            {...time}
+          />
           <span>of the source&apos;s {fmt(sourceLength(doc, selected))}</span>
           <span className={styles.optionsSep} />
           <NumberField
             label="Fade in"
             value={clipFades(selected).fadeIn}
-            onChange={(v) => clipFade(selected.id, "fadeIn", v)}
-            {...fade}
+            onChange={(v, dragging, shift) => clipFade(selected.id, "fadeIn", v, dragging, shift)}
+            {...clipFadeField}
           />
           {clipFades(selected).fadeIn > 0 && (
             <span {...hint("clip.fadeColour")}>
@@ -273,8 +364,8 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
             label="out"
             name="Fade out"
             value={clipFades(selected).fadeOut}
-            onChange={(v) => clipFade(selected.id, "fadeOut", v)}
-            {...fade}
+            onChange={(v, dragging, shift) => clipFade(selected.id, "fadeOut", v, dragging, shift)}
+            {...clipFadeField}
           />
           {clipFades(selected).fadeOut > 0 && (
             <span {...hint("clip.fadeColour")}>

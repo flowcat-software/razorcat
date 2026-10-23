@@ -13,9 +13,9 @@ interface Props {
   /** Its name for screen readers, if the label's too short to say (Width). */
   name?: string;
   value: number;
-  /** A new value, typed or dragged to (`dragging`); returns the value as kept (the document
-   * keeps it in range). */
-  onChange: (value: number, dragging: boolean) => number;
+  /** A new value, typed or dragged to (`dragging`, Shift held: `shift`); returns the value as
+   * kept (the document keeps it in range). */
+  onChange: (value: number, dragging: boolean, shift: boolean) => number;
   /** A drag of it ended. */
   onDragEnd?: () => void;
   /** Shown after it (px). */
@@ -23,8 +23,12 @@ interface Props {
   /** How it shows the value, and reads what's typed (null: not a value); else a whole number. */
   format?: (value: number) => string;
   parse?: (text: string) => number | null;
-  /** What Shift multiplies a drag by, and what to call it in the tooltip (else ×10). */
-  shift?: { by: number; label: string };
+  /**
+   * What Shift multiplies a drag by, and what to call it in the tooltip (else ×10). With `live`,
+   * Shift changes what the drag does rather than its speed (several clips' fades all as long):
+   * pressing it or letting it go mid-drag applies at once, the mouse still.
+   */
+  shift?: { by: number; label: string; live?: boolean };
   /** Its width, in px (else 56). */
   width?: number;
   /** How fast a drag changes it, against the usual (0.5: half as fast). */
@@ -77,7 +81,7 @@ export function NumberField({
       return;
     }
     const n = typed === null ? null : parse(typed);
-    if (n !== null) onChange(Math.round(n), false);
+    if (n !== null) onChange(Math.round(n), false, false);
     setTyped(null);
   };
 
@@ -94,6 +98,8 @@ export function NumberField({
     /** The cursor is being moved back: moves until it's there are its own, not the mouse's. */
     let returning = false;
     let lastT = performance.now();
+    /** Shift as the value was last set with it. */
+    let held = false;
     // Each step goes from the value as kept, so pushing past a limit costs nothing to come
     // back from; `carry` keeps the fraction a slow drag hasn't made a whole step of yet.
     let current = value;
@@ -138,14 +144,23 @@ export function NumberField({
         carry = exact - current;
         return;
       }
-      const kept = onChange(want, true);
+      held = m.shiftKey;
+      const kept = onChange(want, true, held);
       carry = kept === want ? exact - want : 0;
       current = kept;
+    };
+    const onShift = (k: KeyboardEvent) => {
+      if (!moved || k.key !== "Shift" || k.shiftKey === held) return;
+      held = k.shiftKey;
+      current = onChange(current, true, held);
+      carry = 0;
     };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("keydown", onShift);
+      window.removeEventListener("keyup", onShift);
       if (moved) {
         document.documentElement.classList.remove(styles.hideCursor);
         setDragging(false);
@@ -159,6 +174,10 @@ export function NumberField({
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
+    if (shift.live) {
+      window.addEventListener("keydown", onShift);
+      window.addEventListener("keyup", onShift);
+    }
   };
 
   return (

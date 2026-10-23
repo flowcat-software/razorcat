@@ -97,6 +97,8 @@ export const CONTROL_HINTS = {
   settings: "[Ctrl+,] Open Settings",
   number: "Drag left or right to change it · [Shift] faster · Click to type · [Esc] puts it back",
   time: "Drag left or right to change it · [Shift] faster · Click to type a time or a frame number",
+  "time.clipsFade":
+    "Drag left or right to change the selected clips' fades together · [Shift] all as long · Click to type one length for them all",
   source: "The video the timeline started from · the others conform to its size and rate",
   "crop.ratio": "Keep the crop to this shape · [Shift] while dragging keeps the shape it has",
   "crop.portrait": "Taller than wide: 9:16 instead of 16:9",
