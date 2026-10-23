@@ -5,7 +5,15 @@
 import { drawMarks } from "../markup/drawMarks";
 import { playheadFrame } from "../markup/model/store";
 import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
-import { clipStarts, crossfades, fadesOf, markFades, type ClipId, type Doc } from "./doc";
+import {
+  clipStarts,
+  crossfades,
+  fadeColours,
+  fadesOf,
+  markFades,
+  type ClipId,
+  type Doc,
+} from "./doc";
 import { useDoc } from "./docStore";
 import { darkLayer } from "./spotlights";
 import { growColour, outputSize, type Side } from "./frame";
@@ -18,7 +26,7 @@ export type ExportFormat = "mp4" | "gif";
  * The clips as export reads them (`ids` of them, or all), in timeline order: their numbers, files
  * and source frames, whether they're heard (the track's mute mutes them all), where they start
  * on the timeline (which the markup's frames count on), their fades as they take effect (PLAN
- * 4.7a), and their crossfades with the clip before (4.7b), if that one's exported with them.
+ * 4.7a) and their colours (4.7c), and their crossfades with the clip before (4.7b), if that one's exported with them.
  */
 export function exportClips(doc: Doc, ids?: readonly ClipId[]) {
   const starts = clipStarts(doc);
@@ -35,6 +43,8 @@ export function exportClips(doc: Doc, ids?: readonly ClipId[]) {
             muted: doc.muted || !!c.muted,
             start: starts[i],
             ...fadesOf(doc, i),
+            fadeInColour: fadeColours(c).fadeIn,
+            fadeOutColour: fadeColours(c).fadeOut,
             crossfade: i > 0 && picked(i - 1) ? xf[i] : 0,
           },
         ]

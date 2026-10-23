@@ -28,6 +28,7 @@ import {
   setCrossfade,
   setClipFades,
   setClipsFades,
+  setClipFadeColours,
   deleteClip,
   deleteMarks,
   deleteRange,
@@ -152,7 +153,18 @@ export interface DocState {
   /** Clips `ids`'s fades removed at one end or both. */
   clipRemoveFades: (ids: readonly ClipId[], ends: "both" | "in" | "out") => boolean;
   /** Clips `ids` fading in and out over these (Paste Fades). */
-  setClipsFades: (ids: readonly ClipId[], fadeIn: number, fadeOut: number) => boolean;
+  setClipsFades: (
+    ids: readonly ClipId[],
+    fadeIn: number,
+    fadeOut: number,
+    colours?: { fadeIn?: string; fadeOut?: string },
+  ) => boolean;
+  /** The selected clips' fades from and to `colour` (4.7c), at an end or both. */
+  setClipFadeColours: (
+    ids: readonly ClipId[],
+    colour: string,
+    ends: "both" | "in" | "out",
+  ) => boolean;
   /** Clip `id` crossfades with the one before it over so many frames (0: none; PLAN 4.7b). */
   setCrossfade: (id: ClipId, frames: number) => boolean;
 
@@ -373,8 +385,10 @@ export const useDoc = create<DocState>()((set, get) => {
     clipDefaultFades: (ids, ends) =>
       apply((doc) => fadeClipEnds(doc, ids, get().options.defaultClipFade, ends)),
     clipRemoveFades: (ids, ends) => apply((doc) => fadeClipEnds(doc, ids, 0, ends)),
-    setClipsFades: (ids, fadeIn, fadeOut) =>
-      apply((doc) => setClipsFades(doc, ids, fadeIn, fadeOut)),
+    setClipsFades: (ids, fadeIn, fadeOut, colours) =>
+      apply((doc) => setClipsFades(doc, ids, fadeIn, fadeOut, colours)),
+    setClipFadeColours: (ids, colour, ends) =>
+      apply((doc) => setClipFadeColours(doc, ids, colour, ends)),
     // It moves what comes after: ranges and markup follow, or keep their place.
     setCrossfade: (id, frames) => applyClips((doc) => setCrossfade(doc, id, frames)),
 

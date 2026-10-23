@@ -1,7 +1,10 @@
 import type { SourceInfo } from "../shared/ipc";
+import { ColorSwatch } from "../markup/ColorSwatch";
+import { hint } from "../markup/HintLine";
 import {
   clipFades,
   clipLength,
+  fadeColours,
   longestSource,
   MARK_NAMES,
   markFades,
@@ -28,6 +31,13 @@ interface Props {
 
 /** How fast the fade fields drag, against the others: fades are short (Richard). */
 const FADE_GAIN = 0.5;
+
+/** A colour picked from a swatch, one undo step (Esc puts it back). */
+const ONE_STEP = {
+  onOpen: () => useDoc.getState().beginGesture(),
+  onClose: (keep: boolean) =>
+    keep ? useDoc.getState().endGesture() : useDoc.getState().cancelGesture(),
+};
 
 /** Markup `id` where it is now. */
 const markNow = (id: MarkId) => shownMarks(useDoc.getState().doc).find((m) => m.id === id);
@@ -249,6 +259,16 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
             onChange={(v) => clipFade(selected.id, "fadeIn", v)}
             {...fade}
           />
+          {clipFades(selected).fadeIn > 0 && (
+            <span {...hint("clip.fadeColour")}>
+              <ColorSwatch
+                name="Fade-in colour"
+                value={fadeColours(selected).fadeIn}
+                onPick={(v) => useDoc.getState().setClipFadeColours([selected.id], v, "in")}
+                {...ONE_STEP}
+              />
+            </span>
+          )}
           <NumberField
             label="out"
             name="Fade out"
@@ -256,6 +276,16 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
             onChange={(v) => clipFade(selected.id, "fadeOut", v)}
             {...fade}
           />
+          {clipFades(selected).fadeOut > 0 && (
+            <span {...hint("clip.fadeColour")}>
+              <ColorSwatch
+                name="Fade-out colour"
+                value={fadeColours(selected).fadeOut}
+                onPick={(v) => useDoc.getState().setClipFadeColours([selected.id], v, "out")}
+                {...ONE_STEP}
+              />
+            </span>
+          )}
         </>
       ) : (
         <span>

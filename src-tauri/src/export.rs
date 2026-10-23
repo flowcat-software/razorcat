@@ -57,6 +57,11 @@ pub struct ExportClip {
     pub fade_in: u32,
     #[serde(rename = "fadeOut")]
     pub fade_out: u32,
+    /// The colours it fades in from and out to (`#rrggbb`; black if not one).
+    #[serde(rename = "fadeInColour")]
+    pub fade_in_colour: String,
+    #[serde(rename = "fadeOutColour")]
+    pub fade_out_colour: String,
     /// How many frames it crossfades with the clip before it in the export over (none for the
     /// first).
     pub crossfade: u32,
@@ -290,9 +295,12 @@ struct Cut {
     tracks: u32,
     /// A file of another size than the first: fitted into the first's picture, this size.
     fit: Option<(u32, u32)>,
-    /// Its fades from and to black, in frames.
+    /// Its fades from and to black, in frames, and their colours if not black (ffmpeg's
+    /// `0xrrggbb`).
     fade_in: u32,
     fade_out: u32,
+    fade_in_colour: Option<String>,
+    fade_out_colour: Option<String>,
     /// Its crossfade with the cut before it, in frames (the first's doesn't count: `crossfades`).
     crossfade: u32,
 }
@@ -411,8 +419,17 @@ fn cut(input: &Input, first: &Input, c: &ExportClip) -> Cut {
         fit: fitted.then_some((first.width, first.height)),
         fade_in,
         fade_out: c.fade_out.min(length - fade_in),
+        fade_in_colour: fade_colour(&c.fade_in_colour),
+        fade_out_colour: fade_colour(&c.fade_out_colour),
         crossfade: c.crossfade.min(length.saturating_sub(1)),
     }
+}
+
+/// A fade's colour as ffmpeg takes it (`0xrrggbb`): none for black, or if it isn't one.
+fn fade_colour(colour: &str) -> Option<String> {
+    crate::settings::normalize_color(colour)
+        .filter(|c| c != "#000000")
+        .map(|c| c.replace('#', "0x"))
 }
 
 /// Each cut's crossfade with the one before it, kept to the frames that one has (none for the
@@ -757,8 +774,8 @@ fn ramps(length: u32, fade_in: u32, fade_out: u32, how: &str) -> String {
     r
 }
 
-/// The clips' fades laid over the picture `at` (PLAN 4.7a): on each fade's frames, black
-/// `black` in size, its alpha ramped as the preview's black is (the clip's first frame and last
+/// The clips' fades laid over the picture `at` (PLAN 4.7a): on each fade's frames, black (or
+/// its colour, 4.7c) `black` in size, its alpha ramped as the preview's black is (the clip's first frame and last
 /// all black, `ramps`), on the joined picture's clock: frame k
 /// at k (timed as markup is, in AVTB, a fade's last frame could round past the picture's and go
 /// missing). The picture's label after it.
@@ -779,21 +796,23 @@ fn clip_fades(
         // The black's own fade: out as the clip fades in (all black on its first frame); in as
         // it fades out, a frame early and that frame dropped (all black on its last).
         let fades = [
-            ("in", start, c.fade_in, "t=out:s=0", 0),
+            ("in", start, c.fade_in, &c.fade_in_colour, "t=out:s=0", 0),
             (
                 "out",
                 start + length - c.fade_out,
                 c.fade_out,
+                &c.fade_out_colour,
                 "t=in:s=0",
                 1,
             ),
         ];
-        for (name, from, n, t, early) in fades {
+        for (name, from, n, colour, t, early) in fades {
             if n == 0 {
                 continue;
             }
+            let colour = colour.as_deref().unwrap_or("black");
             f.push(format!(
-                "color=c=black:s={}x{}:r={}/{},format=yuva444p,trim=end_frame={},fade={t}:n={n}:alpha=1,trim=start_frame={early},settb={}/{},setpts=N+{from}[cf{i}{name}]",
+                "color=c={colour}:s={}x{}:r={}/{},format=yuva444p,trim=end_frame={},fade={t}:n={n}:alpha=1,trim=start_frame={early},settb={}/{},setpts=N+{from}[cf{i}{name}]",
                 black.0, black.1, rate.num, rate.den, n + early, rate.den, rate.num
             ));
             f.push(format!(
@@ -2204,6 +2223,8 @@ mod tests {
             start,
             fade_in: 0,
             fade_out: 0,
+            fade_in_colour: String::new(),
+            fade_out_colour: String::new(),
             crossfade: 0,
         }
     }
@@ -2315,6 +2336,36 @@ mod tests {
             },
         );
         assert_eq!((long.fade_in, long.fade_out), (20, 10));
+    }
+
+    #[test]
+    fn a_clip_fades_to_its_fades_colour() {
+        assert_eq!(fade_colour("#FFFFFF").as_deref(), Some("0xffffff"));
+        assert_eq!(fade_colour("#000000"), None);
+        assert_eq!(fade_colour("white"), None);
+        let rate = Rate { num: 30, den: 1 };
+        let c = [Cut {
+            out: 30,
+            fade_in: 6,
+            fade_out: 9,
+            fade_out_colour: fade_colour("#ffffff"),
+            ..Default::default()
+        }];
+        let a = joined(&one_file(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            1,
+            None,
+            &[],
+            Encoder::X264,
+            6_000_000,
+        ));
+        assert!(a.contains("color=c=black:s=1920x1080:r=30/1,format=yuva444p,trim=end_frame=6,"));
+        assert!(
+            a.contains("color=c=0xffffff:s=1920x1080:r=30/1,format=yuva444p,trim=end_frame=10,")
+        );
     }
 
     #[test]

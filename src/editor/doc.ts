@@ -25,7 +25,9 @@
 // gives them back.
 //
 // A clip can fade in from black and out to black (PLAN 4.7a), its sound with it: kept and
-// fitted the same way, and the same ramps. Markup isn't faded with it.
+// fitted the same way, and the same ramps. Markup isn't faded with it. Each fade can be to
+// another colour (4.7c, white say): kept with the clip whatever the fade's length, so a drag
+// to nothing and back keeps it; Remove Fades takes it away.
 //
 // A clip can crossfade with the one before it (PLAN 4.7b): it overlaps that clip's last frames,
 // its own first ones blending in over them, so the timeline is that much shorter (only frames
@@ -65,6 +67,9 @@ export interface Clip {
   /** How many frames it fades in from black over, and out to black over (none if not set). */
   fadeIn?: number;
   fadeOut?: number;
+  /** The colour it fades in from, and out to ("#rrggbb"; black if not set). */
+  fadeInColour?: string;
+  fadeOutColour?: string;
   /** How many frames it crossfades with the clip before it over (none if not set). */
   crossfade?: number;
 }
@@ -162,6 +167,61 @@ export function clipOpacityAt(doc: Doc, f: number): number {
   const at = clipAt(doc, f);
   if (!at) return 1;
   return markOpacity(fadesOf(doc, at.index), clipLength(at.clip), f - at.start);
+}
+
+/** A fade's colour when none is set, and the other the fade menu offers. */
+export const FADE_BLACK = "#000000";
+export const FADE_WHITE = "#ffffff";
+
+/** The colours clip `c` fades in from and out to (4.7c). */
+export function fadeColours(c: Clip): { fadeIn: string; fadeOut: string } {
+  return { fadeIn: c.fadeInColour ?? FADE_BLACK, fadeOut: c.fadeOutColour ?? FADE_BLACK };
+}
+
+/**
+ * The colour the picture fades to on timeline frame `f`: the fade-in's in the first half of the
+ * clip under it, else the fade-out's (on a frame with no fade, it doesn't show).
+ */
+export function clipFadeColourAt(doc: Doc, f: number): string {
+  const at = clipAt(doc, f);
+  if (!at) return FADE_BLACK;
+  const colours = fadeColours(at.clip);
+  return f - at.start < fadesOf(doc, at.index).fadeIn ? colours.fadeIn : colours.fadeOut;
+}
+
+/** `c` fading from and to these colours (black left out). */
+function withFadeColours(c: Clip, fadeIn: string, fadeOut: string): Clip {
+  const next: Clip = { ...c, fadeInColour: fadeIn, fadeOutColour: fadeOut };
+  if (fadeIn.toLowerCase() === FADE_BLACK) delete next.fadeInColour;
+  if (fadeOut.toLowerCase() === FADE_BLACK) delete next.fadeOutColour;
+  return next;
+}
+
+/**
+ * Clips `ids` fading in from, out to, or both, `colour` (4.7c). The same document if nothing
+ * changes.
+ */
+export function setClipFadeColours(
+  doc: Doc,
+  ids: readonly ClipId[],
+  colour: string,
+  ends: "both" | "in" | "out",
+): Doc {
+  let changed = false;
+  const clips = doc.clips.map((c) => {
+    if (!ids.includes(c.id)) return c;
+    const now = fadeColours(c);
+    const next = withFadeColours(
+      c,
+      ends === "out" ? now.fadeIn : colour,
+      ends === "in" ? now.fadeOut : colour,
+    );
+    const after = fadeColours(next);
+    if (after.fadeIn === now.fadeIn && after.fadeOut === now.fadeOut) return c;
+    changed = true;
+    return next;
+  });
+  return changed ? { ...doc, clips } : doc;
 }
 
 /**
@@ -425,14 +485,24 @@ export function editPoints(doc: Doc): number[] {
 /**
  * Clip `c` cut in two at source frame `at`: the part before keeps its fade-in, the part after
  * its fade-out (and its id, `id`); at the cut, none, or with `fadeCuts` the fade the whole had
- * at that end.
+ * at that end. Their colours go with them.
  */
 function cutClip(c: Clip, at: number, id: ClipId, fadeCuts: boolean): [Clip, Clip] {
+  const colours = fadeColours(c);
+  const cutColour = (colour: string) => (fadeCuts ? colour : FADE_BLACK);
   return [
-    withFades({ ...c, out: at }, c.fadeIn ?? 0, fadeCuts ? (c.fadeOut ?? 0) : 0),
-    withCrossfade(
-      withFades({ ...c, id, in: at }, fadeCuts ? (c.fadeIn ?? 0) : 0, c.fadeOut ?? 0),
-      0,
+    withFadeColours(
+      withFades({ ...c, out: at }, c.fadeIn ?? 0, fadeCuts ? (c.fadeOut ?? 0) : 0),
+      colours.fadeIn,
+      cutColour(colours.fadeOut),
+    ),
+    withFadeColours(
+      withCrossfade(
+        withFades({ ...c, id, in: at }, fadeCuts ? (c.fadeIn ?? 0) : 0, c.fadeOut ?? 0),
+        0,
+      ),
+      cutColour(colours.fadeIn),
+      colours.fadeOut,
     ),
   ];
 }
@@ -598,6 +668,8 @@ export interface ClipCopy {
   muted?: boolean;
   fadeIn?: number;
   fadeOut?: number;
+  fadeInColour?: string;
+  fadeOutColour?: string;
   /** The markup anchored to it. */
   marks: readonly Mark[];
 }
@@ -614,6 +686,8 @@ export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
     out: b,
     ...(muted && { muted: true }),
     ...fades(clip.fadeIn ?? 0, clip.fadeOut ?? 0),
+    ...(clip.fadeInColour && { fadeInColour: clip.fadeInColour }),
+    ...(clip.fadeOutColour && { fadeOutColour: clip.fadeOutColour }),
     marks,
   };
 }
@@ -632,6 +706,8 @@ export function insertClip(doc: Doc, copy: ClipCopy, at: number, keepFades = tru
     out: copy.out,
     ...(copy.muted && { muted: true }),
     ...(keepFades && fades(copy.fadeIn ?? 0, copy.fadeOut ?? 0)),
+    ...(keepFades && copy.fadeInColour && { fadeInColour: copy.fadeInColour }),
+    ...(keepFades && copy.fadeOutColour && { fadeOutColour: copy.fadeOutColour }),
   };
   clips.splice(Math.max(0, Math.min(clips.length, at)), 0, clip);
   let nextMarkId = doc.nextMarkId;
@@ -709,8 +785,8 @@ export function setClipFades(
 }
 
 /**
- * Clips `ids` given a fade of `frames` (the default clip fade; 0 removes it) at their start,
- * end or both, as markup's (`fadeEnds`).
+ * Clips `ids` given a fade of `frames` (the default clip fade; 0 removes it, and its colour) at
+ * their start, end or both, as markup's (`fadeEnds`).
  */
 export function fadeClipEnds(
   doc: Doc,
@@ -718,6 +794,7 @@ export function fadeClipEnds(
   frames: number,
   ends: "both" | "in" | "out",
 ): Doc {
+  if (frames <= 0) doc = setClipFadeColours(doc, ids, FADE_BLACK, ends);
   return doc.clips
     .filter((c) => ids.includes(c.id))
     .reduce((d, c) => {
@@ -730,20 +807,26 @@ export function fadeClipEnds(
     }, doc);
 }
 
-/** Clips `ids` fading in over `fadeIn` frames and out over `fadeOut` (Paste Fades), as markup's. */
+/**
+ * Clips `ids` fading in over `fadeIn` frames and out over `fadeOut` (Paste Fades), as markup's,
+ * from and to `colours` (black if not given: markup's fades have none).
+ */
 export function setClipsFades(
   doc: Doc,
   ids: readonly ClipId[],
   fadeIn: number,
   fadeOut: number,
+  colours: { fadeIn?: string; fadeOut?: string } = {},
 ): Doc {
-  return ids.reduce(
+  const faded = ids.reduce(
     (d, id) =>
       setClipFades(setClipFades(setClipFades(d, id, { fadeOut: 0 }), id, { fadeIn }), id, {
         fadeOut,
       }),
     doc,
   );
+  const coloured = setClipFadeColours(faded, ids, colours.fadeIn ?? FADE_BLACK, "in");
+  return setClipFadeColours(coloured, ids, colours.fadeOut ?? FADE_BLACK, "out");
 }
 
 /** Mutes all the sound, or unmutes it. The same document if nothing changes. */

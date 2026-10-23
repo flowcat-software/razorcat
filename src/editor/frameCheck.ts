@@ -23,13 +23,22 @@
 // multiplied by it (towards white as it fades), and one under item 2 must leave it on top.
 // Then spotlights (PLAN 4.5g), on their own: two holes in one run of darkness, overlapping, each
 // pixel the export without markup darkened by as much as is left of it there. Last, clip fades
-// (PLAN 4.7a): the second clip fading in and out, each pixel the unfaded export's at the
-// preview's ramp (`clipOpacityAt`), its barcode not read on those frames. And a crossfade
+// (PLAN 4.7a): the second clip fading in from black and out to white (4.7c), each pixel the
+// unfaded export's at the preview's ramp (`clipOpacityAt`) over the fade's colour, its barcode
+// not read on those frames. And a crossfade
 // (4.7b): the second clip over the first's last 8 frames, the export 8 frames shorter, each
 // pixel there the unfaded export's two frames mixed (`crossfadeMix`), the rest its frames moved
 // along.
 import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
-import { clipOpacityAt, clipStarts, crossfadeMix, markOpacity, total } from "./doc";
+import {
+  clipFadeColourAt,
+  clipOpacityAt,
+  clipStarts,
+  crossfadeMix,
+  FADE_WHITE,
+  markOpacity,
+  total,
+} from "./doc";
 import { useDoc } from "./docStore";
 import { exportClips, exportFrame } from "./exports";
 import { outputSize } from "./frame";
@@ -519,12 +528,15 @@ export async function checkFrames(
     }
     passes.push({ pass: "spotlights", checked: n * spots.length, misses: wrongSpots, covered: 0 });
 
-    // Clip fades: the second clip fading in from black over 6 frames and out over 8.
+    // Clip fades: the second clip fading in from black over 6 frames and out to white over 8.
     progress("Checking frames: exporting the edit with a clip faded…");
     const fadedClip = useDoc.getState().doc.clips[1].id;
     useDoc.getState().setClipFades(fadedClip, { fadeIn: 6 });
     useDoc.getState().setClipFades(fadedClip, { fadeOut: 8 });
+    useDoc.getState().setClipFadeColours([fadedClip], FADE_WHITE, "out");
     const fadedDoc = useDoc.getState().doc;
+    /** The fade's colour on export frame `k`, as a channel (black 0, white 255). */
+    const fadeTo = (k: number) => (clipFadeColourAt(fadedDoc, k) === FADE_WHITE ? 255 : 0);
     const shows = (k: number) => clipOpacityAt(fadedDoc, k);
     const dimmed = await exportPass(
       "export clip faded",
@@ -538,8 +550,10 @@ export async function checkFrames(
     for (let k = 0; k < n; k++) {
       spots.forEach((_, p) => {
         const got = dimmed[k]?.slice(p * 3, p * 3 + 3) ?? [];
-        const want3 = [...(plain[k]?.slice(p * 3, p * 3 + 3) ?? [])].map((c) => c * shows(k));
-        // A fade darkens every channel by as much: wrong when all the bright ones are off (two
+        const want3 = [...(plain[k]?.slice(p * 3, p * 3 + 3) ?? [])].map(
+          (c) => c * shows(k) + fadeTo(k) * (1 - shows(k)),
+        );
+        // A fade moves every channel by as much: wrong when all the bright ones are off (two
         // encodes of a saturated corner can differ a lot in one channel, faded or not).
         const near = (i: number) => Math.abs(got[i] - want3[i]) <= FADE_NOISE;
         const bright = [0, 1, 2].filter((i) => Math.max(got[i], want3[i]) >= 64);

@@ -258,6 +258,9 @@ export type ExportClip = {
 	 */
 	fadeIn: number,
 	fadeOut: number,
+	/**  The colours it fades in from and out to (`#rrggbb`; black if not one). */
+	fadeInColour: string,
+	fadeOutColour: string,
 	/**
 	 *  How many frames it crossfades with the clip before it in the export over (none for the
 	 *  first).

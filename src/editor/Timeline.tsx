@@ -3,6 +3,7 @@ import { setDragHint, setHoverHint, type ControlHint, type DragHint } from "../m
 import { annotationId, docStore as markupDoc } from "../markup/model/store";
 import type { Reorder } from "../markup/model/commands";
 import { duplicateSelection } from "../markup/objectActions";
+import { onAccent } from "../shared/accent";
 import { events, type SourceInfo, type ThumbsInfo } from "../shared/ipc";
 import type { Player } from "./player";
 import { ThumbStrip } from "./thumbs";
@@ -14,6 +15,9 @@ import {
   clipLength,
   crossfades,
   fadesOf,
+  fadeColours,
+  FADE_BLACK,
+  FADE_WHITE,
   clipStarts,
   laneCount,
   longestSource,
@@ -158,8 +162,8 @@ const TIPS: Record<Hit["kind"], [string, string]> = {
   in: ["Trim the clip's start", "the rest ripples along · Shift: no snap"],
   out: ["Trim the clip's end", "the rest ripples along · Shift: no snap"],
   move: ["Move the clip", "drag left or right · Ctrl+[ ]"],
-  clipFadeIn: ["Fade in from black", "drag right for a longer fade"],
-  clipFadeOut: ["Fade out to black", "drag left for a longer fade"],
+  clipFadeIn: ["Fade in", "drag right for a longer fade · right-click: from black or white"],
+  clipFadeOut: ["Fade out", "drag left for a longer fade · right-click: to black or white"],
   crossfade: ["Crossfade", "drag left to blend this clip in over the one before"],
   rangeA: ["Range start", "drag"],
   rangeB: ["Range end", "drag"],
@@ -324,12 +328,27 @@ function fadeEnds(kind: Hit["kind"] | undefined): "in" | "out" | "both" {
 
 /**
  * The selected clips' fades (PLAN 4.7a), as markup's (`fadeItems`): the default clip fade or
- * none, where the right-click was; and the copied fades.
+ * none, where the right-click was; their colour there, black or white (4.7c; another from the
+ * options bar's swatch); and the copied fades.
  */
 function clipFadeItems(kind: Hit["kind"] | undefined): MenuItems {
   const ends = fadeEnds(kind);
   const names = { in: "Fade-in", out: "Fade-out", both: "Fades" }[ends];
   const { doc, selectedClips } = useDoc.getState();
+  const picked = doc.clips.filter((c) => selectedClips.includes(c.id));
+  /** All of them fade from or to `colour` at those ends. */
+  const all = (colour: string) =>
+    picked.length > 0 &&
+    picked.every((c) => {
+      const f = fadeColours(c);
+      return (ends === "out" || f.fadeIn === colour) && (ends === "in" || f.fadeOut === colour);
+    });
+  const colourItem = (name: string, colour: string) => ({
+    label: `Fade ${ends === "in" ? "from" : "to"} ${name}`,
+    radio: true,
+    checked: all(colour),
+    run: () => useDoc.getState().setClipFadeColours(selected(), colour, ends),
+  });
   const faded = doc.clips.some((c) => {
     if (!selectedClips.includes(c.id)) return false;
     const f = clipFades(c);
@@ -346,6 +365,10 @@ function clipFadeItems(kind: Hit["kind"] | undefined): MenuItems {
       disabled: !faded,
       run: () => useDoc.getState().clipRemoveFades(selected(), ends),
     },
+    "-",
+    colourItem("Black", FADE_BLACK),
+    colourItem("White", FADE_WHITE),
+    "-",
     {
       label: "Paste Fades",
       hint: "Ctrl+Shift+F",
@@ -1055,18 +1078,20 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
           drawWave(g, wave, view, span, Math.min(x1, W));
           g.globalAlpha = 1;
         }
-        // Its fades: a ramp from each top corner it fades at, darker than markup's (to black),
-        // its slope outlined so it reads on any picture.
+        // Its fades: a ramp from each top corner it fades at, in its colour (4.7c; black
+        // darker than markup's), its slope outlined so it reads on any picture.
         const f = fadesOf(doc, i);
+        const colours = fadeColours(clip);
         const fx0 = xOf(view, span.start + f.fadeIn);
         const fx1 = xOf(view, span.start + len - f.fadeOut);
-        g.fillStyle = "rgb(0 0 0 / 0.45)";
-        g.strokeStyle = "rgb(255 255 255 / 0.7)";
-        for (const [edge, fx, on] of [
-          [x0, fx0, f.fadeIn > 0],
-          [x1, fx1, f.fadeOut > 0],
+        for (const [edge, fx, on, colour] of [
+          [x0, fx0, f.fadeIn > 0, colours.fadeIn],
+          [x1, fx1, f.fadeOut > 0, colours.fadeOut],
         ] as const) {
           if (!on) continue;
+          g.fillStyle = `${colour}73`;
+          g.strokeStyle =
+            onAccent(colour) === "#ffffff" ? "rgb(255 255 255 / 0.7)" : "rgb(0 0 0 / 0.6)";
           g.beginPath();
           g.moveTo(edge, CLIP_TOP);
           g.lineTo(fx, CLIP_TOP);

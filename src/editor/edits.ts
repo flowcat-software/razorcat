@@ -256,11 +256,18 @@ function pasteMarks(marks: readonly MarkCopy[], at: number): boolean {
  * The fades Paste Fades takes: the copied markup's (its first item's), or the copied clips' (the
  * first's, fitted to it; PLAN 4.7a). Null with nothing copied.
  */
-export function copiedFades(): { fadeIn: number; fadeOut: number } | null {
+export function copiedFades(): {
+  fadeIn: number;
+  fadeOut: number;
+  /** A clip's fades' colours (4.7c); markup's have none. */
+  colours?: { fadeIn?: string; fadeOut?: string };
+} | null {
   if (!copied) return null;
   if ("marks" in copied) return copied.marks[0] ?? null;
   const [clip] = copied.clips;
-  return clip ? markFades(clip, clip.out - clip.in) : null;
+  if (!clip) return null;
+  const colours = { fadeIn: clip.fadeInColour, fadeOut: clip.fadeOutColour };
+  return { ...markFades(clip, clip.out - clip.in), colours };
 }
 
 /**
@@ -272,8 +279,9 @@ export function pasteFades(): boolean {
   const { selectedMarks, selectedClips, setFades, setClipsFades } = useDoc.getState();
   if (!fades) return false;
   if (selectedMarks.length) setFades(selectedMarks, fades.fadeIn, fades.fadeOut);
-  else if (selectedClips.length) setClipsFades(selectedClips, fades.fadeIn, fades.fadeOut);
-  else return false;
+  else if (selectedClips.length) {
+    setClipsFades(selectedClips, fades.fadeIn, fades.fadeOut, fades.colours);
+  } else return false;
   return true;
 }
 

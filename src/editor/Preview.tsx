@@ -4,7 +4,15 @@ import { MarkupLayer } from "../markup/MarkupLayer";
 import { connectMarkup } from "../markup/model/store";
 import type { SourceInfo } from "../shared/ipc";
 import { CropOverlay } from "./CropOverlay";
-import { clipOpacityAt, clipStarts, crossfadeAt, crossfadeMix, crossfades, type Doc } from "./doc";
+import {
+  clipFadeColourAt,
+  clipOpacityAt,
+  clipStarts,
+  crossfadeAt,
+  crossfadeMix,
+  crossfades,
+  type Doc,
+} from "./doc";
 import { useDoc } from "./docStore";
 import { fitRect, videoTransform } from "./fit";
 import { growColour, growMode, NO_GROW, outputSize, SIDES } from "./frame";
@@ -185,7 +193,7 @@ export function Preview({ sources, player, proxyUrls, onError, onUnplayable }: P
 }
 
 /**
- * The clips' fades (PLAN 4.7a): black over the whole frame, as opaque as the picture under the
+ * The clips' fades (PLAN 4.7a): black (or the fade's colour, 4.7c) over the whole frame, as opaque as the picture under the
  * playhead is faded (`clipOpacityAt`, the export's ramp), and the sound as loud as the picture
  * shows (in a crossfade, the outgoing clip's as much as it's left: `CrossfadeMix`). Set straight
  * on the element as the playhead moves, not re-rendered.
@@ -197,7 +205,10 @@ function ClipFade({ player }: { player: Player }) {
       const { doc } = useDoc.getState();
       const { frame } = player.getState();
       const shows = clipOpacityAt(doc, frame);
-      if (ref.current) ref.current.style.opacity = String(1 - shows);
+      if (ref.current) {
+        ref.current.style.opacity = String(1 - shows);
+        ref.current.style.background = clipFadeColourAt(doc, frame);
+      }
       const xf = crossfadeAt(doc, frame);
       player.setLevel(shows * (xf ? 1 - crossfadeMix(xf.k, xf.length) : 1));
     };

@@ -101,6 +101,8 @@ export const CONTROL_HINTS = {
   "crop.ratio": "Keep the crop to this shape · [Shift] while dragging keeps the shape it has",
   "crop.portrait": "Taller than wide: 9:16 instead of 16:9",
   "crop.reset": "Back to the whole picture · [Ctrl+Z] undoes it",
+  "clip.fadeColour":
+    "The colour the clip fades from or to · black or white also from the fade handle's right-click",
   "grow.colour": "The colour of the space grown · one for every side, once they meet",
   "grow.reset": "Back to the picture alone · [Ctrl+Z] undoes it",
   "grow.presets": "Grows kept for one click · keep the one shown, or set them up in Settings",
@@ -145,9 +147,9 @@ export const CONTROL_HINTS = {
   "timeline.fadeOut":
     "Drag left to fade out for longer · several selected fade together, [Shift] all as long",
   "timeline.clipFadeIn":
-    "Drag right to fade the clip in from black for longer · several selected fade together, [Shift] all as long · Right-click for the default fade",
+    "Drag right to fade the clip in for longer · several selected fade together, [Shift] all as long · Right-click for the default fade, or from black or white",
   "timeline.clipFadeOut":
-    "Drag left to fade the clip out to black for longer · several selected fade together, [Shift] all as long · Right-click for the default fade",
+    "Drag left to fade the clip out for longer · several selected fade together, [Shift] all as long · Right-click for the default fade, or to black or white",
   "timeline.crossfade":
     "Drag left to crossfade: this clip blends in over the end of the one before, the timeline that much shorter · Right-click to add or remove one",
   "timeline.speaker": "[Shift+M] Mute or unmute all the sound · [M] the selected clips",

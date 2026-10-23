@@ -1,16 +1,20 @@
-// Clip fades (PLAN 4.7a): to and from black, kept to the clip, through splits, cuts and copies.
+// Clip fades (PLAN 4.7a): to and from black (or a colour, 4.7c), kept to the clip, through
+// splits, cuts and copies.
 import { describe, expect, it } from "vitest";
 import {
   addRange,
+  clipFadeColourAt,
   clipFades,
   clipOpacityAt,
   copyClip,
+  fadeColours,
   duplicateClip,
   fadeClipEnds,
   insertClip,
   muteClip,
   removeRanges,
   setClipFades,
+  setClipFadeColours,
   setClipsFades,
   split,
   trimClip,
@@ -92,5 +96,45 @@ describe("clip fades", () => {
       { fadeIn: 5, fadeOut: 15 },
       { fadeIn: 5, fadeOut: 30 },
     ]);
+  });
+
+  it("fade from and to a colour of their own, black if not set", () => {
+    const doc = setClipFadeColours(faded(), [1], "#ffffff", "out");
+    expect(fadeColours(doc.clips[0])).toEqual({ fadeIn: "#000000", fadeOut: "#ffffff" });
+    expect(setClipFadeColours(doc, [1], "#ffffff", "out")).toBe(doc);
+    // Black isn't kept: it's what none is.
+    expect(setClipFadeColours(doc, [1], "#000000", "both").clips[0]).not.toHaveProperty(
+      "fadeOutColour",
+    );
+    // The preview's fade shows the fade-in's colour, then the fade-out's.
+    expect(clipFadeColourAt(doc, 3)).toBe("#000000");
+    expect(clipFadeColourAt(doc, 95)).toBe("#ffffff");
+    // Kept through a drag to no fade and back; Remove Fades takes it away.
+    const none = setClipFades(doc, 1, { fadeOut: 0 });
+    expect(fadeColours(setClipFades(none, 1, { fadeOut: 20 }).clips[0]).fadeOut).toBe("#ffffff");
+    expect(fadeColours(fadeClipEnds(doc, [1], 0, "out").clips[0]).fadeOut).toBe("#000000");
+  });
+
+  it("keep their colours through splits, copies and pasted fades", () => {
+    const doc = setClipFadeColours(faded(), [1], "#ffffff", "both");
+    // The cut's own ends don't fade, so they're black; with the setting, as the whole's.
+    const cut = split(doc, 50);
+    expect(cut.clips.map(fadeColours)).toEqual([
+      { fadeIn: "#ffffff", fadeOut: "#000000" },
+      { fadeIn: "#000000", fadeOut: "#ffffff" },
+    ]);
+    expect(split(doc, 50, true, false, true).clips.map(fadeColours)).toEqual([
+      { fadeIn: "#ffffff", fadeOut: "#ffffff" },
+      { fadeIn: "#ffffff", fadeOut: "#ffffff" },
+    ]);
+    expect(fadeColours(duplicateClip(doc, 1).clips[1]).fadeOut).toBe("#ffffff");
+    expect(fadeColours(duplicateClip(doc, 1, false).clips[1]).fadeOut).toBe("#000000");
+    const copy = copyClip(doc, 1)!;
+    expect(fadeColours(insertClip(doc, copy, 1).clips[1])).toEqual(fadeColours(doc.clips[0]));
+    const two = split(faded(), 50);
+    const pasted = setClipsFades(two, [1, 2], 5, 5, { fadeOut: "#ffffff" });
+    expect(pasted.clips.map((c) => fadeColours(c).fadeOut)).toEqual(["#ffffff", "#ffffff"]);
+    // Markup's fades have no colour: pasted, they're black.
+    expect(fadeColours(setClipsFades(doc, [1], 5, 5).clips[0]).fadeOut).toBe("#000000");
   });
 });
