@@ -12,12 +12,14 @@ import {
   clipLength,
   clipStarts,
   laneCount,
+  longestSource,
   moveSlot,
   markFades,
   markLabel,
   rangeRoom,
   shownMarks,
   shownRanges,
+  sourceLength,
   stepLane,
   total,
   type Clip,
@@ -48,14 +50,17 @@ import { FRAME_TICKS, HEADER, fOf, ticks, xOf, zoomAnchor, type View } from "./t
 import styles from "./EditorApp.module.css";
 
 interface Props {
+  /** The first file: the timeline's rate. */
   source: SourceInfo;
+  /** All the timeline's files (PLAN 4.5e). */
+  sources: readonly SourceInfo[];
   player: Player;
   /** The ruler labels frames, as the readout does (else timecode). */
   inFrames: boolean;
-  /** The clip's thumbnails, once they're being made. */
-  thumbs: ThumbsInfo | null;
-  /** Where its waveform is, once it's made. */
-  waveUrl: string | null;
+  /** Each file's thumbnails, once they're being made, by its id. */
+  thumbs: Readonly<Record<string, ThumbsInfo>>;
+  /** Where each file's waveform is, once it's made, by its id. */
+  waves: Readonly<Record<string, string>>;
 }
 
 // The mockup's geometry (mockup/main.html): the ruler, the markup lanes, the clip track.
@@ -555,7 +560,7 @@ function drawWave(
  * waveform, frame ticks once there's room, and the playhead. Click or drag to move the playhead
  * (on a clip, it's selected too); the wheel scrolls, Ctrl+wheel zooms at the pointer.
  */
-export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
+export function Timeline({ source, sources, player, inFrames, thumbs, waves }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const draw = useRef<() => void>(() => {});
   const [redraw] = useState(() => () => draw.current());
@@ -614,46 +619,63 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
   const tipTimer = useRef(0);
   /** A clip's right-click menu, where it was opened. */
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItems } | null>(null);
+  /** Any file has sound: the track's speaker shows. */
+  const audio = sources.some((s) => s.audioTracks > 0);
 
-  // The thumbnails: a strip per source, loaded as Rust makes them.
-  const strip = useRef<ThumbStrip | null>(null);
+  // The thumbnails: a strip per file, loaded as Rust makes them.
+  const strips = useRef(new Map<string, ThumbStrip>());
   useEffect(() => {
-    const s = strip.current;
-    if (thumbs && s?.url === thumbs.url) {
-      s.more(thumbs);
-      return;
+    const now = strips.current;
+    for (const [id, s] of now) {
+      if (thumbs[id]?.url !== s.url) {
+        s.close();
+        now.delete(id);
+      }
     }
-    s?.close();
-    strip.current = thumbs && new ThumbStrip(thumbs, redraw);
+    for (const [id, info] of Object.entries(thumbs)) {
+      const s = now.get(id);
+      if (s) s.more(info);
+      else now.set(id, new ThumbStrip(info, redraw));
+    }
     redraw();
   }, [thumbs, redraw]);
-  useEffect(
-    () => () => {
-      strip.current?.close();
-      strip.current = null;
-    },
-    [],
-  );
-
-  // The waveform: read once it's made.
-  const peaks = useRef<Peaks | null>(null);
   useEffect(() => {
-    peaks.current = null;
-    redraw();
-    if (!waveUrl) return;
+    const now = strips.current;
+    return () => {
+      now.forEach((s) => s.close());
+      now.clear();
+    };
+  }, []);
+
+  // The waveforms: each read once it's made.
+  const peaks = useRef(new Map<string, { url: string; peaks: Peaks | null }>());
+  useEffect(() => {
+    const now = peaks.current;
+    for (const [id, p] of now) if (waves[id] !== p.url) now.delete(id);
     let gone = false;
-    fetch(waveUrl)
-      .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(res.statusText))))
-      .then((bytes) => {
-        if (gone) return;
-        peaks.current = new Peaks(new Uint8Array(bytes));
-        redraw();
-      })
-      .catch((e: unknown) => console.warn("waveform:", e));
+    for (const [id, url] of Object.entries(waves)) {
+      if (now.has(id)) continue;
+      const entry: { url: string; peaks: Peaks | null } = { url, peaks: null };
+      now.set(id, entry);
+      fetch(url)
+        .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(res.statusText))))
+        .then((bytes) => {
+          if (gone) return;
+          entry.peaks = new Peaks(new Uint8Array(bytes));
+          redraw();
+        })
+        .catch((e: unknown) => {
+          if (now.get(id) === entry) now.delete(id);
+          console.warn("waveform:", e);
+        });
+    }
+    redraw();
     return () => {
       gone = true;
+      // Unfinished reads start again with the next.
+      for (const [id, p] of now) if (!p.peaks) now.delete(id);
     };
-  }, [waveUrl, redraw]);
+  }, [waves, redraw]);
 
   // Drawing: on the next animation frame after anything changes.
   useEffect(() => {
@@ -819,15 +841,18 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         g.clip();
         g.fillStyle = c["clip"];
         g.fillRect(x0, CLIP_TOP, x1 - x0, CLIP_H);
-        if (strip.current) drawThumbs(g, strip.current, view, span, Math.min(x1, W));
+        const strip = strips.current.get(clip.source);
+        if (strip) drawThumbs(g, strip, view, span, Math.min(x1, W));
         // A muted clip's waveform is faint, and a crossed-out speaker says why.
         const silent = doc.muted || !!clip.muted;
-        if (peaks.current) {
+        const wave = peaks.current.get(clip.source)?.peaks;
+        if (wave) {
           if (silent) g.globalAlpha = 0.3;
-          drawWave(g, peaks.current, view, span, Math.min(x1, W));
+          drawWave(g, wave, view, span, Math.min(x1, W));
           g.globalAlpha = 1;
         }
-        if (clip.muted && source.audioTracks > 0 && x1 - Math.max(x0, HEADER) > 30) {
+        const audible = (sources.find((s) => s.id === clip.source)?.audioTracks ?? 0) > 0;
+        if (clip.muted && audible && x1 - Math.max(x0, HEADER) > 30) {
           g.fillStyle = g.strokeStyle = "#fff";
           drawSpeaker(g, Math.max(x0, HEADER) + 15, WAVE_MID, true);
         }
@@ -1041,7 +1066,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       g.fillText("▶", HEADER / 2, THUMB_TOP + THUMB_H / 2);
       g.textAlign = "left";
       // The sound's speaker: a click mutes it all (crossed out, in red).
-      if (source.audioTracks > 0) {
+      if (audio) {
         g.fillStyle = g.strokeStyle = doc.muted ? c["error-text"] : c["text-2"];
         drawSpeaker(g, HEADER / 2 - 1, WAVE_MID, doc.muted);
       }
@@ -1091,7 +1116,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       stopDoc();
       stopPlayer();
     };
-  }, [colours, source, player, frames, inFrames]);
+  }, [colours, source, sources, audio, player, frames, inFrames]);
 
   // A new source starts fitted.
   useEffect(() => useTimeline.getState().fit(), [source.id]);
@@ -1195,7 +1220,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
   /** Timeline frames as the ruler shows them. */
   const formatter = () => {
     const { rateNum: num, rateDen: den } = source;
-    const hours = needsHours(Math.max(frames, useDoc.getState().doc.sourceFrames), num, den);
+    const hours = needsHours(Math.max(frames, longestSource(useDoc.getState().doc)), num, den);
     return (f: number) => (inFrames ? String(f) : timecode(f, num, den, hours));
   };
 
@@ -1220,7 +1245,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
     const { doc } = useDoc.getState();
     const clip = doc.clips.find((c) => c.id === t.id);
     if (!clip) return;
-    player.peek(t.edge === "in" ? clip.in : clip.out - 1);
+    player.peek(t.edge === "in" ? clip.in : clip.out - 1, clip.source);
     const fmt = formatter();
     const lines =
       t.edge === "in"
@@ -1228,7 +1253,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
         : [`Out ${fmt(clip.out)}  ${signed(clip.out - t.orig.out)}`];
     lines.push(`Length ${fmt(clipLength(clip))}`);
     if (t.edge === "in" && clip.in === 0) lines.push("(the source's start)");
-    if (t.edge === "out" && clip.out === doc.sourceFrames) lines.push("(the source's end)");
+    if (t.edge === "out" && clip.out === sourceLength(doc, clip)) lines.push("(the source's end)");
     showReadout(lines.join("\n"), e.clientX, e.clientY);
   };
 
@@ -1250,7 +1275,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       guide.current = s.target;
       const at = Math.max(0, Math.min(length - 1, s.frame));
       store.setPendingIn(at);
-      player.peek(player.sourceFrame(at));
+      player.peekAt(at);
       showReadout(
         `In ${fmt(useDoc.getState().pendingIn ?? 0)}  (O sets the out)`,
         e.clientX,
@@ -1289,7 +1314,7 @@ export function Timeline({ source, player, inFrames, thumbs, waveUrl }: Props) {
       to = { a: Math.min(f, fixed), b: Math.max(f, fixed) };
       // The preview shows the frame at the moving edge, the playhead staying put (as a trim):
       // the range's first frame, or its last (its end is the frame after).
-      player.peek(player.sourceFrame(f < fixed ? f : f - 1));
+      player.peekAt(f < fixed ? f : f - 1);
     }
     if (d.id === null) d.id = store.addRange(to.a, to.b);
     else store.setRange(d.id, to.a, to.b);
@@ -1355,7 +1380,7 @@ ${d.group.length} items`,
       if (d.kind === "start") to.start = Math.max(0, Math.min(end - 1, s.frame));
       else to.end = Math.max(start + 1, Math.min(length, s.frame));
       // The preview shows the frame at the moving edge, the playhead staying put (as a trim).
-      player.peek(player.sourceFrame(d.kind === "start" ? to.start : to.end - 1));
+      player.peekAt(d.kind === "start" ? to.start : to.end - 1);
     }
     if (d.kind === "move") {
       // Dropped on a busy lane: a new one above it, or below it from its lower half.
@@ -1479,7 +1504,7 @@ ${d.group.length} items`,
         orig: hit.clip,
         targets: trimTargets(docState.doc, index, hit.kind, player.getState().frame),
       };
-      player.peek(hit.kind === "in" ? hit.clip.in : hit.clip.out - 1);
+      player.peek(hit.kind === "in" ? hit.clip.in : hit.clip.out - 1, hit.clip.source);
       return;
     }
     if (hit.kind === "move") {
@@ -1570,7 +1595,7 @@ ${d.group.length} items`,
           tipFor.current = null;
           const docState = useDoc.getState();
           const { x, y, view } = at(e);
-          if (source.audioTracks > 0 && onSpeaker(x, y)) {
+          if (audio && onSpeaker(x, y)) {
             docState.muteTrack(!docState.doc.muted);
             return;
           }
@@ -1632,7 +1657,7 @@ ${d.group.length} items`,
             hover.current = hit;
             draw.current();
           }
-          const speaker = source.audioTracks > 0 && onSpeaker(x, y);
+          const speaker = audio && onSpeaker(x, y);
           canvas.style.cursor = speaker ? "pointer" : cursorFor(hit);
           canvas.title = speaker
             ? `${doc.muted ? "Unmute the sound" : "Mute all the sound"} (Shift+M)`
@@ -1709,7 +1734,8 @@ ${d.group.length} items`,
           if (!under) return;
           const { clip } = under;
           docState.select(clip.id);
-          const whole = clip.in === 0 && clip.out === docState.doc.sourceFrames;
+          const full = sourceLength(docState.doc, clip);
+          const whole = clip.in === 0 && clip.out === full;
           setMenu({
             x: e.clientX,
             y: e.clientY,
@@ -1723,7 +1749,7 @@ ${d.group.length} items`,
               {
                 label: clip.muted ? "Unmute" : "Mute",
                 hint: "M",
-                disabled: source.audioTracks === 0,
+                disabled: !sources.some((s) => s.id === clip.source && s.audioTracks > 0),
                 run: () => useDoc.getState().muteClip(clip.id, !clip.muted),
               },
               {
@@ -1736,7 +1762,7 @@ ${d.group.length} items`,
               {
                 label: "Restore the full length",
                 disabled: whole,
-                run: () => useDoc.getState().trim(clip.id, 0, useDoc.getState().doc.sourceFrames),
+                run: () => useDoc.getState().trim(clip.id, 0, full),
               },
             ],
           });

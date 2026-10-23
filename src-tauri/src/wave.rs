@@ -57,14 +57,14 @@ fn enabled(app: &AppHandle) -> bool {
     s.timeline.waveform
 }
 
-/// The waveform was turned on: the open source gets it.
+/// The waveform was turned on: the open sources get theirs.
 pub fn turned_on(app: &AppHandle) {
-    let generation = {
+    let generations: Vec<u64> = {
         let state = app.state::<AppState>();
-        let open = state.source.lock().unwrap();
-        open.as_ref().map(|s| s.generation)
+        let open = state.sources.lock().unwrap();
+        open.iter().map(|s| s.generation).collect()
     };
-    if let Some(generation) = generation {
+    for generation in generations {
         start(app, generation);
     }
 }
@@ -76,10 +76,10 @@ pub fn start(app: &AppHandle, generation: u64) {
         return;
     }
     let state = app.state::<AppState>();
-    let mut open = state.source.lock().unwrap();
+    let mut open = state.sources.lock().unwrap();
     let Some(s) = open
-        .as_mut()
-        .filter(|s| s.generation == generation && s.wave.is_none() && s.info.audio_tracks > 0)
+        .iter_mut()
+        .find(|s| s.generation == generation && s.wave.is_none() && s.info.audio_tracks > 0)
     else {
         return;
     };
@@ -108,8 +108,8 @@ pub fn start(app: &AppHandle, generation: u64) {
         let started = Instant::now();
         let made = make(&app, generation, &input, tracks, rate, frames, &file);
         let state = app.state::<AppState>();
-        let mut open = state.source.lock().unwrap();
-        let Some(s) = open.as_mut().filter(|s| s.generation == generation) else {
+        let mut open = state.sources.lock().unwrap();
+        let Some(s) = open.iter_mut().find(|s| s.generation == generation) else {
             return;
         };
         match made {
@@ -224,8 +224,8 @@ fn emit(app: &AppHandle, generation: u64) {
 
 fn still_open(app: &AppHandle, generation: u64) -> bool {
     let state = app.state::<AppState>();
-    let open = state.source.lock().unwrap();
-    open.as_ref().is_some_and(|s| s.generation == generation)
+    let open = state.sources.lock().unwrap();
+    open.iter().any(|s| s.generation == generation)
 }
 
 #[cfg(test)]

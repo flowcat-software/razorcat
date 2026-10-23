@@ -1,10 +1,12 @@
 import type { SourceInfo } from "../shared/ipc";
 import {
   clipLength,
+  longestSource,
   MARK_NAMES,
   markFades,
   shownMarks,
   shownRanges,
+  sourceLength,
   total,
   type MarkId,
   type RangeId,
@@ -60,7 +62,7 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
   }
   const { rateNum: num, rateDen: den } = source;
   const length = total(doc);
-  const hours = needsHours(Math.max(length, doc.sourceFrames), num, den);
+  const hours = needsHours(Math.max(length, longestSource(doc)), num, den);
   const fmt = (f: number) => (inFrames ? String(f) : timecode(f, num, den, hours));
   // The timing fields (PLAN 4.4d2): typed as the readout shows times (a plain frame number
   // too), dragged a frame at a time when slow, Shift ×10 (a second's worth zoomed through
@@ -74,7 +76,7 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
   // Dragging an edge's field shows its frame, the playhead staying put (as dragging the edge
   // does); letting go shows the playhead's again.
   const peek = (f: number, dragging: boolean) => {
-    if (dragging) player?.peek(player.sourceFrame(Math.max(0, Math.min(length - 1, f))));
+    if (dragging) player?.peekAt(Math.max(0, Math.min(length - 1, f)));
   };
   const unpeek = () => player?.peek(null);
 
@@ -230,7 +232,7 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
           <Field label="In" value={fmt(selected.in)} />
           <Field label="Out" value={fmt(selected.out)} />
           <Field label="Length" value={fmt(clipLength(selected))} />
-          <span>of the source&apos;s {fmt(doc.sourceFrames)}</span>
+          <span>of the source&apos;s {fmt(sourceLength(doc, selected))}</span>
         </>
       ) : (
         <span>

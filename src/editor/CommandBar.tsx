@@ -17,6 +17,8 @@ interface Props {
   /** For the menu's Save to default folder. */
   settings: Settings | null;
   onOpen: () => void;
+  /** Add Video: a file on the end of the timeline (PLAN 4.5e). */
+  onAdd: () => void;
 }
 
 /** The tools that work on the picture, by the mockup; Vandal's markup tools' icons. */
@@ -76,7 +78,7 @@ const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
 ];
 
 /** The editor's top row: the picture's tools on the left, file actions on the right. */
-export function CommandBar({ empty, exporting, audio, settings, onOpen }: Props) {
+export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }: Props) {
   const tool = useTool((s) => s.tool);
   const undoable = useDoc(canUndo);
   const redoable = useDoc(canRedo);
@@ -197,6 +199,21 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen }: Props)
         </svg>
         <span className={styles.label}>Open</span>
       </button>
+      {!empty && (
+        <button
+          type="button"
+          className={styles.button}
+          aria-label="Add Video (Ctrl+Shift+O)"
+          title="Add a video to the end of the timeline (Ctrl+Shift+O)"
+          onClick={onAdd}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden>
+            <rect x="3" y="5" width="18" height="14" rx="2" />
+            <path d="M12 9v6M9 12h6" />
+          </svg>
+          <span className={styles.label}>Add Video</span>
+        </button>
+      )}
       <div className={styles.split}>
         <button
           type="button"

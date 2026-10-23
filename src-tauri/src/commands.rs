@@ -12,19 +12,20 @@ use crate::source::SourceInfo;
 use crate::state::AppState;
 
 /// The editor's page has loaded: shows the window, and opens a file Razorcat was started with
-/// ([`editor::SourceOpened`] follows). Returns the open source, if the page reloaded.
+/// ([`editor::SourceOpened`] follows). Returns the open sources, if the page reloaded.
 #[tauri::command]
 #[specta::specta]
-pub fn editor_ready(app: AppHandle, window: WebviewWindow) -> Option<SourceInfo> {
+pub fn editor_ready(app: AppHandle, window: WebviewWindow) -> Vec<SourceInfo> {
     editor::ready(&app, &window)
 }
 
 /// Show the Open dialog and open the picked file ([`editor::SourceOpened`] or
-/// [`editor::OpenFailed`] follows).
+/// [`editor::OpenFailed`] follows); with `add`, add it to the timeline
+/// ([`editor::SourceAdded`]).
 #[tauri::command]
 #[specta::specta]
-pub async fn open_dialog(app: AppHandle) {
-    let _ = tauri::async_runtime::spawn_blocking(move || editor::ask_open(&app)).await;
+pub async fn open_dialog(app: AppHandle, add: bool) {
+    let _ = tauri::async_runtime::spawn_blocking(move || editor::ask_open(&app, add)).await;
 }
 
 /// The Windows accent color, if Windows has one. Async, so it's read on a worker thread: as a

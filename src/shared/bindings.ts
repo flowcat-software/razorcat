@@ -10,50 +10,15 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	/**
 	 *  The editor's page has loaded: shows the window, and opens a file Razorcat was started with
-	 *  ([`editor::SourceOpened`] follows). Returns the open source, if the page reloaded.
+	 *  ([`editor::SourceOpened`] follows). Returns the open sources, if the page reloaded.
 	 */
-	editorReady: () => __TAURI_INVOKE<{
-	/**  What events about it name it by: its URL when opened, which `url` may not stay. */
-	id: string,
-	path: string,
-	/**  Where the page reads the file (`media://`, see protocol.rs). */
-	url: string,
-	/**  Where the player reads the frame times (see protocol.rs). */
-	framesUrl: string,
-	/**  Where the player reads the proxy, if it's ready (else `ProxyReady` says when it is). */
-	proxyUrl: string | null,
-	/**  The file name, for the title and messages. */
-	name: string,
-	bytes: number | null,
-	/**  "H.264", "HEVC", or the codec's code if unfamiliar. */
-	codec: string,
-	/**  The picture as shown: rotation applied. */
-	width: number,
-	height: number,
-	/**  Degrees clockwise the stored picture is turned to show it. */
-	rotation: number,
-	/**  The timeline rate, frames per second as `rate_num / rate_den`. */
-	rateNum: number,
-	rateDen: number,
-	/**  Timeline frames. */
-	frames: number,
-	/**  Seconds: timeline frames at the timeline rate. */
-	duration: number | null,
-	audioTracks: number,
-	/**  The source's frame timing varies (a phone clip, a recorder dropping frames). */
-	variable: boolean,
-	/**  The preview plays a converted copy (convert.rs); export reads the original. */
-	converted: boolean,
-	/**  Its thumbnails, if they're made or being made (else `ThumbsUpdate` says when they are). */
-	thumbs: ThumbsInfo | null,
-	/**  Where the page reads its waveform, if it's ready (else `WaveReady` says when it is). */
-	waveUrl: string | null,
-} | null>("editor_ready"),
+	editorReady: () => __TAURI_INVOKE<SourceInfo[]>("editor_ready"),
 	/**
 	 *  Show the Open dialog and open the picked file ([`editor::SourceOpened`] or
-	 *  [`editor::OpenFailed`] follows).
+	 *  [`editor::OpenFailed`] follows); with `add`, add it to the timeline
+	 *  ([`editor::SourceAdded`]).
 	 */
-	openDialog: () => __TAURI_INVOKE<void>("open_dialog"),
+	openDialog: (add: boolean) => __TAURI_INVOKE<void>("open_dialog", { add }),
 	/**
 	 *  The Windows accent color, if Windows has one. Async, so it's read on a worker thread: as a
 	 *  plain command it ran on the main thread, WinRT and a COM init amid the window's start-up, the
@@ -156,6 +121,7 @@ export const events = {
 	proxyReady: makeEvent<ProxyReady>("proxy-ready"),
 	proxyStopped: makeEvent<ProxyStopped>("proxy-stopped"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
+	sourceAdded: makeEvent<SourceAdded>("source-added"),
 	sourceConverted: makeEvent<SourceConverted>("source-converted"),
 	sourceOpened: makeEvent<SourceOpened>("source-opened"),
 	thumbsUpdate: makeEvent<ThumbsUpdate>("thumbs-update"),
@@ -489,6 +455,9 @@ export type Settings = {
 /**  Rust → all windows: settings changed (from any source), here's the new state. */
 export type SettingsChanged = Settings;
 
+/**  Rust → editor: a file was added to the timeline's (PLAN 4.5e): it goes on the end. */
+export type SourceAdded = SourceInfo;
+
 /**
  *  Rust → editor: the open source plays from a converted copy now (its codec): the same
  *  source, at a new URL.
@@ -534,7 +503,7 @@ export type SourceInfo = {
 	waveUrl: string | null,
 };
 
-/**  Rust → editor: a file was opened (it replaces the one before). */
+/**  Rust → editor: a file was opened (it replaces the timeline's files). */
 export type SourceOpened = SourceInfo;
 
 export type Styles = {

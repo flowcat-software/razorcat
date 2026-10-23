@@ -483,6 +483,11 @@
   position: absolute;
 }
 
+/* One file's videos in the picture: the first fills it; another shape is fitted in. */
+.deck {
+  position: absolute;
+}
+
 /* The crop and grow tools' place: over the stage, so their handles reach past its edges. */
 .overStage {
   position: absolute;

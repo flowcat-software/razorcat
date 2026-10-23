@@ -55,8 +55,10 @@ pub struct Grid {
     pub variable: bool,
 }
 
-/// The grid for a video track; `None` if it has no shown frames.
-pub fn build(v: &VideoIndex) -> Option<Grid> {
+/// The grid for a video track, `None` if it has no shown frames: at `rate` (a video added to a
+/// timeline of another rate takes the timeline's, PLAN 4.5e: ffmpeg's `fps` filter conforms it
+/// the same way), or at its own.
+pub fn build_at(v: &VideoIndex, rate: Option<Rate>) -> Option<Grid> {
     // Shown frames in presentation order (the edit list hides those before 0).
     let mut shown: Vec<u32> = (0..v.len() as u32)
         .filter(|&i| v.pts[i as usize] >= 0)
@@ -71,7 +73,7 @@ pub fn build(v: &VideoIndex) -> Option<Grid> {
         .filter(|&d| d > 0)
         .collect();
     let (count, sum) = typical_gap(&deltas).unwrap_or((1, u64::from(v.last_duration.max(1))));
-    let rate = rate_for(v.timescale, count, sum);
+    let rate = rate.unwrap_or_else(|| rate_for(v.timescale, count, sum));
     let typical = sum / count;
     let variable = deltas.iter().any(|&d| d.abs_diff(typical) * 20 > typical);
 
@@ -224,6 +226,11 @@ fn gcd(a: u64, b: u64) -> u64 {
 mod tests {
     use super::*;
 
+    /// The grid at the track's own rate.
+    fn build(v: &VideoIndex) -> Option<Grid> {
+        build_at(v, None)
+    }
+
     /// A track with frames at these presentation times, in decode order.
     fn track(timescale: u32, pts: &[i64], last_duration: u32) -> VideoIndex {
         VideoIndex {
@@ -244,6 +251,21 @@ mod tests {
         assert_eq!(g.frames, 450);
         assert_eq!(g.source, (0..450).collect::<Vec<u32>>());
         assert!(!g.variable);
+    }
+
+    #[test]
+    fn another_rate_conforms_as_the_fps_filter_does() {
+        // 60 fps to 30: every other frame (each slot's latest), half as many.
+        let pts: Vec<i64> = (0..60).map(|i| i * 256).collect();
+        let g = build_at(&track(15360, &pts, 256), Some(Rate { num: 30, den: 1 })).unwrap();
+        assert_eq!(g.rate, Rate { num: 30, den: 1 });
+        assert_eq!(g.frames, 30);
+        assert_eq!(&g.source[..3], &[0, 2, 4]);
+        // 15 to 30: each frame twice.
+        let pts: Vec<i64> = (0..15).map(|i| i * 1024).collect();
+        let g = build_at(&track(15360, &pts, 1024), Some(Rate { num: 30, den: 1 })).unwrap();
+        assert_eq!(g.frames, 30);
+        assert_eq!(&g.source[..4], &[0, 0, 1, 1]);
     }
 
     #[test]

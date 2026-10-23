@@ -13,8 +13,10 @@ pub struct AppState {
     /// The current settings; changed only through `settings::update`.
     pub settings: RwLock<Settings>,
     pub editor: Mutex<EditorState>,
-    /// The open source file (one in the MVP).
-    pub source: Mutex<Option<Source>>,
+    /// The open source files, in the order opened: the first sets the timeline's frame size and
+    /// rate (PLAN 4.5e). Kept for the session (undo can bring a deleted clip's file back), all
+    /// let go when the timeline is replaced.
+    pub sources: Mutex<Vec<Source>>,
     /// The conversion under way (convert.rs): set to stop it.
     pub converting: Mutex<Option<Arc<AtomicBool>>>,
     /// The export under way (export.rs): set to stop it.
@@ -30,7 +32,7 @@ impl AppState {
         Self {
             settings: RwLock::new(settings),
             editor: Mutex::new(EditorState::default()),
-            source: Mutex::new(None),
+            sources: Mutex::new(Vec::new()),
             converting: Mutex::new(None),
             exporting: Mutex::new(None),
             encoders: Mutex::new(None),

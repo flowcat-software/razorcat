@@ -24,7 +24,7 @@ interface Props {
   onToggleFrames: () => void;
 }
 
-const PAUSED: PlayerState = { frame: 0, speed: 0 };
+const PAUSED: PlayerState = { frame: 0, speed: 0, source: null };
 const nothing = () => () => {};
 const paused = () => PAUSED;
 

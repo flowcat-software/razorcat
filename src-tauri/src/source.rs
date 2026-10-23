@@ -1,5 +1,6 @@
-//! The open source file: its index and frame grid, read once on open, and what the page shows
-//! about it. The MVP edits one source; opening another replaces it.
+//! The open source files: each one's index and frame grid, read once on open, and what the page
+//! shows about it. The first sets the timeline's rate; one added later is gridded at that rate
+//! (PLAN 4.5e).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -7,7 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::Serialize;
 use specta::Type;
 
-use crate::media::grid::{self, Grid};
+use crate::media::grid::{self, Grid, Rate};
 use crate::media::mp4::{self, Mp4Error, Mp4Info};
 use crate::thumbs::{Thumbs, ThumbsInfo};
 use crate::wave::Wave;
@@ -156,8 +157,13 @@ pub enum OpenError {
     Failed(String),
 }
 
-/// Reads the index and builds the grid of `path`, or of `playable`, its converted copy.
-pub fn open(path: &Path, playable: Option<PathBuf>) -> Result<Source, OpenError> {
+/// Reads the index and builds the grid of `path`, or of `playable`, its converted copy: at
+/// `rate` (the timeline's, for a video added to it) or at its own.
+pub fn open(
+    path: &Path,
+    playable: Option<PathBuf>,
+    rate: Option<Rate>,
+) -> Result<Source, OpenError> {
     let name = file_name(path);
     if !path.is_file() {
         return Err(OpenError::Failed(format!("{name} isn't there any more.")));
@@ -174,7 +180,7 @@ pub fn open(path: &Path, playable: Option<PathBuf>) -> Result<Source, OpenError>
         }
         Mp4Error::Io(why) => OpenError::Failed(format!("{name} can't be read ({why}).")),
     })?;
-    let grid = grid::build(&info.video)
+    let grid = grid::build_at(&info.video, rate)
         .ok_or_else(|| OpenError::Failed(format!("{name} has no frames to show.")))?;
     static OPENED: AtomicU64 = AtomicU64::new(0);
     Ok(Source {
@@ -202,7 +208,9 @@ mod tests {
 
     #[test]
     fn a_missing_file_says_so() {
-        let e = open(Path::new(r"C:\nowhere\clip.mp4"), None).err().unwrap();
+        let e = open(Path::new(r"C:\nowhere\clip.mp4"), None, None)
+            .err()
+            .unwrap();
         assert_eq!(
             e,
             OpenError::Failed("clip.mp4 isn't there any more.".into())

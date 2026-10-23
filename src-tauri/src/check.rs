@@ -68,8 +68,9 @@ pub fn expected(app: &AppHandle) -> Result<Vec<u32>, String> {
     }
     let (path, rate, frames, generation) = {
         let state = app.state::<AppState>();
-        let open = state.source.lock().unwrap();
-        let s = open.as_ref().ok_or("nothing open")?;
+        let open = state.sources.lock().unwrap();
+        // The first file: the one the check was asked for.
+        let s = open.first().ok_or("nothing open")?;
         (s.path.clone(), s.grid.rate, s.grid.frames, s.generation)
     };
     let out = std::env::temp_dir().join(format!("razorcat-check-{generation}.gray"));
@@ -223,8 +224,8 @@ pub fn report(app: &AppHandle, summary: &str, report: &str) -> Result<String, St
     }
     let name = {
         let state = app.state::<AppState>();
-        let open = state.source.lock().unwrap();
-        open.as_ref().map(|s| crate::source::file_name(&s.path))
+        let open = state.sources.lock().unwrap();
+        open.first().map(|s| crate::source::file_name(&s.path))
     }
     .unwrap_or_default();
     let file: PathBuf = std::env::temp_dir().join(format!("razorcat-check-{name}.json"));

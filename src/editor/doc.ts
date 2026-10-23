@@ -1,6 +1,7 @@
-// The edit document (PLAN §3): what the user makes of the source. One magnetic track of clips,
-// each a stretch of the source's grid frames, butted together: the timeline is the clips in
-// order, with no gaps. The preview and (Phase 2.5) the export both read it. Pure and immutable:
+// The edit document (PLAN §3): what the user makes of the sources. One magnetic track of clips,
+// each a stretch of one source's grid frames, butted together: the timeline is the clips in
+// order, with no gaps. The first source sets the timeline's frame rate and size; one added later
+// is gridded at that rate (Rust) and fitted into the frame (PLAN 4.5e). The preview and (Phase 2.5) the export both read it. Pure and immutable:
 // every edit returns a new document (unchanged parts shared), which is what undo keeps
 // (docStore.ts). The mockup's model (mockup/main.html), ported.
 //
@@ -31,9 +32,20 @@ import { fullFrame, keepCrop, sameGrow, type Frame, type Grow } from "./frame";
 
 export type ClipId = number;
 
+/** A source file, as the page names it (`SourceInfo.id`, which stays when it's converted). */
+export type SourceId = string;
+
+/** A source in the edit: its id and its length in grid frames (how far a trim can pull out). */
+export interface SourceRef {
+  id: SourceId;
+  frames: number;
+}
+
 export interface Clip {
   /** Its number, for good: the timeline names it "Clip {id}". A split's left part keeps it. */
   id: ClipId;
+  /** The file it shows. */
+  source: SourceId;
   /** The first source grid frame shown. */
   in: number;
   /** The source grid frame after the last one shown (exclusive). */
@@ -132,8 +144,8 @@ export interface Doc {
   clips: readonly Clip[];
   /** The next clip's id. */
   nextId: ClipId;
-  /** The source's length in grid frames: how far a trim can pull a clip back out. */
-  sourceFrames: number;
+  /** The files the clips show, first first: the first sets the rate and the frame's size. */
+  sources: readonly SourceRef[];
   ranges: readonly Range[];
   nextRangeId: RangeId;
   marks: readonly Mark[];
@@ -144,11 +156,15 @@ export interface Doc {
 }
 
 /** A source `frames` long and `size` as shown, whole: one clip, the full frame. */
-export function wholeSource(frames: number, size: Size = { width: 0, height: 0 }): Doc {
+export function wholeSource(
+  frames: number,
+  size: Size = { width: 0, height: 0 },
+  id: SourceId = "source",
+): Doc {
   return {
-    clips: [{ id: 1, in: 0, out: frames }],
+    clips: [{ id: 1, source: id, in: 0, out: frames }],
     nextId: 2,
-    sourceFrames: frames,
+    sources: [{ id, frames }],
     ranges: [],
     nextRangeId: 1,
     marks: [],
@@ -156,6 +172,29 @@ export function wholeSource(frames: number, size: Size = { width: 0, height: 0 }
     frame: fullFrame(size),
     muted: false,
   };
+}
+
+/**
+ * Source `id`, `frames` long, added on the end of the timeline whole, as a clip of its own (PLAN
+ * 4.5e).
+ */
+export function addSource(doc: Doc, id: SourceId, frames: number): Doc {
+  if (frames < 1) return doc;
+  const sources = doc.sources.some((s) => s.id === id)
+    ? doc.sources
+    : [...doc.sources, { id, frames }];
+  const clip = { id: doc.nextId, source: id, in: 0, out: frames };
+  return { ...doc, sources, clips: [...doc.clips, clip], nextId: doc.nextId + 1 };
+}
+
+/** The longest source's length: how long a timecode can get by pulling clips out. */
+export function longestSource(doc: Doc): number {
+  return Math.max(0, ...doc.sources.map((s) => s.frames));
+}
+
+/** The length of the source `clip` shows, in grid frames: how far it can be pulled out. */
+export function sourceLength(doc: Doc, clip: Clip): number {
+  return doc.sources.find((s) => s.id === clip.source)?.frames ?? clip.out;
 }
 
 /** Grows the frame by `grow`. The same document if nothing changes. */
@@ -240,8 +279,9 @@ export function trimClip(doc: Doc, id: ClipId, inF: number, outF: number): Doc {
   const index = doc.clips.findIndex((c) => c.id === id);
   if (index < 0) return doc;
   const old = doc.clips[index];
-  let a = Math.round(Math.max(0, Math.min(doc.sourceFrames - 1, inF)));
-  let b = Math.round(Math.max(1, Math.min(doc.sourceFrames, outF)));
+  const frames = sourceLength(doc, old);
+  let a = Math.round(Math.max(0, Math.min(frames - 1, inF)));
+  let b = Math.round(Math.max(1, Math.min(frames, outF)));
   if (b <= a) {
     // Whichever end moved stops a frame short of the other.
     if (a !== old.in) a = b - 1;
@@ -295,6 +335,7 @@ export function moveSlot(doc: Doc, id: ClipId, df: number): number {
 
 /** A clip as copied (Ctrl+C), for `insertClip`: its source frames and its markup. */
 export interface ClipCopy {
+  source: SourceId;
   in: number;
   out: number;
   muted?: boolean;
@@ -307,7 +348,8 @@ export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
   const clip = doc.clips.find((c) => c.id === id);
   if (!clip) return null;
   const marks = doc.marks.filter((m) => m.clip === id);
-  return { in: clip.in, out: clip.out, ...(clip.muted && { muted: true }), marks };
+  const { source, in: a, out: b, muted } = clip;
+  return { source, in: a, out: b, ...(muted && { muted: true }), marks };
 }
 
 /**
@@ -317,7 +359,13 @@ export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
 export function insertClip(doc: Doc, copy: ClipCopy, at: number): Doc {
   const id = doc.nextId;
   const clips = [...doc.clips];
-  const clip = { id, in: copy.in, out: copy.out, ...(copy.muted && { muted: true }) };
+  const clip = {
+    id,
+    source: copy.source,
+    in: copy.in,
+    out: copy.out,
+    ...(copy.muted && { muted: true }),
+  };
   clips.splice(Math.max(0, Math.min(clips.length, at)), 0, clip);
   let nextMarkId = doc.nextMarkId;
   const marks = [...doc.marks, ...copy.marks.map((m) => ({ ...m, id: nextMarkId++, clip: id }))];
@@ -329,8 +377,8 @@ export function muteClip(doc: Doc, id: ClipId, muted: boolean): Doc {
   const index = doc.clips.findIndex((c) => c.id === id);
   if (index < 0 || !!doc.clips[index].muted === muted) return doc;
   const clips = [...doc.clips];
-  const { id: clipId, in: a, out: b } = clips[index];
-  clips[index] = { id: clipId, in: a, out: b, ...(muted && { muted }) };
+  const { id: clipId, source, in: a, out: b } = clips[index];
+  clips[index] = { id: clipId, source, in: a, out: b, ...(muted && { muted }) };
   return { ...doc, clips };
 }
 

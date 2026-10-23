@@ -103,14 +103,14 @@ fn enabled(app: &AppHandle) -> bool {
     s.timeline.thumbnails && s.proxies.enabled
 }
 
-/// Thumbnails were turned on: the open source gets them.
+/// Thumbnails were turned on: the open sources get them.
 pub fn turned_on(app: &AppHandle) {
-    let generation = {
+    let generations: Vec<u64> = {
         let state = app.state::<AppState>();
-        let open = state.source.lock().unwrap();
-        open.as_ref().map(|s| s.generation)
+        let open = state.sources.lock().unwrap();
+        open.iter().map(|s| s.generation).collect()
     };
-    if let Some(generation) = generation {
+    for generation in generations {
         start(app, generation);
     }
 }
@@ -123,10 +123,10 @@ pub fn start(app: &AppHandle, generation: u64) {
         return;
     }
     let state = app.state::<AppState>();
-    let mut open = state.source.lock().unwrap();
+    let mut open = state.sources.lock().unwrap();
     let Some(s) = open
-        .as_mut()
-        .filter(|s| s.generation == generation && s.thumbs.is_none())
+        .iter_mut()
+        .find(|s| s.generation == generation && s.thumbs.is_none())
     else {
         return;
     };
@@ -183,8 +183,8 @@ pub fn start(app: &AppHandle, generation: u64) {
         let stop = || !still_open(&app, generation) || !enabled(&app);
         let made = ffmpeg::run(&args, &file, Some(u64::from(count)), progress, stop);
         let state = app.state::<AppState>();
-        let mut open = state.source.lock().unwrap();
-        let Some(s) = open.as_mut().filter(|s| s.generation == generation) else {
+        let mut open = state.sources.lock().unwrap();
+        let Some(s) = open.iter_mut().find(|s| s.generation == generation) else {
             return;
         };
         match made {
@@ -218,9 +218,9 @@ pub fn start(app: &AppHandle, generation: u64) {
 fn emit(app: &AppHandle, generation: u64) {
     let update = {
         let state = app.state::<AppState>();
-        let open = state.source.lock().unwrap();
-        open.as_ref()
-            .filter(|s| s.generation == generation)
+        let open = state.sources.lock().unwrap();
+        open.iter()
+            .find(|s| s.generation == generation)
             .and_then(|s| {
                 Some(ThumbsUpdate {
                     source: crate::protocol::source_url(generation),
@@ -235,8 +235,8 @@ fn emit(app: &AppHandle, generation: u64) {
 
 fn still_open(app: &AppHandle, generation: u64) -> bool {
     let state = app.state::<AppState>();
-    let open = state.source.lock().unwrap();
-    open.as_ref().is_some_and(|s| s.generation == generation)
+    let open = state.sources.lock().unwrap();
+    open.iter().any(|s| s.generation == generation)
 }
 
 /// The thumbnails' bytes from `from` on: whole thumbnails only (ffmpeg may be part way through

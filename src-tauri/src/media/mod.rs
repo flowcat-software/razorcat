@@ -81,7 +81,7 @@ mod real_files {
             };
             let read_ms = t.elapsed().as_secs_f64() * 1000.0;
             let v = &info.video;
-            let g = grid::build(v).unwrap();
+            let g = grid::build_at(v, None).unwrap();
             let probe = ffprobe(&path);
             let mut bad = 0;
             if probe.len() != v.len() {

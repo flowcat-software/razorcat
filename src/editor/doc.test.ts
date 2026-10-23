@@ -16,12 +16,14 @@ import {
   total,
   trimClip,
   wholeSource,
+  addSource,
+  sourceLength,
 } from "./doc";
 
 describe("the document", () => {
   it("starts as the whole source, one clip", () => {
     const doc = wholeSource(785);
-    expect(doc.clips).toEqual([{ id: 1, in: 0, out: 785 }]);
+    expect(doc.clips).toEqual([{ id: 1, source: "source", in: 0, out: 785 }]);
     expect(total(doc)).toBe(785);
     expect(editPoints(doc)).toEqual([0, 785]);
   });
@@ -39,8 +41,8 @@ describe("split", () => {
   it("cuts the clip under the playhead in two, the second a new clip", () => {
     const doc = split(wholeSource(100), 40);
     expect(doc.clips).toEqual([
-      { id: 1, in: 0, out: 40 },
-      { id: 2, in: 40, out: 100 },
+      { id: 1, source: "source", in: 0, out: 40 },
+      { id: 2, source: "source", in: 40, out: 100 },
     ]);
     // Nothing moves: the same frames play at the same places.
     expect(total(doc)).toBe(100);
@@ -51,9 +53,9 @@ describe("split", () => {
   it("splits a later clip in its own source frames", () => {
     const doc = split(split(wholeSource(100), 40), 70);
     expect(doc.clips).toEqual([
-      { id: 1, in: 0, out: 40 },
-      { id: 2, in: 40, out: 70 },
-      { id: 3, in: 70, out: 100 },
+      { id: 1, source: "source", in: 0, out: 40 },
+      { id: 2, source: "source", in: 40, out: 70 },
+      { id: 3, source: "source", in: 70, out: 100 },
     ]);
   });
 
@@ -117,14 +119,14 @@ describe("trim", () => {
 
   it("shortens a clip, the clips after it moving along", () => {
     const doc = trimClip(three, 1, 10, 30);
-    expect(doc.clips[0]).toEqual({ id: 1, in: 10, out: 30 });
+    expect(doc.clips[0]).toEqual({ id: 1, source: "source", in: 10, out: 30 });
     expect(clipStarts(doc)).toEqual([0, 20, 50]);
     expect(total(doc)).toBe(80);
   });
 
   it("pulls a clip back out, as far as the source goes", () => {
     const doc = trimClip(three, 2, -50, 500);
-    expect(doc.clips[1]).toEqual({ id: 2, in: 0, out: 100 });
+    expect(doc.clips[1]).toEqual({ id: 2, source: "source", in: 0, out: 100 });
   });
 
   it("keeps at least a frame", () => {
@@ -147,9 +149,9 @@ describe("duplicate and paste", () => {
   it("puts a copy straight after the clip, a new clip with the same frames", () => {
     const dup = duplicateClip(doc, 1);
     expect(dup.clips).toEqual([
-      { id: 1, in: 10, out: 40 },
-      { id: 3, in: 10, out: 40 },
-      { id: 2, in: 40, out: 100 },
+      { id: 1, source: "source", in: 10, out: 40 },
+      { id: 3, source: "source", in: 10, out: 40 },
+      { id: 2, source: "source", in: 40, out: 100 },
     ]);
     expect(dup.nextId).toBe(4);
     expect(clipStarts(dup)).toEqual([0, 30, 60]);
@@ -181,9 +183,14 @@ describe("mute", () => {
 
   it("mutes a clip, and unmutes it back to the same clip", () => {
     const muted = muteClip(doc, 2, true);
-    expect(muted.clips[1]).toEqual({ id: 2, in: 40, out: 100, muted: true });
+    expect(muted.clips[1]).toEqual({ id: 2, source: "source", in: 40, out: 100, muted: true });
     expect(muteClip(muted, 2, true)).toBe(muted);
-    expect(muteClip(muted, 2, false).clips[1]).toStrictEqual({ id: 2, in: 40, out: 100 });
+    expect(muteClip(muted, 2, false).clips[1]).toStrictEqual({
+      id: 2,
+      source: "source",
+      in: 40,
+      out: 100,
+    });
     expect(muteClip(doc, 9, true)).toBe(doc);
   });
 
@@ -198,5 +205,35 @@ describe("mute", () => {
     expect(doc.muted).toBe(false);
     expect(muteTrack(doc, true).muted).toBe(true);
     expect(muteTrack(doc, false)).toBe(doc);
+  });
+});
+
+describe("several sources", () => {
+  // A 100-frame first file, then a 50-frame one added.
+  const doc = addSource(wholeSource(100, { width: 0, height: 0 }, "a"), "b", 50);
+
+  it("puts an added file on the end, whole, as a clip of its own", () => {
+    expect(doc.clips).toEqual([
+      { id: 1, source: "a", in: 0, out: 100 },
+      { id: 2, source: "b", in: 0, out: 50 },
+    ]);
+    expect(doc.sources).toEqual([
+      { id: "a", frames: 100 },
+      { id: "b", frames: 50 },
+    ]);
+    expect(total(doc)).toBe(150);
+  });
+
+  it("trims each clip only as far as its own file goes", () => {
+    expect(trimClip(doc, 2, -10, 500).clips[1]).toEqual({ id: 2, source: "b", in: 0, out: 50 });
+    expect(sourceLength(doc, doc.clips[0])).toBe(100);
+    // Its parts keep their file.
+    expect(split(doc, 120).clips.map((c) => c.source)).toEqual(["a", "b", "b"]);
+  });
+
+  it("adds the same file again as another clip, the file listed once", () => {
+    const again = addSource(doc, "b", 50);
+    expect(again.clips).toHaveLength(3);
+    expect(again.sources).toHaveLength(2);
   });
 });

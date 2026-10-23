@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { MarkupDrawing } from "../markup/MarkupDrawing";
 import { MarkupLayer } from "../markup/MarkupLayer";
 import { connectMarkup } from "../markup/model/store";
@@ -13,39 +13,34 @@ import { useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
 interface Props {
-  source: SourceInfo;
-  /** Drives the video (player.ts). */
+  /** The timeline's files, first first: the first sets the picture's size (PLAN 4.5e). */
+  sources: readonly SourceInfo[];
+  /** Drives the videos (player.ts). */
   player: Player;
-  /** The proxy, once it's ready (proxy.rs). */
-  proxyUrl: string | null;
-  /** The picture can't be shown, even from a converted copy. */
+  /** Each file's proxy, once it's ready (proxy.rs), by its id. */
+  proxyUrls: Readonly<Record<string, string | null>>;
+  /** A picture can't be shown, even from a converted copy. */
   onError: (message: string) => void;
-  /** The original can't be played here (its codec): convert it (convert.rs). */
-  onUnplayable: () => void;
+  /** A file's original can't be played here (its codec): convert it (convert.rs). */
+  onUnplayable: (source: SourceInfo) => void;
 }
 
 /** Space kept around the picture, in px. */
 const MARGIN = 16;
 
 /**
- * The picture: the source's `<video>`, cropped, with the space grown round it, fitted into the
- * preview (CSS only, so it follows live, also while playing). The crop tool shows the whole
+ * The picture: the playhead's file's `<video>` (each file has its own, the others hidden; one of
+ * another shape fitted in, the rest black), cropped, with the space grown round it, fitted into
+ * the preview (CSS only, so it follows live, also while playing). The crop tool shows the whole
  * picture, ungrown, with the crop box over it; the grow tool, the frame with its handles.
  * Markup sits over the whole frame (Vandal's markup layer, over the whole preview so its handles
  * reach past the frame): what's at the playhead, which the select and markup tools edit.
  */
-export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Props) {
+export function Preview({ sources, player, proxyUrls, onError, onUnplayable }: Props) {
+  const source = sources[0];
   const areaRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const proxyRef = useRef<HTMLVideoElement>(null);
   const [area, setArea] = useState({ width: 0, height: 0 });
-  /**
-   * The video's own size, rotated already if WebView2 honours the file's rotation flag; with the
-   * URL it was measured for, so a new file starts unmeasured.
-   */
-  const [measured, setMeasured] = useState<{ url: string; width: number; height: number } | null>(
-    null,
-  );
+  const onScreen = useSyncExternalStore(player.subscribe, () => player.getState().source);
 
   useLayoutEffect(() => {
     const el = areaRef.current;
@@ -57,24 +52,8 @@ export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Pro
     return () => ro.disconnect();
   }, []);
 
-  // The player drives the video; a new file is a new element (keyed by URL).
-  useEffect(() => {
-    player.attach(videoRef.current);
-    return () => player.attach(null);
-  }, [player, source.url]);
-
-  useEffect(() => {
-    player.attachProxy(proxyRef.current);
-    return () => player.attachProxy(null);
-  }, [player, proxyUrl]);
-
   // The markup shows what's at the playhead.
   useEffect(() => connectMarkup(player), [player]);
-
-  const unplayable = () =>
-    source.converted
-      ? onError(`The preview can't play ${source.name}, even converted.`)
-      : onUnplayable();
 
   const frame = useDoc((s) => s.doc.frame);
   const tool = useTool((s) => s.tool);
@@ -123,8 +102,6 @@ export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Pro
           height: s === "top" || s === "bottom" ? grow[s] * scale : stage.height,
         },
       }));
-  const natural = measured?.url === source.url ? measured : null;
-  const transform = natural ? videoTransform(natural, source, picture) : null;
 
   return (
     <div ref={areaRef} className={styles.previewArea}>
@@ -146,40 +123,18 @@ export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Pro
           style={{ left: inner.x, top: inner.y, width: inner.width, height: inner.height }}
         >
           <div className={styles.picture} style={picture}>
-            <video
-              key={source.url}
-              ref={videoRef}
-              className={styles.video}
-              src={source.url}
-              // Its pixels readable (the frame check, frameCheck.ts): protocol.rs allows it.
-              crossOrigin="anonymous"
-              preload="auto"
-              style={
-                transform
-                  ? { width: transform.width, height: transform.height, transform: transform.css }
-                  : { visibility: "hidden" }
-              }
-              onLoadedMetadata={(e) => {
-                const { videoWidth: width, videoHeight: height } = e.currentTarget;
-                // No picture: the video's codec can't be played, though its audio may (no error
-                // is raised then).
-                if (width === 0) unplayable();
-                else setMeasured({ url: source.url, width, height });
-              }}
-              onError={unplayable}
-            />
-            {proxyUrl && (
-              // Already upright and the picture's shape: it fills the picture.
-              <video
-                key={proxyUrl}
-                ref={proxyRef}
-                className={styles.proxy}
-                src={proxyUrl}
-                crossOrigin="anonymous"
-                preload="auto"
-                muted
+            {sources.map((s) => (
+              <Deck
+                key={s.id}
+                source={s}
+                box={fitIn(s, source, picture)}
+                shown={s.id === onScreen}
+                player={player}
+                proxyUrl={proxyUrls[s.id] ?? null}
+                onError={onError}
+                onUnplayable={onUnplayable}
               />
-            )}
+            ))}
           </div>
         </div>
       </div>
@@ -220,6 +175,99 @@ export function Preview({ source, player, proxyUrl, onError, onUnplayable }: Pro
         >
           <CropOverlay crop={frame.crop} source={source} scale={scale} />
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Where `s` shows in the picture (`picture`, the first file's): fitted in, centred. */
+function fitIn(s: SourceInfo, first: SourceInfo, picture: { width: number; height: number }) {
+  if (s === first || s.width <= 0 || s.height <= 0) {
+    return { left: 0, top: 0, width: picture.width, height: picture.height };
+  }
+  const k = Math.min(picture.width / s.width, picture.height / s.height);
+  const width = s.width * k;
+  const height = s.height * k;
+  return { left: (picture.width - width) / 2, top: (picture.height - height) / 2, width, height };
+}
+
+interface DeckProps {
+  source: SourceInfo;
+  /** Its place in the picture. */
+  box: { left: number; top: number; width: number; height: number };
+  /** The playhead's file: on screen (the others wait, hidden). */
+  shown: boolean;
+  player: Player;
+  proxyUrl: string | null;
+  onError: (message: string) => void;
+  onUnplayable: (source: SourceInfo) => void;
+}
+
+/** One file's videos: its original, and its proxy once it's ready, in its place. */
+function Deck({ source, box, shown, player, proxyUrl, onError, onUnplayable }: DeckProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const proxyRef = useRef<HTMLVideoElement>(null);
+  /**
+   * The video's own size, rotated already if WebView2 honours the file's rotation flag; with the
+   * URL it was measured for, so a new file starts unmeasured.
+   */
+  const [measured, setMeasured] = useState<{ url: string; width: number; height: number } | null>(
+    null,
+  );
+
+  // The player drives the video; a converted file is a new element (keyed by URL).
+  useEffect(() => {
+    player.attach(source.id, videoRef.current);
+    return () => player.attach(source.id, null);
+  }, [player, source.id, source.url]);
+
+  useEffect(() => {
+    player.attachProxy(source.id, proxyRef.current);
+    return () => player.attachProxy(source.id, null);
+  }, [player, source.id, proxyUrl]);
+
+  const unplayable = () =>
+    source.converted
+      ? onError(`The preview can't play ${source.name}, even converted.`)
+      : onUnplayable(source);
+
+  const natural = measured?.url === source.url ? measured : null;
+  const transform = natural ? videoTransform(natural, source, box) : null;
+  return (
+    <div className={styles.deck} style={{ ...box, visibility: shown ? undefined : "hidden" }}>
+      <video
+        key={source.url}
+        ref={videoRef}
+        className={styles.video}
+        src={source.url}
+        // Its pixels readable (the frame check, frameCheck.ts): protocol.rs allows it.
+        crossOrigin="anonymous"
+        preload="auto"
+        style={
+          transform
+            ? { width: transform.width, height: transform.height, transform: transform.css }
+            : { visibility: "hidden" }
+        }
+        onLoadedMetadata={(e) => {
+          const { videoWidth: width, videoHeight: height } = e.currentTarget;
+          // No picture: the video's codec can't be played, though its audio may (no error is
+          // raised then).
+          if (width === 0) unplayable();
+          else setMeasured({ url: source.url, width, height });
+        }}
+        onError={unplayable}
+      />
+      {proxyUrl && (
+        // Already upright and the file's shape: it fills its place.
+        <video
+          key={proxyUrl}
+          ref={proxyRef}
+          className={styles.proxy}
+          src={proxyUrl}
+          crossOrigin="anonymous"
+          preload="auto"
+          muted
+        />
       )}
     </div>
   );

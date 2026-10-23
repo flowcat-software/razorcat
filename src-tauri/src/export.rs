@@ -648,11 +648,12 @@ fn encoders(app: &AppHandle) -> Vec<Encoder> {
 
 // --- exporting ---
 
-/// The open source, as export reads it.
+/// The open source, as export reads it: the first file (several come in PLAN 4.5e2; until then
+/// the page exports only clips of the first).
 fn input(app: &AppHandle) -> Result<Input, String> {
     let state = app.state::<AppState>();
-    let open = state.source.lock().unwrap();
-    let s = open.as_ref().ok_or("No video is open.")?;
+    let open = state.sources.lock().unwrap();
+    let s = open.first().ok_or("No video is open.")?;
     let (w, h) = (s.info.width, s.info.height);
     let (width, height) = if s.info.rotation % 180 == 90 {
         (h, w)
@@ -1024,11 +1025,11 @@ pub fn cancel(app: &AppHandle) {
 
 // --- where to ---
 
-/// The open source's file name without its extension, for naming exports.
+/// The first file's name without its extension, for naming exports, and its folder.
 fn stem(app: &AppHandle) -> Option<(String, PathBuf)> {
     let state = app.state::<AppState>();
-    let open = state.source.lock().unwrap();
-    let s = open.as_ref()?;
+    let open = state.sources.lock().unwrap();
+    let s = open.first()?;
     let name = s
         .path
         .file_stem()

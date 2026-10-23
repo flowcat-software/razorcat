@@ -14,6 +14,7 @@ import { create } from "zustand";
 import {
   addMark,
   addRange,
+  addSource,
   fadeEnds,
   deleteClip,
   deleteMarks,
@@ -49,6 +50,7 @@ import {
   type MarkId,
   type MarkObject,
   type RangeId,
+  type SourceId,
 } from "./doc";
 import type { Rect, Size } from "./fit";
 import type { Grow } from "./frame";
@@ -88,8 +90,13 @@ export interface DocState {
   pendingIn: number | null;
   options: RangeOptions;
 
-  /** Starts editing a new source, `frames` long and `size` as shown: one clip, no history. */
-  load: (frames: number, size?: Size) => void;
+  /**
+   * Starts editing a new source, `frames` long and `size` as shown (named `id`): one clip, no
+   * history.
+   */
+  load: (frames: number, size?: Size, id?: SourceId) => void;
+  /** Source `id`, `frames` long, on the end of the timeline (PLAN 4.5e): one undo step. */
+  addSource: (id: SourceId, frames: number) => boolean;
   /** Splits the clip under timeline frame `f`. False if there was nothing to split. */
   split: (f: number) => boolean;
   /** Deletes clip `id` (ripple). False if it can't (the last clip). */
@@ -244,9 +251,9 @@ export const useDoc = create<DocState>()((set, get) => {
       defaultFade: 15,
     },
 
-    load: (frames, size) =>
+    load: (frames, size, id) =>
       set({
-        doc: wholeSource(frames, size),
+        doc: wholeSource(frames, size, id),
         past: [],
         future: [],
         gestureStart: null,
@@ -293,6 +300,7 @@ export const useDoc = create<DocState>()((set, get) => {
     setMark: (id, start, end, lane) => apply((doc) => setMark(doc, id, start, end, lane), [id]),
     setMarkObject: (id, object) => apply((doc) => setMarkObject(doc, id, object)),
     stepMark: (id, dir) => apply((doc) => stepLane(doc, id, dir)),
+    addSource: (id, frames) => apply((doc) => addSource(doc, id, frames)),
     dropMark: (id, start, end, lane, below) =>
       apply((doc) => dropMark(doc, id, start, end, lane, below)),
     defaultFades: (ids, ends) =>

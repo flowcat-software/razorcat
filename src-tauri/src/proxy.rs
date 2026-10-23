@@ -126,32 +126,46 @@ pub fn settings_changed(app: &AppHandle, old: &Proxies, new: &Proxies) {
     });
 }
 
-/// Gives the open source its proxy: from the cache, or made now.
+/// Gives the open sources their proxies: from the cache, or made now.
 fn resume(app: &AppHandle) {
-    let wanted = {
+    let wanted: Vec<_> = {
         let state = app.state::<AppState>();
-        let open = state.source.lock().unwrap();
-        open.as_ref().filter(|s| s.proxy.is_none()).map(|s| {
-            let input = s.playable.clone().unwrap_or_else(|| s.path.clone());
-            (
-                s.generation,
-                s.path.clone(),
-                input,
-                s.grid.rate,
-                s.grid.frames,
-            )
-        })
+        let open = state.sources.lock().unwrap();
+        open.iter()
+            .filter(|s| s.proxy.is_none())
+            .map(|s| {
+                let input = s.playable.clone().unwrap_or_else(|| s.path.clone());
+                (
+                    s.generation,
+                    s.path.clone(),
+                    input,
+                    s.grid.rate,
+                    s.grid.frames,
+                )
+            })
+            .collect()
     };
-    let Some((generation, path, input, rate, frames)) = wanted else {
-        return;
-    };
+    for (generation, path, input, rate, frames) in wanted {
+        resume_one(app, generation, path, input, rate, frames);
+    }
+}
+
+/// Gives the source opened as `generation` its proxy: from the cache, or made now.
+fn resume_one(
+    app: &AppHandle,
+    generation: u64,
+    path: PathBuf,
+    input: PathBuf,
+    rate: Rate,
+    frames: u32,
+) {
     let Some(file) = cached(app, &path) else {
         make(app, generation, path, input, rate, frames);
         return;
     };
     let state = app.state::<AppState>();
-    let mut open = state.source.lock().unwrap();
-    if let Some(s) = open.as_mut().filter(|s| s.generation == generation) {
+    let mut open = state.sources.lock().unwrap();
+    if let Some(s) = open.iter_mut().find(|s| s.generation == generation) {
         s.proxy = Some(file);
         drop(open);
         let _ = ProxyReady {
@@ -163,12 +177,12 @@ fn resume(app: &AppHandle) {
     }
 }
 
-/// The cached files the open source is using: its proxy, its converted copy, its thumbnails.
+/// The cached files the open sources are using: their proxies, converted copies, thumbnails.
 pub fn in_use(app: &AppHandle) -> Vec<PathBuf> {
     let state = app.state::<AppState>();
-    let open = state.source.lock().unwrap();
-    open.as_ref()
-        .map(|s| {
+    let open = state.sources.lock().unwrap();
+    open.iter()
+        .flat_map(|s| {
             let thumbs = s.thumbs.as_ref().filter(|t| t.ready).map(|t| &t.file);
             let wave = s.wave.as_ref().filter(|w| w.ready).map(|w| &w.file);
             s.proxy
@@ -177,9 +191,9 @@ pub fn in_use(app: &AppHandle) -> Vec<PathBuf> {
                 .chain(thumbs)
                 .chain(wave)
                 .cloned()
-                .collect()
+                .collect::<Vec<_>>()
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 /// Moves the proxies from one folder to another: a rename on the same drive, else a copy.
@@ -207,10 +221,10 @@ fn move_cache(app: &AppHandle, from: &Path, to: &Path) {
             continue;
         }
         moved += 1;
-        // The open source's proxy and thumbnails are read from their new place from now on.
+        // The open sources' proxies and thumbnails are read from their new place from now on.
         let state = app.state::<AppState>();
-        let mut open = state.source.lock().unwrap();
-        if let Some(s) = open.as_mut() {
+        let mut open = state.sources.lock().unwrap();
+        for s in open.iter_mut() {
             if s.proxy.as_deref() == Some(&old) {
                 s.proxy = Some(new.clone());
             }
@@ -218,7 +232,7 @@ fn move_cache(app: &AppHandle, from: &Path, to: &Path) {
                 t.file = new.clone();
             }
             if let Some(w) = s.wave.as_mut().filter(|w| w.file == old) {
-                w.file = new;
+                w.file = new.clone();
             }
         }
     }
@@ -348,8 +362,8 @@ pub fn make(
                     started.elapsed().as_secs_f64()
                 );
                 let state = app.state::<AppState>();
-                let mut open = state.source.lock().unwrap();
-                if let Some(s) = open.as_mut().filter(|s| s.generation == generation) {
+                let mut open = state.sources.lock().unwrap();
+                if let Some(s) = open.iter_mut().find(|s| s.generation == generation) {
                     s.proxy = Some(file.clone());
                     drop(open);
                     let _ = ProxyReady {
@@ -457,8 +471,8 @@ fn run(
 
 fn still_open(app: &AppHandle, generation: u64) -> bool {
     let state = app.state::<AppState>();
-    let open = state.source.lock().unwrap();
-    open.as_ref().is_some_and(|s| s.generation == generation)
+    let open = state.sources.lock().unwrap();
+    open.iter().any(|s| s.generation == generation)
 }
 
 /// The cache's size, and what a limit would drop (Settings asks before lowering it).

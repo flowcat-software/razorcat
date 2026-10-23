@@ -35,9 +35,13 @@ pub struct EditorState {
     show_maximized: bool,
 }
 
-/// Rust → editor: a file was opened (it replaces the one before).
+/// Rust → editor: a file was opened (it replaces the timeline's files).
 #[derive(Clone, Serialize, Type, Event)]
 pub struct SourceOpened(pub SourceInfo);
+
+/// Rust → editor: a file was added to the timeline's (PLAN 4.5e): it goes on the end.
+#[derive(Clone, Serialize, Type, Event)]
+pub struct SourceAdded(pub SourceInfo);
 
 /// Rust → editor: the open source plays from a converted copy now (its codec): the same
 /// source, at a new URL.
@@ -93,8 +97,8 @@ pub fn closing(app: &AppHandle, window: &tauri::Window) {
 }
 
 /// The page has loaded: show the window, and open a file asked for before then. Returns the
-/// open source, if any (the page reloaded).
-pub fn ready(app: &AppHandle, window: &WebviewWindow) -> Option<SourceInfo> {
+/// open sources, first first (the page reloaded), or none.
+pub fn ready(app: &AppHandle, window: &WebviewWindow) -> Vec<SourceInfo> {
     let (pending, maximized) = {
         let app_state = app.state::<AppState>();
         let mut state = app_state.editor.lock().unwrap();
@@ -110,16 +114,17 @@ pub fn ready(app: &AppHandle, window: &WebviewWindow) -> Option<SourceInfo> {
         eprintln!("[editor] couldn't show the window: {e}");
     }
     if let Some(path) = pending {
-        request_open(app, path);
+        request_open(app, path, false);
     }
     let state = app.state::<AppState>();
-    let source = state.source.lock().unwrap();
-    source.as_ref().map(|s| s.info())
+    let sources = state.sources.lock().unwrap();
+    sources.iter().map(Source::info).collect()
 }
 
-/// Open `path` in the editor: now if its page is ready, else once it is. The MVP edits one
-/// source, so it replaces the one open (and a file asked for while another waits replaces that).
-pub fn request_open(app: &AppHandle, path: PathBuf) {
+/// Open `path` in the editor: now if its page is ready, else once it is (a file asked for while
+/// another waits replaces that). It replaces the timeline's files, or with `add` goes on the end
+/// of the timeline, at its rate (PLAN 4.5e; with none open, adding is opening).
+pub fn request_open(app: &AppHandle, path: PathBuf, add: bool) {
     eprintln!("[editor] open {}", path.display());
     {
         let app_state = app.state::<AppState>();
@@ -131,14 +136,21 @@ pub fn request_open(app: &AppHandle, path: PathBuf) {
     }
     // A file being converted for opening is replaced by this one.
     crate::convert::cancel(app);
+    // Added: gridded at the timeline's rate (the first file's).
+    let rate = {
+        let state = app.state::<AppState>();
+        let sources = state.sources.lock().unwrap();
+        sources.first().filter(|_| add).map(|s| s.grid.rate)
+    };
+    let add = rate.is_some();
     // Reading the index takes milliseconds, but it's file I/O (and converting takes longer): off
     // the main thread.
     let app = app.clone();
     std::thread::spawn(move || {
-        let opened = match source::open(&path, None) {
+        let opened = match source::open(&path, None, rate) {
             // MKV, GIF...: opened from a converted copy.
             Err(OpenError::NeedsConversion) => match crate::convert::before_open(&app, &path) {
-                Ok(Some(copy)) => source::open(&path, Some(copy)),
+                Ok(Some(copy)) => source::open(&path, Some(copy), rate),
                 // Cancelled, or failed: `ConvertEnded` has told the page.
                 Ok(None) | Err(_) => return,
             },
@@ -150,7 +162,7 @@ pub fn request_open(app: &AppHandle, path: PathBuf) {
             Err(e) => Err(e),
         };
         match opened {
-            Ok(opened) => show(&app, path, opened),
+            Ok(opened) => show(&app, path, opened, add),
             Err(e) => {
                 let message = match e {
                     OpenError::Failed(message) => message,
@@ -165,8 +177,9 @@ pub fn request_open(app: &AppHandle, path: PathBuf) {
     });
 }
 
-/// Makes `opened` the open source: the title, the page, its proxy.
-fn show(app: &AppHandle, path: PathBuf, mut opened: Source) {
+/// Makes `opened` the timeline's file, or with `add` one more of them: the title, the page, its
+/// proxy.
+fn show(app: &AppHandle, path: PathBuf, mut opened: Source, add: bool) {
     let use_proxies = crate::proxy::enabled(app);
     if use_proxies {
         opened.proxy = crate::proxy::cached(app, &path);
@@ -186,7 +199,8 @@ fn show(app: &AppHandle, path: PathBuf, mut opened: Source) {
     let info = opened.info();
     let generation = opened.generation;
     eprintln!(
-        "[editor] opened {}: {}x{} {} at {}/{} fps, {} frames{}{}",
+        "[editor] {} {}: {}x{} {} at {}/{} fps, {} frames{}{}",
+        if add { "added" } else { "opened" },
         info.name,
         info.width,
         info.height,
@@ -201,15 +215,32 @@ fn show(app: &AppHandle, path: PathBuf, mut opened: Source) {
             ""
         }
     );
-    *app.state::<AppState>().source.lock().unwrap() = Some(opened);
-    if let Some(window) = app.get_webview_window(LABEL) {
-        let _ = window.set_title(&format!("{} — {}", info.name, crate::product_name(app)));
+    {
+        let state = app.state::<AppState>();
+        let mut sources = state.sources.lock().unwrap();
+        if !add {
+            sources.clear();
+        }
+        sources.push(opened);
+    }
+    // The title names the first file.
+    if !add {
+        if let Some(window) = app.get_webview_window(LABEL) {
+            let _ = window.set_title(&format!("{} — {}", info.name, crate::product_name(app)));
+        }
     }
     let id = info.id.clone();
-    if let Err(e) = SourceOpened(info).emit_to(app, LABEL) {
+    let told = if add {
+        SourceAdded(info).emit_to(app, LABEL)
+    } else {
+        SourceOpened(info).emit_to(app, LABEL)
+    };
+    if let Err(e) = told {
         eprintln!("[editor] couldn't tell the page: {e}");
     }
-    crate::check::opened(app, id);
+    if !add {
+        crate::check::opened(app, id);
+    }
     crate::wave::start(app, generation);
     // The thumbnails come from the proxy, so they wait for one being made.
     if let Some((generation, input, rate, frames)) = make {
@@ -219,12 +250,13 @@ fn show(app: &AppHandle, path: PathBuf, mut opened: Source) {
     }
 }
 
-/// The Open dialog, starting in the folder last opened from; opens the picked file.
-pub fn ask_open(app: &AppHandle) {
+/// The Open dialog, starting in the folder last opened from; opens the picked file, or with
+/// `add` adds it to the timeline.
+pub fn ask_open(app: &AppHandle, add: bool) {
     let mut dialog = app
         .dialog()
         .file()
-        .set_title("Open video")
+        .set_title(if add { "Add video" } else { "Open video" })
         .add_filter("Videos", EXTENSIONS)
         .add_filter("All files", &["*"]);
     if let Some(start) = crate::folders::open_start(app) {
@@ -239,7 +271,7 @@ pub fn ask_open(app: &AppHandle) {
             .ok()
     });
     if let Some(path) = picked {
-        request_open(app, path);
+        request_open(app, path, add);
     }
 }
 

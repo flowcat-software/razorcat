@@ -8,6 +8,7 @@ import { commands, events, type Settings, type SourceInfo, type ThumbsInfo } fro
 import { CommandBar } from "./CommandBar";
 import { useToolKeys } from "./cropTool";
 import { EmptyEditor } from "./EmptyEditor";
+import { total } from "./doc";
 import { useDoc } from "./docStore";
 import {
   addRangeAtPlayhead,
@@ -40,7 +41,9 @@ import { useTimeline } from "./timelineStore";
 import { useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
-const openVideo = () => void commands.openDialog();
+const openVideo = () => void commands.openDialog(false);
+/** Add Video (Ctrl+Shift+O): a file on the end of the timeline (PLAN 4.5e). */
+const addVideo = () => void commands.openDialog(true);
 
 /** Thumbnails are made from proxies: none without them. */
 const thumbsOn = (s: Settings) => s.timeline.thumbnails && s.proxies.enabled;
@@ -149,9 +152,11 @@ function transportKey(e: KeyboardEvent, player: Player, audio: boolean): boolean
  * reads them and sends `SourceOpened` (or `OpenFailed`).
  */
 export function EditorApp() {
-  const [source, setSource] = useState<SourceInfo | null>(null);
-  /** The video has sound, for M and Shift+M to mute. */
-  const audio = (source?.audioTracks ?? 0) > 0;
+  /** The timeline's files, first first (PLAN 4.5e): the first sets its rate and frame. */
+  const [sources, setSources] = useState<SourceInfo[]>([]);
+  const source = sources[0] ?? null;
+  /** A file has sound, for M and Shift+M to mute. */
+  const audio = sources.some((s) => s.audioTracks > 0);
   const [notice, setNotice] = useState<Notice | null>(null);
   /** Time as frame numbers, not timecode: the readout and the ruler (a click on the readout). */
   const [inFrames, setInFrames] = useState(false);
@@ -163,8 +168,8 @@ export function EditorApp() {
   const [exporting, setExporting] = useState<{ name: string; done: number } | null>(null);
   /** A conversion under way (convert.rs): the file and how far along. */
   const [converting, setConverting] = useState<{ name: string; done: number } | null>(null);
-  /** The proxy of the open source: ready (its URL) or how far along; keyed by the source. */
-  const [proxy, setProxy] = useState<{ source: string; url?: string; done?: number } | null>(null);
+  /** Each file's proxy: ready (its URL) or how far along; by the file's id. */
+  const [proxies, setProxies] = useState<Record<string, { url?: string; done?: number }>>({});
   /** Settings › General › Show thumbnails (made from proxies, so not without them). */
   const [showThumbs, setShowThumbs] = useState(true);
   /** Development: the source to check (`--check-frames`, check.rs), once it's open. */
@@ -173,14 +178,14 @@ export function EditorApp() {
   const [settings, setSettings] = useState<Settings | null>(null);
   /** Settings › Timeline › Show waveform. */
   const [showWave, setShowWave] = useState(true);
-  /** The waveform once it's made; keyed by the source. */
-  const [wave, setWave] = useState<{ source: string; url: string } | null>(null);
-  /** The thumbnails as they're made; keyed by the source. */
-  const [thumbs, setThumbs] = useState<{ source: string; thumbs: ThumbsInfo } | null>(null);
-  const player = useMemo(
-    () => source && new Player(source.frames, source.rateNum / source.rateDen, source.framesUrl),
-    [source],
-  );
+  /** Each file's waveform once it's made, by its id. */
+  const [waves, setWaves] = useState<Record<string, string>>({});
+  /** Each file's thumbnails as they're made, by its id. */
+  const [thumbs, setThumbs] = useState<Record<string, ThumbsInfo>>({});
+  // The player plays at the first file's rate; a new first file is a new player.
+  const sourceId = source?.id;
+  const fps = source ? source.rateNum / source.rateDen : 0;
+  const player = useMemo(() => (sourceId ? new Player(fps) : null), [sourceId, fps]);
 
   useEffect(() => {
     if (!player) return;
@@ -188,15 +193,26 @@ export function EditorApp() {
     return () => player.close();
   }, [player]);
 
-  // A new source starts a new edit: the whole of it, one clip. (The same source converted to
-  // play here keeps its edit.)
-  const sourceId = source?.id;
+  // Each file is a deck of the player's.
+  useEffect(() => {
+    sources.forEach((s) => player?.addSource(s.id, s.framesUrl));
+  }, [player, sources]);
+
+  // A new first file starts a new edit: the whole of it, one clip (and, the page reloaded, the
+  // others after it). The same file converted to play here keeps its edit.
+  const latest = useRef(sources);
+  useEffect(() => {
+    latest.current = sources;
+  }, [sources]);
   const sourceFrames = source?.frames ?? 0;
   const sourceWidth = source?.width ?? 0;
   const sourceHeight = source?.height ?? 0;
   useEffect(() => {
     if (!sourceId) return;
-    useDoc.getState().load(sourceFrames, { width: sourceWidth, height: sourceHeight });
+    const doc = useDoc.getState();
+    doc.load(sourceFrames, { width: sourceWidth, height: sourceHeight }, sourceId);
+    for (const s of latest.current.slice(1)) doc.addSource(s.id, s.frames);
+    useDoc.setState({ past: [], future: [] });
     useTool.getState().setTool("select");
     // A portrait video's crop ratios start turned (9:16).
     useTool.getState().setPortrait(sourceHeight > sourceWidth);
@@ -235,13 +251,22 @@ export function EditorApp() {
     void Promise.all([
       // Rust's f64s arrive typed `number | null` (see ipc.ts): `SourceInfo` is what's sent.
       events.sourceOpened.listen(({ payload }) => {
-        setSource(payload as SourceInfo);
+        setSources([payload as SourceInfo]);
         setNotice(null);
         setConverting(null);
       }),
-      // The same source, now playing from a converted copy.
+      // One more file, on the end of the timeline (one undo step).
+      events.sourceAdded.listen(({ payload }) => {
+        const added = payload as SourceInfo;
+        setSources((now) => [...now, added]);
+        useDoc.getState().addSource(added.id, added.frames);
+        setNotice({ text: `Added ${added.name} to the end of the timeline.` });
+        setConverting(null);
+      }),
+      // A file, now playing from a converted copy.
       events.sourceConverted.listen(({ payload }) => {
-        setSource(payload as SourceInfo);
+        const converted = payload as SourceInfo;
+        setSources((now) => now.map((s) => (s.id === converted.id ? converted : s)));
         setNotice(null);
         setConverting(null);
       }),
@@ -283,11 +308,17 @@ export function EditorApp() {
       }),
       events.proxyProgress.listen(({ payload }) => {
         const done = payload.done ?? 0;
-        setProxy((p) => (p?.url && p.source === payload.source ? p : { ...payload, done }));
+        setProxies((p) => (p[payload.source]?.url ? p : { ...p, [payload.source]: { done } }));
       }),
-      events.proxyReady.listen(({ payload }) => setProxy(payload)),
-      events.thumbsUpdate.listen(({ payload }) => setThumbs(payload)),
-      events.waveReady.listen(({ payload }) => setWave(payload)),
+      events.proxyReady.listen(({ payload }) =>
+        setProxies((p) => ({ ...p, [payload.source]: { url: payload.url } })),
+      ),
+      events.thumbsUpdate.listen(({ payload }) =>
+        setThumbs((t) => ({ ...t, [payload.source]: payload.thumbs })),
+      ),
+      events.waveReady.listen(({ payload }) =>
+        setWaves((w) => ({ ...w, [payload.source]: payload.url })),
+      ),
       events.checkFrames.listen(({ payload }) => setCheckFor(payload)),
       events.settingsChanged.listen(({ payload }) => {
         setShowThumbs(thumbsOn(payload as Settings));
@@ -297,10 +328,19 @@ export function EditorApp() {
       }),
       // Proxies turned off mid-way: the progress goes.
       events.proxyStopped.listen(({ payload }) =>
-        setProxy((p) => (p?.source === payload.source && !p.url ? null : p)),
+        setProxies((p) => {
+          if (p[payload.source]?.url) return p;
+          const rest = { ...p };
+          delete rest[payload.source];
+          return rest;
+        }),
       ),
       events.proxyFailed.listen(({ payload }) => {
-        setProxy(null);
+        setProxies((p) => {
+          const rest = { ...p };
+          delete rest[payload.source];
+          return rest;
+        });
         setNotice({ text: payload.message, error: true });
       }),
     ])
@@ -322,7 +362,7 @@ export function EditorApp() {
         return commands.editorReady();
       })
       .then((open) => {
-        if (open && !gone) setSource(open as SourceInfo);
+        if (open?.length && !gone) setSources(open as SourceInfo[]);
       });
     return () => {
       gone = true;
@@ -382,6 +422,12 @@ export function EditorApp() {
         if (pasting()) e.preventDefault();
         return;
       }
+      // Ctrl+Shift+O: Add Video.
+      if (e.shiftKey && e.code === "KeyO") {
+        e.preventDefault();
+        addVideo();
+        return;
+      }
       if (e.shiftKey) return;
       // Ctrl+D duplicates the selected clip, Ctrl+C / Ctrl+V copy it and paste it at the cut
       // nearest the playhead, or copy the selected markup and paste it at the playhead (the
@@ -413,7 +459,7 @@ export function EditorApp() {
         else doc.undo();
       } else if (e.code === "KeyE") {
         e.preventDefault();
-        if (useDoc.getState().doc.sourceFrames > 0) exportTimeline("mp4");
+        if (total(useDoc.getState().doc) > 0) exportTimeline("mp4");
       } else if (e.code === "KeyO") {
         e.preventDefault();
         openVideo();
@@ -459,10 +505,25 @@ export function EditorApp() {
   }, []);
 
   const empty = source === null;
-  const mine = source && proxy?.source === source.id ? proxy : null;
-  const sourceThumbs = (source && thumbs?.source === source.id && thumbs.thumbs) || source?.thumbs;
-  const sourceWave = source?.waveUrl ?? (wave && wave.source === source?.id ? wave.url : null);
-  const proxyUrl = source?.proxyUrl ?? mine?.url ?? null;
+  // Each file's proxy, thumbnails and waveform: as it opened, or as they've come since.
+  const proxyUrls = Object.fromEntries(
+    sources.map((s) => [s.id, s.proxyUrl ?? proxies[s.id]?.url ?? null]),
+  );
+  const fileThumbs: Record<string, ThumbsInfo> = {};
+  const fileWaves: Record<string, string> = {};
+  for (const s of sources) {
+    const t = thumbs[s.id] ?? s.thumbs;
+    if (t && showThumbs) fileThumbs[s.id] = t;
+    const w = s.waveUrl ?? waves[s.id];
+    if (w && showWave) fileWaves[s.id] = w;
+  }
+  // The first file whose proxy is being made, for the status bar.
+  const making =
+    sources
+      .filter((s) => !proxyUrls[s.id] && proxies[s.id])
+      .map((s) => ({
+        text: `Preparing fast stepping${sources.length > 1 ? ` for ${s.name}` : ""}… ${Math.floor((proxies[s.id].done ?? 0) * 100)}%`,
+      }))[0] ?? null;
   // A conversion's progress, with Cancel, comes first; then the proxy's until it's ready, unless
   // there's something to say.
   const exportNotice: Notice | null = exporting && {
@@ -481,10 +542,6 @@ export function EditorApp() {
       },
     },
   };
-  const making =
-    mine && !proxyUrl
-      ? { text: `Preparing fast stepping… ${Math.floor((mine.done ?? 0) * 100)}%` }
-      : null;
   return (
     <div className={styles.app}>
       <CommandBar
@@ -493,20 +550,21 @@ export function EditorApp() {
         exporting={exporting !== null}
         settings={settings}
         onOpen={openVideo}
+        onAdd={addVideo}
       />
       <FrameOptions source={source} settings={settings} />
       <div className={styles.preview}>
         {source ? (
           <Preview
-            source={source}
+            sources={sources}
             player={player!}
-            proxyUrl={proxyUrl}
+            proxyUrls={proxyUrls}
             onError={(text) => setNotice({ text, error: true })}
-            onUnplayable={() => {
-              if (convertAsked.current === source.url) return;
-              convertAsked.current = source.url;
-              setConverting({ name: source.name, done: 0 });
-              void commands.convertForPreview(source.url);
+            onUnplayable={(s) => {
+              if (convertAsked.current === s.url) return;
+              convertAsked.current = s.url;
+              setConverting({ name: s.name, done: 0 });
+              void commands.convertForPreview(s.url);
             }}
           />
         ) : (
@@ -525,10 +583,11 @@ export function EditorApp() {
         {source && player && (
           <Timeline
             source={source}
+            sources={sources}
             player={player}
             inFrames={inFrames}
-            thumbs={(showThumbs && sourceThumbs) || null}
-            waveUrl={(showWave && sourceWave) || null}
+            thumbs={fileThumbs}
+            waves={fileWaves}
           />
         )}
       </div>

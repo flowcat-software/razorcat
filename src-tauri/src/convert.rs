@@ -88,10 +88,10 @@ fn cached(app: &AppHandle, path: &Path) -> Option<PathBuf> {
 pub fn for_preview(app: &AppHandle, url: String) {
     let open = {
         let state = app.state::<AppState>();
-        let source = state.source.lock().unwrap();
+        let source = state.sources.lock().unwrap();
         source
-            .as_ref()
-            .filter(|s| s.info().url == url)
+            .iter()
+            .find(|s| s.info().url == url)
             .map(|s| (s.generation, s.path.clone()))
     };
     let Some((generation, path)) = open else {
@@ -107,8 +107,8 @@ pub fn for_preview(app: &AppHandle, url: String) {
             return;
         };
         let state = app.state::<AppState>();
-        let mut source = state.source.lock().unwrap();
-        if let Some(s) = source.as_mut().filter(|s| s.generation == generation) {
+        let mut source = state.sources.lock().unwrap();
+        if let Some(s) = source.iter_mut().find(|s| s.generation == generation) {
             s.playable = Some(copy);
             let info = s.info();
             drop(source);

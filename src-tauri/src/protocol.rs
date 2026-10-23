@@ -113,15 +113,12 @@ pub fn handle<R: Runtime>(
             }
             Some(route @ (Route::Source(_) | Route::Playable(_) | Route::Proxy(_))) => {
                 let file = {
-                    let source = state.source.lock().unwrap();
-                    match (source.as_ref(), route) {
-                        (Some(s), Route::Source(asked)) if s.generation == asked => {
-                            Some(s.path.clone())
-                        }
-                        (Some(s), Route::Playable(asked)) if s.generation == asked => {
-                            s.playable.clone()
-                        }
-                        (Some(s), Route::Proxy(asked)) if s.generation == asked => s.proxy.clone(),
+                    let sources = state.sources.lock().unwrap();
+                    let find = |asked| sources.iter().find(|s| s.generation == asked);
+                    match route {
+                        Route::Source(asked) => find(asked).map(|s| s.path.clone()),
+                        Route::Playable(asked) => find(asked).and_then(|s| s.playable.clone()),
+                        Route::Proxy(asked) => find(asked).and_then(|s| s.proxy.clone()),
                         _ => None,
                     }
                 };
@@ -135,10 +132,10 @@ pub fn handle<R: Runtime>(
             }
             Some(Route::Frames(asked)) => {
                 let times = {
-                    let source = state.source.lock().unwrap();
-                    source
-                        .as_ref()
-                        .filter(|s| s.generation == asked)
+                    let sources = state.sources.lock().unwrap();
+                    sources
+                        .iter()
+                        .find(|s| s.generation == asked)
                         .map(|s| grid::times(&s.info.video, &s.grid))
                 };
                 match times {
@@ -148,10 +145,10 @@ pub fn handle<R: Runtime>(
             }
             Some(Route::Thumbs(asked, from)) => {
                 let thumbs = {
-                    let source = state.source.lock().unwrap();
-                    source
-                        .as_ref()
-                        .filter(|s| s.generation == asked)
+                    let sources = state.sources.lock().unwrap();
+                    sources
+                        .iter()
+                        .find(|s| s.generation == asked)
                         .and_then(|s| s.thumbs.as_ref())
                         .map(|t| (t.file.clone(), t.size()))
                 };
@@ -168,10 +165,10 @@ pub fn handle<R: Runtime>(
             }
             Some(Route::Wave(asked)) => {
                 let file = {
-                    let source = state.source.lock().unwrap();
-                    source
-                        .as_ref()
-                        .filter(|s| s.generation == asked)
+                    let sources = state.sources.lock().unwrap();
+                    sources
+                        .iter()
+                        .find(|s| s.generation == asked)
                         .and_then(|s| s.wave.as_ref())
                         .filter(|w| w.ready)
                         .map(|w| w.file.clone())

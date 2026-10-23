@@ -142,9 +142,9 @@ describe("keep and remove", () => {
   it("remove cuts the ranges out (ripple)", () => {
     const out = removeRanges(doc);
     expect(out.clips).toEqual([
-      { id: 1, in: 0, out: 100 },
-      { id: 3, in: 200, out: 350 },
-      { id: 2, in: 500, out: 1000 },
+      { id: 1, source: "source", in: 0, out: 100 },
+      { id: 3, source: "source", in: 200, out: 350 },
+      { id: 2, source: "source", in: 500, out: 1000 },
     ]);
     expect(total(out)).toBe(750);
     expect(out.ranges).toEqual([]);
@@ -153,9 +153,9 @@ describe("keep and remove", () => {
   it("keep cuts everything else out", () => {
     const out = keepRanges(doc);
     expect(out.clips).toEqual([
-      { id: 1, in: 100, out: 200 },
-      { id: 3, in: 350, out: 400 },
-      { id: 2, in: 400, out: 500 },
+      { id: 1, source: "source", in: 100, out: 200 },
+      { id: 3, source: "source", in: 350, out: 400 },
+      { id: 2, source: "source", in: 400, out: 500 },
     ]);
     expect(out.ranges).toEqual([]);
   });
