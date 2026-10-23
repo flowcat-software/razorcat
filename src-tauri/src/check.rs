@@ -42,16 +42,18 @@ pub struct CheckFrames {
     pub edit: bool,
 }
 
-/// A launch's arguments ask for a check (development builds only).
-pub fn requested(args: &[String]) {
+/// A launch's arguments ask for a check (development builds only): true if they do.
+pub fn requested(args: &[String]) -> bool {
     if !cfg!(debug_assertions) {
-        return;
+        return false;
     }
     let edit = args.iter().any(|a| a == "--check-edit");
-    if edit || args.iter().any(|a| a == "--check-frames") {
+    let asked = edit || args.iter().any(|a| a == "--check-frames");
+    if asked {
         PENDING.store(true, Ordering::Relaxed);
         EDITED.store(edit, Ordering::Relaxed);
     }
+    asked
 }
 
 /// A source was opened: the page checks it, if that was asked for.

@@ -33,6 +33,9 @@ pub struct EditorState {
     normal: Option<Placement>,
     /// It was maximized when it last closed: it shows maximized.
     show_maximized: bool,
+    /// A file dropped (or launched with) while the timeline has files: the page asks whether
+    /// to add it or replace them (`answer_offer`).
+    offered: Option<PathBuf>,
 }
 
 /// Rust → editor: a file was opened (it replaces the timeline's files).
@@ -42,6 +45,14 @@ pub struct SourceOpened(pub SourceInfo);
 /// Rust → editor: a file was added to the timeline's (PLAN 4.5e): it goes on the end.
 #[derive(Clone, Serialize, Type, Event)]
 pub struct SourceAdded(pub SourceInfo);
+
+/// Rust → editor: a file was dropped on the window (or launched with) while the timeline has
+/// files: ask whether to add it or replace them, then `answer_offer` (PLAN 4.5e3).
+#[derive(Clone, Serialize, Type, Event)]
+pub struct OpenOffered {
+    /// Its file name.
+    pub name: String,
+}
 
 /// Rust → editor: the open source plays from a converted copy now (its codec): the same
 /// source, at a new URL.
@@ -247,6 +258,39 @@ fn show(app: &AppHandle, path: PathBuf, mut opened: Source, add: bool) {
         crate::proxy::make(app, generation, path, input, rate, frames);
     } else {
         crate::thumbs::start(app, generation);
+    }
+}
+
+/// A file dropped on the window, or a launch's: opened if the timeline is empty, else offered
+/// (the page asks whether to add it or replace the timeline's files).
+pub fn offer(app: &AppHandle, path: PathBuf) {
+    let empty = {
+        let state = app.state::<AppState>();
+        let sources = state.sources.lock().unwrap();
+        sources.is_empty()
+    };
+    let ready = app.state::<AppState>().editor.lock().unwrap().ready;
+    if empty || !ready {
+        request_open(app, path, false);
+        return;
+    }
+    let name = source::file_name(&path);
+    app.state::<AppState>().editor.lock().unwrap().offered = Some(path);
+    let _ = OpenOffered { name }.emit_to(app, LABEL);
+}
+
+/// The page's answer to [`OpenOffered`]: add the file, replace the timeline's with it (`add`
+/// false), or neither (`None`).
+pub fn answer_offer(app: &AppHandle, add: Option<bool>) {
+    let offered = app
+        .state::<AppState>()
+        .editor
+        .lock()
+        .unwrap()
+        .offered
+        .take();
+    if let (Some(path), Some(add)) = (offered, add) {
+        request_open(app, path, add);
     }
 }
 

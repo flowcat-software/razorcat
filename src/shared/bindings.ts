@@ -20,6 +20,11 @@ export const commands = {
 	 */
 	openDialog: (add: boolean) => __TAURI_INVOKE<void>("open_dialog", { add }),
 	/**
+	 *  The answer to [`editor::OpenOffered`]: add the dropped file (true), replace the timeline's
+	 *  files with it (false), or neither (null).
+	 */
+	answerOffer: (add: boolean | null) => __TAURI_INVOKE<void>("answer_offer", { add }),
+	/**
 	 *  The Windows accent color, if Windows has one. Async, so it's read on a worker thread: as a
 	 *  plain command it ran on the main thread, WinRT and a COM init amid the window's start-up, the
 	 *  suspect in a rare start-up crash (0xc0000005, always right where this ran).
@@ -121,6 +126,7 @@ export const events = {
 	exportEnded: makeEvent<ExportEnded>("export-ended"),
 	exportProgress: makeEvent<ExportProgress>("export-progress"),
 	openFailed: makeEvent<OpenFailed>("open-failed"),
+	openOffered: makeEvent<OpenOffered>("open-offered"),
 	proxyFailed: makeEvent<ProxyFailed>("proxy-failed"),
 	proxyProgress: makeEvent<ProxyProgress>("proxy-progress"),
 	proxyReady: makeEvent<ProxyReady>("proxy-ready"),
@@ -394,6 +400,15 @@ export type NumberPicker = { control: "slider"; min: number | null; max: number 
 export type OpenFailed = {
 	/**  A sentence for the user. */
 	message: string,
+};
+
+/**
+ *  Rust → editor: a file was dropped on the window (or launched with) while the timeline has
+ *  files: ask whether to add it or replace them, then `answer_offer` (PLAN 4.5e3).
+ */
+export type OpenOffered = {
+	/**  Its file name. */
+	name: string,
 };
 
 /**

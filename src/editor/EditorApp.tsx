@@ -3,6 +3,7 @@ import { annotationId, docStore as markupDoc } from "../markup/model/store";
 import { startToolStylesSync } from "../markup/toolStylesSync";
 import { useMarkupKeys } from "../markup/useMarkupKeys";
 import { applyStyleSettings, loadFonts } from "../markup/useStyleSettings";
+import { ConfirmDialog } from "../settings/controls/ConfirmDialog";
 import { isTyping } from "../shared/dom";
 import { commands, events, type Settings, type SourceInfo, type ThumbsInfo } from "../shared/ipc";
 import { CommandBar } from "./CommandBar";
@@ -42,6 +43,8 @@ import { useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
 const openVideo = () => void commands.openDialog(false);
+/** The timeline has edits (that undo could take back): replacing it would lose them. */
+const edited = () => useDoc.getState().past.length > 0;
 /** Add Video (Ctrl+Shift+O): a file on the end of the timeline (PLAN 4.5e). */
 const addVideo = () => void commands.openDialog(true);
 
@@ -158,6 +161,13 @@ export function EditorApp() {
   /** A file has sound, for M and Shift+M to mute. */
   const audio = sources.some((s) => s.audioTracks > 0);
   const [notice, setNotice] = useState<Notice | null>(null);
+  /**
+   * A question before the timeline is replaced (PLAN 4.5e3): Open with edits on it, or a file
+   * dropped on it (add or replace).
+   */
+  const [asking, setAsking] = useState<{ open: true } | { offered: string } | null>(null);
+  /** Open (the button, Ctrl+O): with edits, asks first. */
+  const replace = () => (edited() ? setAsking({ open: true }) : openVideo());
   /** Time as frame numbers, not timecode: the readout and the ruler (a click on the readout). */
   const [inFrames, setInFrames] = useState(false);
   /** The timeline's height, the resizer above it dragged (its own, to start). */
@@ -255,6 +265,8 @@ export function EditorApp() {
         setNotice(null);
         setConverting(null);
       }),
+      // A file dropped while the timeline has files: add it, or replace them?
+      events.openOffered.listen(({ payload }) => setAsking({ offered: payload.name })),
       // One more file, on the end of the timeline (one undo step).
       events.sourceAdded.listen(({ payload }) => {
         const added = payload as SourceInfo;
@@ -462,7 +474,8 @@ export function EditorApp() {
         if (total(useDoc.getState().doc) > 0) exportTimeline("mp4");
       } else if (e.code === "KeyO") {
         e.preventDefault();
-        openVideo();
+        if (edited()) setAsking({ open: true });
+        else openVideo();
       } else if (e.code === "Comma") {
         e.preventDefault();
         void commands.openSettings(null);
@@ -549,7 +562,7 @@ export function EditorApp() {
         audio={audio}
         exporting={exporting !== null}
         settings={settings}
-        onOpen={openVideo}
+        onOpen={replace}
         onAdd={addVideo}
       />
       <FrameOptions source={source} settings={settings} />
@@ -592,6 +605,46 @@ export function EditorApp() {
         )}
       </div>
       <StatusBar notice={exportNotice ?? conversion ?? notice ?? making} empty={empty} />
+      {asking && "open" in asking && (
+        <ConfirmDialog
+          title="Replace the timeline?"
+          confirm="Replace"
+          onConfirm={() => {
+            setAsking(null);
+            openVideo();
+          }}
+          onCancel={() => setAsking(null)}
+        >
+          <p>Opening a video replaces the timeline, and its edits are lost.</p>
+          <p>To put another video after these, use Add Video (Ctrl+Shift+O).</p>
+        </ConfirmDialog>
+      )}
+      {asking && "offered" in asking && (
+        <ConfirmDialog
+          title="Add to the timeline, or replace it?"
+          confirm="Add"
+          onConfirm={() => {
+            setAsking(null);
+            void commands.answerOffer(true);
+          }}
+          onCancel={() => {
+            setAsking(null);
+            void commands.answerOffer(null);
+          }}
+          other={{
+            label: "Replace",
+            onClick: () => {
+              setAsking(null);
+              void commands.answerOffer(false);
+            },
+          }}
+        >
+          <p>
+            Add {asking.offered} after the clips on the timeline, or replace the timeline with it.
+          </p>
+          {edited() && <p>Replacing loses the timeline&apos;s edits.</p>}
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

@@ -36,6 +36,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .commands(collect_commands![
             commands::editor_ready,
             commands::open_dialog,
+            commands::answer_offer,
             commands::windows_accent,
             commands::get_settings,
             commands::update_settings,
@@ -66,6 +67,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .events(collect_events![
             editor::SourceOpened,
             editor::SourceAdded,
+            editor::OpenOffered,
             editor::OpenFailed,
             editor::SourceConverted,
             convert::ConvertProgress,
@@ -117,10 +119,15 @@ pub(crate) fn product_name(app: &AppHandle) -> String {
 
 /// Opens the file a launch was given. The MVP edits one source: of several, the first wins.
 fn open_from_args(app: &AppHandle, args: &[String], cwd: &Path) {
-    check::requested(args);
+    let checking = check::requested(args);
     let mut files = cli::file_paths(args, cwd).into_iter();
     if let Some(file) = files.next() {
-        editor::request_open(app, file, false);
+        // A check replaces the timeline without asking.
+        if checking {
+            editor::request_open(app, file, false);
+        } else {
+            editor::offer(app, file);
+        }
     }
     for extra in files {
         eprintln!("[startup] one file at a time; ignored {}", extra.display());
@@ -168,7 +175,7 @@ pub fn run() {
             match event {
                 tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
                     if let Some(path) = paths.first() {
-                        editor::request_open(app, path.clone(), false);
+                        editor::offer(app, path.clone());
                     }
                 }
                 tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
