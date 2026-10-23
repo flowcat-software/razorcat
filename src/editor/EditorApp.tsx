@@ -62,6 +62,8 @@ const rangeOptions = (s: Settings) =>
     fadeCuts: s.timeline.fadeSplitMarkup,
     defaultFade: s.timeline.defaultMarkupFade,
     copyFades: s.timeline.copiesKeepFades,
+    defaultClipFade: s.timeline.defaultClipFade,
+    fadeClipCuts: s.timeline.fadeSplitClips,
   });
 
 /** The settings the editor's stores keep (ranges, number fields, the markup's styles). */
@@ -447,7 +449,7 @@ export function EditorApp() {
         return;
       }
       // Ctrl+Shift+V, F and T: the copied markup's style, fades or timing onto the selected
-      // markup.
+      // markup (fades: a copied clip's too, and onto selected clips).
       const pasting = { KeyV: pasteStyle, KeyF: pasteFades, KeyT: pasteTiming }[e.code];
       if (e.shiftKey && pasting && !isTyping(e.target)) {
         if (pasting()) e.preventDefault();

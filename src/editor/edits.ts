@@ -244,12 +244,28 @@ function pasteMarks(marks: readonly MarkCopy[], at: number): boolean {
   return ids.length > 0;
 }
 
-/** Ctrl+Shift+F: the copied markup's fades (its first item's) onto the selected markup. */
+/**
+ * The fades Paste Fades takes: the copied markup's (its first item's), or the copied clips' (the
+ * first's, fitted to it; PLAN 4.7a). Null with nothing copied.
+ */
+export function copiedFades(): { fadeIn: number; fadeOut: number } | null {
+  if (!copied) return null;
+  if ("marks" in copied) return copied.marks[0] ?? null;
+  const [clip] = copied.clips;
+  return clip ? markFades(clip, clip.out - clip.in) : null;
+}
+
+/**
+ * Ctrl+Shift+F: the copied fades (`copiedFades`, a clip's or markup's) onto the selected markup,
+ * or the selected clips.
+ */
 export function pasteFades(): boolean {
-  const marks = copiedMarks();
-  const { selectedMarks, setFades } = useDoc.getState();
-  if (!marks || !selectedMarks.length) return false;
-  setFades(selectedMarks, marks[0].fadeIn, marks[0].fadeOut);
+  const fades = copiedFades();
+  const { selectedMarks, selectedClips, setFades, setClipsFades } = useDoc.getState();
+  if (!fades) return false;
+  if (selectedMarks.length) setFades(selectedMarks, fades.fadeIn, fades.fadeOut);
+  else if (selectedClips.length) setClipsFades(selectedClips, fades.fadeIn, fades.fadeOut);
+  else return false;
   return true;
 }
 

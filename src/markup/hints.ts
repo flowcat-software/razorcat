@@ -144,6 +144,10 @@ export const CONTROL_HINTS = {
     "Drag right to fade in for longer · several selected fade together, [Shift] all as long",
   "timeline.fadeOut":
     "Drag left to fade out for longer · several selected fade together, [Shift] all as long",
+  "timeline.clipFadeIn":
+    "Drag right to fade the clip in from black for longer · several selected fade together, [Shift] all as long · Right-click for the default fade",
+  "timeline.clipFadeOut":
+    "Drag left to fade the clip out to black for longer · several selected fade together, [Shift] all as long · Right-click for the default fade",
   "timeline.speaker": "[Shift+M] Mute or unmute all the sound · [M] the selected clips",
   "timeline.lanes":
     "Drag to select markup, or clips from their row · [Ctrl] or [Shift] keeps the selection · Right-click to clean up the lanes",
@@ -300,7 +304,7 @@ export const WHY = {
   "copy.none": "Select clips or markup to copy them",
   "paste.none": "Nothing copied yet · [Ctrl+C] copies the selected clips or markup",
   "pasteOnto.none":
-    "Copy markup first ([Ctrl+C]), then select the markup to paste its style, fades or timing onto",
+    "Copy markup first ([Ctrl+C]), then select the markup to paste its style, fades or timing onto · fades: a clip's too, onto clips",
   "order.none": "Select a clip or markup to move it",
   "order.end": "It's as far as it goes",
   "export.none": "Open a video first",

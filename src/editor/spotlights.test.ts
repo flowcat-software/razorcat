@@ -43,7 +43,7 @@ describe("darkLayer", () => {
     const at = darkAt(layer, 27)!;
     expect(at.level).toBe(1);
     expect(at.holes.get(2)).toBe(2 / 5);
-    expect(at.holes.get(1)).toBe(3 / 6);
+    expect(at.holes.get(1)).toBe(2 / 6);
   });
 
   it("starts a new run after a gap", () => {

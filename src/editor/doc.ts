@@ -24,6 +24,9 @@
 // length where they're used, so a trim that shortens it shortens them, and pulling the trim back
 // gives them back.
 //
+// A clip can fade in from black and out to black (PLAN 4.7a), its sound with it: kept and
+// fitted the same way, and the same ramps. Markup isn't faded with it.
+//
 // The frame (crop, and the space grown round it; frame.ts) is one for the whole project.
 
 import type { NewAnnotation } from "../markup/model/types";
@@ -52,6 +55,9 @@ export interface Clip {
   out: number;
   /** Silent, in the preview and the export. Its parts (a split, a copy) are too. */
   muted?: boolean;
+  /** How many frames it fades in from black over, and out to black over (none if not set). */
+  fadeIn?: number;
+  fadeOut?: number;
 }
 
 export type RangeId = number;
@@ -95,9 +101,10 @@ export interface Mark {
 
 /**
  * How opaque markup with `fades` (fitted to it), `length` frames long, is on its frame `u` (from
- * 0): fading in, u / fade-in, so its first frame is clear; fading out, (length − u) / fade-out,
- * so its last is one step from clear. The mockup's ramps, and ffmpeg's `fade` frame for frame,
- * so the preview and the export agree.
+ * 0): fading in, u / fade-in, so its first frame is clear; fading out, (length − 1 − u) /
+ * fade-out, so its last is clear too (Richard, 2026-10-23: the mockup's ramp stopped a step
+ * short, and the last frame wasn't quite gone). The export's `ramps` (export.rs) frame for
+ * frame, so the preview and the export agree.
  */
 export function markOpacity(
   fades: { fadeIn: number; fadeOut: number },
@@ -106,7 +113,7 @@ export function markOpacity(
 ): number {
   let a = 1;
   if (u < fades.fadeIn) a = u / fades.fadeIn;
-  if (u >= length - fades.fadeOut) a = Math.min(a, (length - u) / fades.fadeOut);
+  if (u >= length - fades.fadeOut) a = Math.min(a, (length - 1 - u) / fades.fadeOut);
   return Math.max(0, Math.min(1, a));
 }
 
@@ -117,6 +124,19 @@ export function markFades(
 ): { fadeIn: number; fadeOut: number } {
   const fadeIn = Math.max(0, Math.min(length, m.fadeIn ?? 0));
   return { fadeIn, fadeOut: Math.max(0, Math.min(length - fadeIn, m.fadeOut ?? 0)) };
+}
+
+/** Clip `c`'s fades, fitted to its length. */
+export const clipFades = (c: Clip) => markFades(c, clipLength(c));
+
+/**
+ * How much of the picture shows on timeline frame `f` (0 to 1): the fades of the clip under it,
+ * the ramps markup's are (`markOpacity`). 1 off the timeline.
+ */
+export function clipOpacityAt(doc: Doc, f: number): number {
+  const at = clipAt(doc, f);
+  if (!at) return 1;
+  return markOpacity(clipFades(at.clip), clipLength(at.clip), f - at.start);
 }
 
 /** What each kind of markup is called. */
@@ -255,18 +275,45 @@ export function editPoints(doc: Doc): number[] {
 }
 
 /**
+ * Clip `c` cut in two at source frame `at`: the part before keeps its fade-in, the part after
+ * its fade-out (and its id, `id`); at the cut, none, or with `fadeCuts` the fade the whole had
+ * at that end.
+ */
+function cutClip(c: Clip, at: number, id: ClipId, fadeCuts: boolean): [Clip, Clip] {
+  return [
+    withFades({ ...c, out: at }, c.fadeIn ?? 0, fadeCuts ? (c.fadeOut ?? 0) : 0),
+    withFades({ ...c, id, in: at }, fadeCuts ? (c.fadeIn ?? 0) : 0, c.fadeOut ?? 0),
+  ];
+}
+
+/** `c` fading over these (none left out). */
+function withFades(c: Clip, fadeIn: number, fadeOut: number): Clip {
+  const next = { ...c, ...fades(fadeIn, fadeOut) };
+  if (!next.fadeIn) delete next.fadeIn;
+  if (!next.fadeOut) delete next.fadeOut;
+  return next;
+}
+
+/**
  * Splits the clip under timeline frame `f` there: the second part is a new clip. Nothing to
  * split at a clip's first frame (it's already a cut) or past the end: the same document. With
  * `splitMarks`, markup over the cut is split there too, a part on each side: cut clean, or, with
- * `fadeCuts`, each part fading at the cut as the whole did at its ends.
+ * `fadeCuts`, each part fading at the cut as the whole did at its ends. The clip's own fades
+ * the same way, with `fadeClipCuts` (`cutClip`).
  */
-export function split(doc: Doc, f: number, splitMarks = true, fadeCuts = false): Doc {
+export function split(
+  doc: Doc,
+  f: number,
+  splitMarks = true,
+  fadeCuts = false,
+  fadeClipCuts = false,
+): Doc {
   const at = clipAt(doc, f);
   if (!at || f === at.start) return doc;
   if (splitMarks) doc = cutMarks(doc, f, f, fadeCuts);
   const cut = at.clip.in + (f - at.start);
   const clips = [...doc.clips];
-  clips.splice(at.index, 1, { ...at.clip, out: cut }, { ...at.clip, id: doc.nextId, in: cut });
+  clips.splice(at.index, 1, ...cutClip(at.clip, cut, doc.nextId, fadeClipCuts));
   const ranges = handOver(doc.ranges, at.clip.id, doc.nextId, cut);
   const marks = handMarksOver(doc.marks, at.clip.id, doc.nextId, cut);
   return { ...doc, clips, ranges, marks, nextId: doc.nextId + 1 };
@@ -388,6 +435,8 @@ export interface ClipCopy {
   in: number;
   out: number;
   muted?: boolean;
+  fadeIn?: number;
+  fadeOut?: number;
   /** The markup anchored to it. */
   marks: readonly Mark[];
 }
@@ -398,14 +447,21 @@ export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
   if (!clip) return null;
   const marks = doc.marks.filter((m) => m.clip === id);
   const { source, in: a, out: b, muted } = clip;
-  return { source, in: a, out: b, ...(muted && { muted: true }), marks };
+  return {
+    source,
+    in: a,
+    out: b,
+    ...(muted && { muted: true }),
+    ...fades(clip.fadeIn ?? 0, clip.fadeOut ?? 0),
+    marks,
+  };
 }
 
 /**
  * Inserts `copy` as a new clip at position `at` (clamped; the clips from there move along), with
- * copies of its markup (Richard, 2026-10-20).
+ * copies of its markup (Richard, 2026-10-20), and its fades if `keepFades`.
  */
-export function insertClip(doc: Doc, copy: ClipCopy, at: number): Doc {
+export function insertClip(doc: Doc, copy: ClipCopy, at: number, keepFades = true): Doc {
   const id = doc.nextId;
   const clips = [...doc.clips];
   const clip = {
@@ -414,6 +470,7 @@ export function insertClip(doc: Doc, copy: ClipCopy, at: number): Doc {
     in: copy.in,
     out: copy.out,
     ...(copy.muted && { muted: true }),
+    ...(keepFades && fades(copy.fadeIn ?? 0, copy.fadeOut ?? 0)),
   };
   clips.splice(Math.max(0, Math.min(clips.length, at)), 0, clip);
   let nextMarkId = doc.nextMarkId;
@@ -422,8 +479,13 @@ export function insertClip(doc: Doc, copy: ClipCopy, at: number): Doc {
 }
 
 /** Inserts `copies` as new clips from position `at` on, in order (`insertClip` each). */
-export function insertClips(doc: Doc, copies: readonly ClipCopy[], at: number): Doc {
-  return copies.reduce((d, copy, k) => insertClip(d, copy, at + k), doc);
+export function insertClips(
+  doc: Doc,
+  copies: readonly ClipCopy[],
+  at: number,
+  keepFades = true,
+): Doc {
+  return copies.reduce((d, copy, k) => insertClip(d, copy, at + k, keepFades), doc);
 }
 
 /** Clips `ids` in timeline order, as copies (`copyClip`). */
@@ -435,11 +497,11 @@ export function copyClips(doc: Doc, ids: readonly ClipId[]): ClipCopy[] {
  * Ctrl+D with several selected: copies of clips `ids`, in timeline order, straight after the last
  * of them. The same document if there are none.
  */
-export function duplicateClips(doc: Doc, ids: readonly ClipId[]): Doc {
+export function duplicateClips(doc: Doc, ids: readonly ClipId[], keepFades = true): Doc {
   const copies = copyClips(doc, ids);
   if (!copies.length) return doc;
   const last = Math.max(...doc.clips.flatMap((c, i) => (ids.includes(c.id) ? [i] : [])));
-  return insertClips(doc, copies, last + 1);
+  return insertClips(doc, copies, last + 1, keepFades);
 }
 
 /** Mutes clips `ids`, or unmutes them. */
@@ -452,9 +514,75 @@ export function muteClip(doc: Doc, id: ClipId, muted: boolean): Doc {
   const index = doc.clips.findIndex((c) => c.id === id);
   if (index < 0 || !!doc.clips[index].muted === muted) return doc;
   const clips = [...doc.clips];
-  const { id: clipId, source, in: a, out: b } = clips[index];
-  clips[index] = { id: clipId, source, in: a, out: b, ...(muted && { muted }) };
+  const next: Clip = { ...clips[index] };
+  if (muted) next.muted = true;
+  else delete next.muted;
+  clips[index] = next;
   return { ...doc, clips };
+}
+
+/**
+ * Clip `id` fades in over `fadeIn` frames, or out over `fadeOut` (whichever is given), kept to
+ * whole frames and to what its length leaves after the other, as markup's (`setMarkFades`). The
+ * same document if nothing changes.
+ */
+export function setClipFades(
+  doc: Doc,
+  id: ClipId,
+  set: { fadeIn: number } | { fadeOut: number },
+): Doc {
+  const index = doc.clips.findIndex((c) => c.id === id);
+  if (index < 0) return doc;
+  const old = doc.clips[index];
+  const length = clipLength(old);
+  const now = clipFades(old);
+  const fit = (v: number, other: number) => Math.max(0, Math.min(length - other, Math.round(v)));
+  const next =
+    "fadeIn" in set
+      ? { fadeIn: fit(set.fadeIn, now.fadeOut), fadeOut: now.fadeOut }
+      : { fadeIn: now.fadeIn, fadeOut: fit(set.fadeOut, now.fadeIn) };
+  if (next.fadeIn === now.fadeIn && next.fadeOut === now.fadeOut) return doc;
+  const clips = [...doc.clips];
+  clips[index] = withFades(old, next.fadeIn, next.fadeOut);
+  return { ...doc, clips };
+}
+
+/**
+ * Clips `ids` given a fade of `frames` (the default clip fade; 0 removes it) at their start,
+ * end or both, as markup's (`fadeEnds`).
+ */
+export function fadeClipEnds(
+  doc: Doc,
+  ids: readonly ClipId[],
+  frames: number,
+  ends: "both" | "in" | "out",
+): Doc {
+  return doc.clips
+    .filter((c) => ids.includes(c.id))
+    .reduce((d, c) => {
+      if (ends === "in") return setClipFades(d, c.id, { fadeIn: frames });
+      if (ends === "out") return setClipFades(d, c.id, { fadeOut: frames });
+      const half = Math.floor(clipLength(c) / 2);
+      const cleared = setClipFades(d, c.id, { fadeOut: 0 });
+      const faded = setClipFades(cleared, c.id, { fadeIn: Math.min(frames, half) });
+      return setClipFades(faded, c.id, { fadeOut: frames });
+    }, doc);
+}
+
+/** Clips `ids` fading in over `fadeIn` frames and out over `fadeOut` (Paste Fades), as markup's. */
+export function setClipsFades(
+  doc: Doc,
+  ids: readonly ClipId[],
+  fadeIn: number,
+  fadeOut: number,
+): Doc {
+  return ids.reduce(
+    (d, id) =>
+      setClipFades(setClipFades(setClipFades(d, id, { fadeOut: 0 }), id, { fadeIn }), id, {
+        fadeOut,
+      }),
+    doc,
+  );
 }
 
 /** Mutes all the sound, or unmutes it. The same document if nothing changes. */
@@ -463,10 +591,10 @@ export function muteTrack(doc: Doc, muted: boolean): Doc {
 }
 
 /** Ctrl+D: a copy of clip `id` straight after it. The same document if there's no such clip. */
-export function duplicateClip(doc: Doc, id: ClipId): Doc {
+export function duplicateClip(doc: Doc, id: ClipId, keepFades = true): Doc {
   const copy = copyClip(doc, id);
   if (!copy) return doc;
-  return insertClip(doc, copy, doc.clips.findIndex((c) => c.id === id) + 1);
+  return insertClip(doc, copy, doc.clips.findIndex((c) => c.id === id) + 1, keepFades);
 }
 
 /**
@@ -691,7 +819,13 @@ export function keepRangesInPlace(before: Doc, after: Doc): Doc {
  * Cuts timeline stretches out of the clips (ripple), and clears the ranges. A clip cut in its
  * middle becomes two: the second part a new clip. Nothing left at all: the same document.
  */
-function cutOut(doc: Doc, places: readonly Place[], splitMarks: boolean, fadeCuts: boolean): Doc {
+function cutOut(
+  doc: Doc,
+  places: readonly Place[],
+  splitMarks: boolean,
+  fadeCuts: boolean,
+  fadeClipCuts: boolean,
+): Doc {
   let nextId = doc.nextId;
   let clips: readonly Clip[] = doc.clips;
   let marks = doc.marks;
@@ -710,15 +844,15 @@ function cutOut(doc: Doc, places: readonly Place[], splitMarks: boolean, fadeCut
         out.push(c);
         return;
       }
-      if (a > s) out.push({ ...c, out: c.in + (a - s) });
-      if (b < e) {
-        if (a > s) {
-          // Cut in its middle: the markup after the cut goes with the second part.
-          const cut = c.in + (b - s);
-          marks = handMarksOver(marks, c.id, nextId, cut);
-          out.push({ ...c, id: nextId++, in: cut });
-        } else out.push({ ...c, in: c.in + (b - s) });
-      }
+      if (a > s && b < e) {
+        // Cut out of its middle: two parts (`cutClip`), the markup after the cut going with
+        // the second.
+        const cut = c.in + (b - s);
+        const [left, right] = cutClip(c, cut, nextId, fadeClipCuts);
+        marks = handMarksOver(marks, c.id, nextId++, cut);
+        out.push({ ...left, out: c.in + (a - s) }, right);
+      } else if (a > s) out.push({ ...c, out: c.in + (a - s) });
+      else if (b < e) out.push({ ...c, in: c.in + (b - s) });
     });
     clips = out;
   }
@@ -728,15 +862,26 @@ function cutOut(doc: Doc, places: readonly Place[], splitMarks: boolean, fadeCut
 
 /**
  * Removes the ranges' frames (ripple), and the ranges. Not all of it: the same document. With
- * `splitMarks`, markup over a cut is cut there too (`fadeCuts` as for `split`).
+ * `splitMarks`, markup over a cut is cut there too (`fadeCuts` and `fadeClipCuts` as for
+ * `split`).
  */
-export function removeRanges(doc: Doc, splitMarks = true, fadeCuts = false): Doc {
+export function removeRanges(
+  doc: Doc,
+  splitMarks = true,
+  fadeCuts = false,
+  fadeClipCuts = false,
+): Doc {
   const shown = shownRanges(doc);
-  return shown.length ? cutOut(doc, shown, splitMarks, fadeCuts) : doc;
+  return shown.length ? cutOut(doc, shown, splitMarks, fadeCuts, fadeClipCuts) : doc;
 }
 
 /** Keeps only the ranges' frames (ripple), and clears the ranges. `splitMarks` as above. */
-export function keepRanges(doc: Doc, splitMarks = true, fadeCuts = false): Doc {
+export function keepRanges(
+  doc: Doc,
+  splitMarks = true,
+  fadeCuts = false,
+  fadeClipCuts = false,
+): Doc {
   const shown = shownRanges(doc).sort((x, y) => x.a - y.a);
   if (!shown.length) return doc;
   const gaps: Place[] = [];
@@ -746,7 +891,9 @@ export function keepRanges(doc: Doc, splitMarks = true, fadeCuts = false): Doc {
     t = Math.max(t, b);
   }
   if (t < total(doc)) gaps.push({ a: t, b: total(doc) });
-  return gaps.length ? cutOut(doc, gaps, splitMarks, fadeCuts) : { ...doc, ranges: [] };
+  return gaps.length
+    ? cutOut(doc, gaps, splitMarks, fadeCuts, fadeClipCuts)
+    : { ...doc, ranges: [] };
 }
 
 // --- markup ---

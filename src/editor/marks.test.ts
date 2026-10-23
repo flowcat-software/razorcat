@@ -278,12 +278,13 @@ describe("fades", () => {
   it("ramp its opacity frame by frame, as ffmpeg's fade does", () => {
     const fades = { fadeIn: 4, fadeOut: 2 };
     const ramp = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((u) => markOpacity(fades, 10, u));
-    expect(ramp).toEqual([0, 0.25, 0.5, 0.75, 1, 1, 1, 1, 1, 0.5]);
+    // Clear on the first frame and on the last.
+    expect(ramp).toEqual([0, 0.25, 0.5, 0.75, 1, 1, 1, 1, 0.5, 0]);
     expect(markOpacity({ fadeIn: 0, fadeOut: 0 }, 10, 0)).toBe(1);
     expect(markOpacity({ fadeIn: 0, fadeOut: 0 }, 10, 9)).toBe(1);
-    // Fades meeting in the middle: the lower of the two.
-    expect(markOpacity({ fadeIn: 5, fadeOut: 5 }, 10, 5)).toBe(1);
-    expect(markOpacity({ fadeIn: 5, fadeOut: 5 }, 10, 6)).toBe(0.8);
+    // Fades meeting in the middle.
+    expect(markOpacity({ fadeIn: 5, fadeOut: 5 }, 10, 5)).toBe(0.8);
+    expect(markOpacity({ fadeIn: 5, fadeOut: 5 }, 10, 6)).toBe(0.6);
   });
 
   it("go with a duplicate", () => {

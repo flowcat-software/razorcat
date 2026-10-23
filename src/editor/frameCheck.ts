@@ -22,9 +22,11 @@
 // Two highlights (PLAN 4.5c), yellow: each pixel under one must be the export without markup
 // multiplied by it (towards white as it fades), and one under item 2 must leave it on top.
 // Then spotlights (PLAN 4.5g), on their own: two holes in one run of darkness, overlapping, each
-// pixel the export without markup darkened by as much as is left of it there.
+// pixel the export without markup darkened by as much as is left of it there. Last, clip fades
+// (PLAN 4.7a): the second clip fading in and out, each pixel the unfaded export's at the
+// preview's ramp (`clipOpacityAt`), its barcode not read on those frames.
 import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
-import { clipStarts, markOpacity, total } from "./doc";
+import { clipOpacityAt, clipStarts, markOpacity, total } from "./doc";
 import { useDoc } from "./docStore";
 import { exportClips, exportFrame } from "./exports";
 import { outputSize } from "./frame";
@@ -259,6 +261,8 @@ export async function checkFrames(
       expect: (k: number) => number,
       marks: ExportMark[] = [],
       probes: { x: number; y: number }[] = [],
+      /** Frames whose barcode isn't read (faded too dark to). */
+      unread: (k: number) => boolean = () => false,
     ) => {
       const { doc } = useDoc.getState();
       const exported = await commands.frameCheckExport(
@@ -272,7 +276,7 @@ export async function checkFrames(
       const shownFrames = exported.data.barcodes;
       let wrong = 0;
       for (let k = 0; k < Math.max(n, shownFrames.length); k++) {
-        if (shownFrames[k] === expect(k)) continue;
+        if (unread(k) || shownFrames[k] === expect(k)) continue;
         wrong++;
         misses.push({ pass, frame: k, expected: expect(k), shown: shownFrames[k] ?? -1 });
       }
@@ -509,6 +513,45 @@ export async function checkFrames(
       });
     }
     passes.push({ pass: "spotlights", checked: n * spots.length, misses: wrongSpots, covered: 0 });
+
+    // Clip fades: the second clip fading in from black over 6 frames and out over 8.
+    progress("Checking frames: exporting the edit with a clip faded…");
+    const fadedClip = useDoc.getState().doc.clips[1].id;
+    useDoc.getState().setClipFades(fadedClip, { fadeIn: 6 });
+    useDoc.getState().setClipFades(fadedClip, { fadeOut: 8 });
+    const fadedDoc = useDoc.getState().doc;
+    const shows = (k: number) => clipOpacityAt(fadedDoc, k);
+    const dimmed = await exportPass(
+      "export clip faded",
+      BITS,
+      want,
+      [],
+      spots,
+      (k) => shows(k) < 1,
+    );
+    let wrongFades = 0;
+    for (let k = 0; k < n; k++) {
+      spots.forEach((_, p) => {
+        const got = dimmed[k]?.slice(p * 3, p * 3 + 3) ?? [];
+        const want3 = [...(plain[k]?.slice(p * 3, p * 3 + 3) ?? [])].map((c) => c * shows(k));
+        // A fade darkens every channel by as much: wrong when all the bright ones are off (two
+        // encodes of a saturated corner can differ a lot in one channel, faded or not).
+        const near = (i: number) => Math.abs(got[i] - want3[i]) <= FADE_NOISE;
+        const bright = [0, 1, 2].filter((i) => Math.max(got[i], want3[i]) >= 64);
+        if (bright.length ? bright.some(near) : [0, 1, 2].every(near)) return;
+        wrongFades++;
+        const rgb = (c: number[]) =>
+          (Math.round(c[0]) << 16) | (Math.round(c[1]) << 8) | Math.round(c[2]);
+        misses.push({
+          pass: `clip fade, probe ${p}`,
+          frame: k,
+          expected: rgb(want3),
+          shown: rgb([...got]),
+        });
+      });
+    }
+    passes.push({ pass: "clip fades", checked: n * spots.length, misses: wrongFades, covered: 0 });
+    useDoc.getState().clipRemoveFades([fadedClip], "both");
   }
 
   const wrongs = misses.length;

@@ -138,9 +138,15 @@ pub struct Timeline {
     /// The fade Apply Default Fades gives markup, in frames (15 by default; kept to
     /// `DEFAULT_FADE_RANGE`).
     pub default_markup_fade: u32,
-    /// Markup duplicated, Alt-dragged or pasted keeps the original's fades (on by default;
-    /// Richard, 2026-10-23). Off: copies start without.
+    /// Markup and clips duplicated, Alt-dragged or pasted keep the original's fades (on by
+    /// default; Richard, 2026-10-23). Off: copies start without.
     pub copies_keep_fades: bool,
+    /// The fade Apply Default Fades gives clips (PLAN 4.7a), in frames (15 by default; kept to
+    /// `DEFAULT_FADE_RANGE`).
+    pub default_clip_fade: u32,
+    /// A clip split fades at the cut, each part as the whole did at that end (off by default:
+    /// the cut is clean).
+    pub fade_split_clips: bool,
 }
 
 /// The default markup fade's range, in frames.
@@ -157,6 +163,8 @@ impl Default for Timeline {
             fade_split_markup: false,
             default_markup_fade: 15,
             copies_keep_fades: true,
+            default_clip_fade: 15,
+            fade_split_clips: false,
         }
     }
 }
@@ -425,6 +433,10 @@ pub fn validate(mut s: Settings) -> Result<Settings, String> {
         .timeline
         .default_markup_fade
         .clamp(*DEFAULT_FADE_RANGE.start(), *DEFAULT_FADE_RANGE.end());
+    s.timeline.default_clip_fade = s
+        .timeline
+        .default_clip_fade
+        .clamp(*DEFAULT_FADE_RANGE.start(), *DEFAULT_FADE_RANGE.end());
     s.editing.grow_presets = grow_presets(s.editing.grow_presets)?;
     s.styles = s.styles.normalized();
     if !GIF_RATES.contains(&s.export.gif_fps) {
@@ -678,7 +690,9 @@ mod tests {
         s.timeline.default_markup_fade = 0;
         assert_eq!(validate(s.clone()).unwrap().timeline.default_markup_fade, 1);
         s.timeline.default_markup_fade = 1000;
-        assert_eq!(validate(s).unwrap().timeline.default_markup_fade, 300);
+        s.timeline.default_clip_fade = 0;
+        let kept = validate(s).unwrap().timeline;
+        assert_eq!((kept.default_markup_fade, kept.default_clip_fade), (300, 1));
     }
 
     #[test]

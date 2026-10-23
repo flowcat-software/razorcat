@@ -10,6 +10,8 @@
 //! joined picture is cropped and grown (the project's frame, frame.ts), and the markup is laid
 //! over it, each item (drawn by the page, markup.rs) on the frames it shows on. A muted clip's
 //! sound is silenced (`concat` still joins it); with every clip muted, the file has no audio.
+//! A clip's fades (PLAN 4.7a) are black laid over the whole frame, under the markup, its alpha
+//! ramped frame by frame as the preview's is; its sound fades with it.
 //!
 //! The encoder is the machine's best that works, found at startup by trying each in turn
 //! (`probe`): NVIDIA's, AMD's, Intel's, Windows' own (Media Foundation), then libx264, which
@@ -47,6 +49,12 @@ pub struct ExportClip {
     pub muted: bool,
     /// Where it starts on the whole edit's timeline, which the markup's frames count on.
     pub start: u32,
+    /// How many of its frames it fades in from black over, and out to black over (fitted to
+    /// its length).
+    #[serde(rename = "fadeIn")]
+    pub fade_in: u32,
+    #[serde(rename = "fadeOut")]
+    pub fade_out: u32,
 }
 
 /// A part of the picture as shown (rotation applied), in its pixels.
@@ -277,6 +285,9 @@ struct Cut {
     tracks: u32,
     /// A file of another size than the first: fitted into the first's picture, this size.
     fit: Option<(u32, u32)>,
+    /// Its fades from and to black, in frames.
+    fade_in: u32,
+    fade_out: u32,
 }
 
 /// How far before a clip's first frame its input is seeked: the frame is kept whatever the
@@ -374,6 +385,8 @@ fn shown(clips: &[ExportClip], start: u32, end: u32) -> Vec<Show> {
 /// Clip `c` of `input`, as ffmpeg seeks it, in the picture of `first` (the timeline's file).
 fn cut(input: &Input, first: &Input, c: &ExportClip) -> Cut {
     let fitted = (input.width, input.height) != (first.width, first.height);
+    let length = c.out.saturating_sub(c.from);
+    let fade_in = c.fade_in.min(length);
     Cut {
         path: input.path.clone(),
         seek: (input.starts[c.from as usize] - SEEK_EARLY).max(0.0),
@@ -383,7 +396,16 @@ fn cut(input: &Input, first: &Input, c: &ExportClip) -> Cut {
         muted: c.muted,
         tracks: input.audio_tracks,
         fit: fitted.then_some((first.width, first.height)),
+        fade_in,
+        fade_out: c.fade_out.min(length - fade_in),
     }
+}
+
+/// The size of the black a clip fades to: the frame's, and never smaller than the picture (an
+/// odd-sized one, unframed, is made even only at the end).
+fn black_size(frame: &ExportFrame, width: u32, height: u32) -> (u32, u32) {
+    let (w, h) = output_size(frame, width, height);
+    (w.max(width), h.max(height))
 }
 
 /// Whether there's anything to hear: a clip with sound, not muted.
@@ -393,10 +415,12 @@ fn heard(cuts: &[Cut]) -> bool {
 
 /// The ffmpeg arguments for `cuts`, up to the output file: inputs, the graph, the encoder and
 /// the container.
+#[allow(clippy::too_many_arguments)]
 fn args(
     cuts: &[Cut],
     rate: Rate,
     frame: Option<&str>,
+    black: (u32, u32),
     overlays: &[Overlay],
     encoder: Encoder,
     bitrate: u64,
@@ -408,7 +432,7 @@ fn args(
         "scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,format={}",
         encoder.pixels()
     );
-    let mut a = graph(cuts, rate, audio, frame, overlays, &last);
+    let mut a = graph(cuts, rate, audio, frame, black, overlays, &last);
     if audio {
         a.extend(["-c:a", "aac", "-b:a", "192k"].map(OsString::from));
     }
@@ -429,10 +453,12 @@ fn args(
 
 /// The ffmpeg arguments for a GIF of `cuts`: the picture alone at `gif_fps`, its longer side at
 /// most `size` (0: as it is), as raw frames (YUV4MPEG) on stdout for gifski.
+#[allow(clippy::too_many_arguments)]
 fn gif_args(
     cuts: &[Cut],
     rate: Rate,
     frame: Option<&str>,
+    black: (u32, u32),
     overlays: &[Overlay],
     gif_fps: u32,
     size: u32,
@@ -446,19 +472,21 @@ fn gif_args(
         )
     };
     let last = format!("fps={gif_fps},{scale},setsar=1,format=yuv420p");
-    let mut a = graph(cuts, rate, false, frame, overlays, &last);
+    let mut a = graph(cuts, rate, false, frame, black, overlays, &last);
     a.extend(["-f", "yuv4mpegpipe", "-"].map(OsString::from));
     a
 }
 
 /// The inputs and the graph for `cuts`, mapped: the joined picture, made into the `frame`
-/// (crop and grow), with the `overlays` laid over it, through `last` (a filter chain) as
-/// `[vout]`; and the joined sound as `[ac]` if there's `audio`.
+/// (crop and grow), the clips' fades laid over it (black, `black` in size), then the
+/// `overlays`, through `last` (a filter chain) as `[vout]`; and the joined sound as `[ac]` if
+/// there's `audio`.
 fn graph(
     cuts: &[Cut],
     rate: Rate,
     audio: bool,
     frame: Option<&str>,
+    black: (u32, u32),
     overlays: &[Overlay],
     last: &str,
 ) -> Vec<OsString> {
@@ -526,8 +554,20 @@ fn graph(
         // put at 0.
         let start = (c.origin + f64::from(c.from) / fps - c.seek).max(0.0);
         let silence = if c.muted { ",volume=0" } else { "" };
+        // Its fades, the picture's in seconds.
+        let mut fades = String::new();
+        if c.fade_in > 0 {
+            fades += &format!(",afade=t=in:st=0:d={:.6}", f64::from(c.fade_in) / fps);
+        }
+        if c.fade_out > 0 {
+            fades += &format!(
+                ",afade=t=out:st={:.6}:d={:.6}",
+                f64::from(c.out - c.from - c.fade_out) / fps,
+                f64::from(c.fade_out) / fps
+            );
+        }
         f.push(format!(
-            "{tracks}{mix}atrim=start={start:.6}:duration={length:.6},asetpts=PTS-STARTPTS{silence}[a{i}]"
+            "{tracks}{mix}atrim=start={start:.6}:duration={length:.6},asetpts=PTS-STARTPTS{fades}{silence}[a{i}]"
         ));
     }
     let n = cuts.len();
@@ -554,6 +594,7 @@ fn graph(
         f.push(format!("[vc]{frame}[vf]"));
         at = "vf".into();
     }
+    at = clip_fades(&mut f, &at, cuts, black, rate);
     let mut darkened = false;
     for (k, o) in overlays.iter().enumerate() {
         let place = format!("x={}:y={}:format=yuv444", o.x, o.y);
@@ -589,20 +630,11 @@ fn graph(
             at = format!("o{k}");
             continue;
         }
-        // Faded: the picture once per frame of the item, faded by frame count (the preview's
-        // ramp: the fade-in's first frame clear), then each stretch's frames timed to the
-        // export's. A fine time base first, or the frame times round to the input's 1/25 s.
-        let mut chain = format!("[m{k}]loop=loop={}:size=1:start=0", o.length - 1);
-        if o.fade_in > 0 {
-            chain += &format!(",fade=t=in:s=0:n={}:alpha=1", o.fade_in);
-        }
-        if o.fade_out > 0 {
-            chain += &format!(
-                ",fade=t=out:s={}:n={}:alpha=1",
-                o.length - o.fade_out,
-                o.fade_out
-            );
-        }
+        // Faded: the picture once per frame of the item and one more in front, faded by frame
+        // count (`ramps`), then each stretch's frames timed to the export's. A fine time base
+        // first, or the frame times round to the input's 1/25 s.
+        let mut chain = format!("[m{k}]loop=loop={}:size=1:start=0", o.length);
+        chain += &ramps(o.length, o.fade_in, o.fade_out, ":alpha=1");
         let parts = o.shows.len();
         if parts > 1 {
             chain += &format!(",split={parts}");
@@ -614,8 +646,8 @@ fn graph(
         for (j, s) in o.shows.iter().enumerate() {
             f.push(format!(
                 "[f{k}_{j}]trim=start_frame={}:end_frame={},settb=AVTB,setpts=(N+{})/({}/{}*TB)[g{k}_{j}]",
-                s.at,
-                s.at + s.to - s.from,
+                s.at + 1,
+                s.at + 1 + s.to - s.from,
                 s.from,
                 rate.num,
                 rate.den
@@ -635,6 +667,70 @@ fn graph(
         a.extend(["-map", "[ac]"].map(OsString::from));
     }
     a
+}
+
+/// The fades of an item `length` frames long (`fade_in` and `fade_out` frames), for a stream of
+/// it with one frame more in front, which is dropped (its frame u is the stream's u + 1): fading
+/// in, its first frame clear, u / fade-in; fading out, its last clear too, (length − 1 − u) /
+/// fade-out (Richard, 2026-10-23: ending a step short, the last frame wasn't quite gone; the
+/// frame in front lets ffmpeg's `fade` start a frame earlier). The preview's `markOpacity`.
+/// `how`: what fades (`:alpha=1`, or `:color=white`).
+fn ramps(length: u32, fade_in: u32, fade_out: u32, how: &str) -> String {
+    let mut r = String::new();
+    if fade_in > 0 {
+        r += &format!(",fade=t=in:s=1:n={fade_in}{how}");
+    }
+    if fade_out > 0 {
+        r += &format!(",fade=t=out:s={}:n={fade_out}{how}", length - fade_out);
+    }
+    r
+}
+
+/// The clips' fades laid over the picture `at` (PLAN 4.7a): on each fade's frames, black
+/// `black` in size, its alpha ramped as the preview's black is (the clip's first frame and last
+/// all black, `ramps`), on the joined picture's clock: frame k
+/// at k (timed as markup is, in AVTB, a fade's last frame could round past the picture's and go
+/// missing). The picture's label after it.
+fn clip_fades(
+    f: &mut Vec<String>,
+    at: &str,
+    cuts: &[Cut],
+    black: (u32, u32),
+    rate: Rate,
+) -> String {
+    let mut at = at.to_string();
+    let mut start = 0;
+    for (i, c) in cuts.iter().enumerate() {
+        let length = c.out - c.from;
+        // The black's own fade: out as the clip fades in (all black on its first frame); in as
+        // it fades out, a frame early and that frame dropped (all black on its last).
+        let fades = [
+            ("in", start, c.fade_in, "t=out:s=0", 0),
+            (
+                "out",
+                start + length - c.fade_out,
+                c.fade_out,
+                "t=in:s=0",
+                1,
+            ),
+        ];
+        for (name, from, n, t, early) in fades {
+            if n == 0 {
+                continue;
+            }
+            f.push(format!(
+                "color=c=black:s={}x{}:r={}/{},format=yuva444p,trim=end_frame={},fade={t}:n={n}:alpha=1,trim=start_frame={early},settb={}/{},setpts=N+{from}[cf{i}{name}]",
+                black.0, black.1, rate.num, rate.den, n + early, rate.den, rate.num
+            ));
+            f.push(format!(
+                "[{at}][cf{i}{name}]overlay=x=0:y=0:format=yuv444:eof_action=pass:enable='between(n,{from},{})'[cd{i}{name}]",
+                from + n - 1
+            ));
+            at = format!("cd{i}{name}");
+        }
+        start += length;
+    }
+    at
 }
 
 /// A highlight (input `input`, item `k`) multiplied into the picture `at` (PLAN 4.5c), as the
@@ -676,18 +772,9 @@ fn highlight(
     // ramp), then each stretch's frames timed to the export's.
     let mut chain = format!(
         "[{input}:v:0]format=gbrp,loop=loop={}:size=1:start=0",
-        o.length - 1
+        o.length
     );
-    if o.fade_in > 0 {
-        chain += &format!(",fade=t=in:s=0:n={}:color=white", o.fade_in);
-    }
-    if o.fade_out > 0 {
-        chain += &format!(
-            ",fade=t=out:s={}:n={}:color=white",
-            o.length - o.fade_out,
-            o.fade_out
-        );
-    }
+    chain += &ramps(o.length, o.fade_in, o.fade_out, ":color=white");
     let parts = o.shows.len();
     if parts > 1 {
         chain += &format!(",split={parts}");
@@ -701,8 +788,8 @@ fn highlight(
         let name = format!("{k}_{j}");
         f.push(format!(
             "[hf{name}]trim=start_frame={}:end_frame={},settb=AVTB,setpts=(N+{})/({}/{}*TB)[hw{name}]",
-            s.at,
-            s.at + s.to - s.from,
+            s.at + 1,
+            s.at + 1 + s.to - s.from,
             s.from,
             rate.num,
             rate.den
@@ -764,21 +851,13 @@ fn dark(
     let mut at = at.to_string();
     let mut part = 0;
     for (k, o, dim) in runs {
+        // A frame more in front, for the fades (`ramps`).
         let mut chain = format!(
             "color=c=black@{:.4}:s={size}:{clock},format=gbrap,trim=end_frame={}",
             (dim / 100.0).clamp(0.0, 1.0),
-            o.length
+            o.length + 1
         );
-        if o.fade_in > 0 {
-            chain += &format!(",fade=t=in:s=0:n={}:alpha=1", o.fade_in);
-        }
-        if o.fade_out > 0 {
-            chain += &format!(
-                ",fade=t=out:s={}:n={}:alpha=1",
-                o.length - o.fade_out,
-                o.fade_out
-            );
-        }
+        chain += &ramps(o.length, o.fade_in, o.fade_out, ":alpha=1");
         let shows = o.shows.len();
         if shows > 1 {
             chain += &format!(",split={shows}");
@@ -791,8 +870,8 @@ fn dark(
             let name = format!("{k}_{j}");
             f.push(format!(
                 "[dv{name}]trim=start_frame={}:end_frame={},settb=AVTB,setpts=(N+{})/({}/{}*TB)[dw{name}]",
-                s.at,
-                s.at + s.to - s.from,
+                s.at + 1,
+                s.at + 1 + s.to - s.from,
                 s.from,
                 rate.num,
                 rate.den
@@ -1007,9 +1086,18 @@ fn render_mp4(
     let marks = overlays(clips, markup);
     let (width, height) = output_size(frame, input.width, input.height);
     let rate = bitrate(width, height, input.rate.fps());
+    let black = black_size(frame, input.width, input.height);
     let mut last = String::new();
     for encoder in encoders(app) {
-        let a = args(&cuts, input.rate, made.as_deref(), &marks, encoder, rate);
+        let a = args(
+            &cuts,
+            input.rate,
+            made.as_deref(),
+            black,
+            &marks,
+            encoder,
+            rate,
+        );
         match ffmpeg::run_now(&a, output, Some(frames), &mut progress, || {
             stop.load(Ordering::Relaxed)
         }) {
@@ -1059,6 +1147,7 @@ fn render_gif(
             &cuts,
             input.rate,
             frame_filter(frame, input.width, input.height).as_deref(),
+            black_size(frame, input.width, input.height),
             &overlays(clips, markup),
             gif_fps,
             size,
@@ -1572,6 +1661,7 @@ mod tests {
             &of(path, cuts, origin, tracks),
             rate,
             frame,
+            (1920, 1080),
             overlays,
             encoder,
             bitrate,
@@ -1594,6 +1684,7 @@ mod tests {
             &of(path, cuts, origin, 0),
             rate,
             frame,
+            (1920, 1080),
             overlays,
             gif_fps,
             size,
@@ -1644,7 +1735,15 @@ mod tests {
                 ..Cut::default()
             },
         ];
-        let a = joined(&args(&c, rate, None, &[], Encoder::X264, 6_000_000));
+        let a = joined(&args(
+            &c,
+            rate,
+            None,
+            (1920, 1080),
+            &[],
+            Encoder::X264,
+            6_000_000,
+        ));
         assert!(a.starts_with("-ss 0.000000 -i a.mp4 -ss 1.000000 -i b.mp4"));
         assert!(a.contains(
             "[1:v:0]setpts=PTS+(0.800000)/TB,fps=30/1,trim=start_pts=60:end_pts=90,setpts=PTS-STARTPTS,\
@@ -1654,7 +1753,15 @@ mod tests {
         assert!(a.contains("anullsrc=r=48000:cl=stereo,atrim=duration=1.000000[a1]"));
         assert!(a.contains("[v0][a0][v1][a1]concat=n=2:v=1:a=1[vc][ac]"));
         // Only the silent file heard: no sound at all.
-        let quiet = joined(&args(&c[1..], rate, None, &[], Encoder::X264, 6_000_000));
+        let quiet = joined(&args(
+            &c[1..],
+            rate,
+            None,
+            (1920, 1080),
+            &[],
+            Encoder::X264,
+            6_000_000,
+        ));
         assert!(quiet.contains("[v0]concat=n=1:v=1:a=0[vc];"));
         assert!(!quiet.contains("anullsrc"));
     }
@@ -2021,7 +2128,71 @@ mod tests {
             out,
             muted: false,
             start,
+            fade_in: 0,
+            fade_out: 0,
         }
+    }
+
+    #[test]
+    fn a_clip_fades_from_and_to_black_under_the_markup_and_its_sound_too() {
+        let rate = Rate { num: 30, den: 1 };
+        // Two clips of 30 frames: the second fades in over 6 and out over 9.
+        let c = [
+            Cut {
+                out: 30,
+                ..Default::default()
+            },
+            Cut {
+                seek: 7.5,
+                from: 240,
+                out: 270,
+                fade_in: 6,
+                fade_out: 9,
+                ..Default::default()
+            },
+        ];
+        let a = joined(&one_file(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            1,
+            None,
+            &[],
+            Encoder::X264,
+            6_000_000,
+        ));
+        // Black fading out over the clip's first 6 frames (export frames 30 to 35)...
+        assert!(a.contains(
+            "color=c=black:s=1920x1080:r=30/1,format=yuva444p,trim=end_frame=6,\
+             fade=t=out:s=0:n=6:alpha=1,trim=start_frame=0,settb=1/30,setpts=N+30[cf1in]"
+        ));
+        assert!(a.contains(
+            "[vc][cf1in]overlay=x=0:y=0:format=yuv444:eof_action=pass:enable='between(n,30,35)'[cd1in]"
+        ));
+        // ...and in over its last 9 (51 to 59), a frame early, so the last is all black.
+        assert!(a.contains(
+            "trim=end_frame=10,fade=t=in:s=0:n=9:alpha=1,trim=start_frame=1,settb=1/30,setpts=N+51[cf1out]"
+        ));
+        assert!(a.contains("enable='between(n,51,59)'[cd1out]"));
+        assert!(a.contains("[cd1out]scale="));
+        // Its sound fades over as long.
+        assert!(a.contains(
+            "asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.200000,afade=t=out:st=0.700000:d=0.300000[a1]"
+        ));
+        assert!(a.contains("asetpts=PTS-STARTPTS[a0]"));
+        // Fades kept to the clip's length, the fade-in first.
+        let a = input("a", 1920, 1080, 1);
+        let long = cut(
+            &a,
+            &a,
+            &ExportClip {
+                fade_in: 20,
+                fade_out: 20,
+                ..clip(1, 0, 30, 0)
+            },
+        );
+        assert_eq!((long.fade_in, long.fade_out), (20, 10));
     }
 
     #[test]
@@ -2172,11 +2343,11 @@ mod tests {
             6_000_000,
         ));
         assert!(a.contains(
-            "[m0]loop=loop=9:size=1:start=0,fade=t=in:s=0:n=4:alpha=1,\
+            "[m0]loop=loop=10:size=1:start=0,fade=t=in:s=1:n=4:alpha=1,\
              fade=t=out:s=8:n=2:alpha=1,split=2[f0_0][f0_1];"
         ));
         assert!(a.contains(
-            "[f0_1]trim=start_frame=3:end_frame=8,settb=AVTB,\
+            "[f0_1]trim=start_frame=4:end_frame=9,settb=AVTB,\
              setpts=(N+20)/(30000/1001*TB)[g0_1];"
         ));
         assert!(a.contains(
@@ -2244,7 +2415,7 @@ mod tests {
             6_000_000,
         ));
         assert!(faded.contains(
-            "format=gbrp,loop=loop=9:size=1:start=0,fade=t=in:s=0:n=4:color=white[hf0_0]"
+            "format=gbrp,loop=loop=10:size=1:start=0,fade=t=in:s=1:n=4:color=white[hf0_0]"
         ));
         // Sent after other markup, a highlight still goes beneath it.
         let mut markup = Markup::default();
@@ -2351,16 +2522,16 @@ mod tests {
         ));
         assert!(a.contains("[k]split[hb0_0][hc0_0]"));
         assert!(a.contains(
-            "[1:v:0]format=gbrp,loop=loop=19:size=1:start=0,fade=t=in:s=0:n=3:color=white[hf0_0]"
+            "[1:v:0]format=gbrp,loop=loop=20:size=1:start=0,fade=t=in:s=1:n=3:color=white[hf0_0]"
         ));
         assert!(a.contains("[h0_0]split=2[ks0][ks1]"));
         // The darkness: black, faded as an item, each stretch timed to the export's.
         assert!(a.contains(
-            "color=c=black@0.6000:s=64x48:r=30/1,format=gbrap,trim=end_frame=20,\
-             fade=t=in:s=0:n=4:alpha=1,split=2[dv1_0][dv1_1]"
+            "color=c=black@0.6000:s=64x48:r=30/1,format=gbrap,trim=end_frame=21,\
+             fade=t=in:s=1:n=4:alpha=1,split=2[dv1_0][dv1_1]"
         ));
         assert!(a.contains(
-            "[dv1_1]trim=start_frame=10:end_frame=20,settb=AVTB,setpts=(N+40)/(30/1*TB)[dw1_1]"
+            "[dv1_1]trim=start_frame=11:end_frame=21,settb=AVTB,setpts=(N+40)/(30/1*TB)[dw1_1]"
         ));
         // What's left of it on those frames is its alpha.
         assert!(a.contains("[ks1]trim=start_frame=40:end_frame=50,split[ka1_1][kb1_1]"));

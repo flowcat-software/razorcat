@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  copiedFades,
   copiedMarks,
   copySelectedMarks,
   pasteFades,
@@ -129,7 +130,7 @@ export function ObjectMenu({ at, onObject, onClose }: Props) {
       <Row
         label="Paste Fades"
         keys="Ctrl+Shift+F"
-        disabled={!onObject || !copiedMarks()}
+        disabled={!onObject || !copiedFades()}
         onClick={run(pasteFades)}
       />
       <Row

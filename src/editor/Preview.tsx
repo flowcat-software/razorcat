@@ -4,6 +4,7 @@ import { MarkupLayer } from "../markup/MarkupLayer";
 import { connectMarkup } from "../markup/model/store";
 import type { SourceInfo } from "../shared/ipc";
 import { CropOverlay } from "./CropOverlay";
+import { clipOpacityAt } from "./doc";
 import { useDoc } from "./docStore";
 import { fitRect, videoTransform } from "./fit";
 import { growColour, growMode, NO_GROW, outputSize, SIDES } from "./frame";
@@ -34,7 +35,8 @@ const MARGIN = 16;
  * the preview (CSS only, so it follows live, also while playing). The crop tool shows the whole
  * picture, ungrown, with the crop box over it; the grow tool, the frame with its handles.
  * Markup sits over the whole frame (Vandal's markup layer, over the whole preview so its handles
- * reach past the frame): what's at the playhead, which the select and markup tools edit.
+ * reach past the frame): what's at the playhead, which the select and markup tools edit. Under
+ * it, the clips' fades: black over the whole frame (`ClipFade`).
  */
 export function Preview({ sources, player, proxyUrls, onError, onUnplayable }: Props) {
   const source = sources[0];
@@ -137,6 +139,7 @@ export function Preview({ sources, player, proxyUrls, onError, onUnplayable }: P
             ))}
           </div>
         </div>
+        {!cropping && <ClipFade player={player} />}
       </div>
       {/* Every item, out of sight, for the export to draw from. */}
       <MarkupDrawing />
@@ -178,6 +181,31 @@ export function Preview({ sources, player, proxyUrls, onError, onUnplayable }: P
       )}
     </div>
   );
+}
+
+/**
+ * The clips' fades (PLAN 4.7a): black over the whole frame, as opaque as the picture under the
+ * playhead is faded (`clipOpacityAt`, the export's ramp), and the sound as loud as the picture
+ * shows. Set straight on the element as the playhead moves, not re-rendered.
+ */
+function ClipFade({ player }: { player: Player }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const update = () => {
+      const shows = clipOpacityAt(useDoc.getState().doc, player.getState().frame);
+      if (ref.current) ref.current.style.opacity = String(1 - shows);
+      player.setLevel(shows);
+    };
+    update();
+    const stopPlayer = player.subscribe(update);
+    const stopDoc = useDoc.subscribe(update);
+    return () => {
+      stopPlayer();
+      stopDoc();
+      player.setLevel(1);
+    };
+  }, [player]);
+  return <div ref={ref} className={styles.clipFade} />;
 }
 
 /** Where `s` shows in the picture (`picture`, the first file's): fitted in, centred. */

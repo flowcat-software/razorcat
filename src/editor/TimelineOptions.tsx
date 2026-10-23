@@ -1,5 +1,6 @@
 import type { SourceInfo } from "../shared/ipc";
 import {
+  clipFades,
   clipLength,
   longestSource,
   MARK_NAMES,
@@ -113,6 +114,13 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
     const m = markNow(id);
     const kept = useDoc.getState().doc.marks.find((k) => k.id === id);
     return m && kept ? markFades(kept, m.end - m.start)[which] : v;
+  };
+
+  // A clip's fades (PLAN 4.7a), kept to its length as markup's are.
+  const clipFade = (id: number, which: "fadeIn" | "fadeOut", v: number) => {
+    useDoc.getState().setClipFades(id, which === "fadeIn" ? { fadeIn: v } : { fadeOut: v });
+    const clip = useDoc.getState().doc.clips.find((c) => c.id === id);
+    return clip ? clipFades(clip)[which] : v;
   };
 
   // A range: the same, kept off its neighbours (setRange).
@@ -234,6 +242,20 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
           <Field label="Out" value={fmt(selected.out)} />
           <Field label="Length" value={fmt(clipLength(selected))} />
           <span>of the source&apos;s {fmt(sourceLength(doc, selected))}</span>
+          <span className={styles.optionsSep} />
+          <NumberField
+            label="Fade in"
+            value={clipFades(selected).fadeIn}
+            onChange={(v) => clipFade(selected.id, "fadeIn", v)}
+            {...fade}
+          />
+          <NumberField
+            label="out"
+            name="Fade out"
+            value={clipFades(selected).fadeOut}
+            onChange={(v) => clipFade(selected.id, "fadeOut", v)}
+            {...fade}
+          />
         </>
       ) : (
         <span>

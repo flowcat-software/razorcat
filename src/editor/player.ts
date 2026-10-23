@@ -199,6 +199,14 @@ export class Player {
     this.show(this.state.frame);
   }
 
+  /**
+   * How loud the sound plays, 0 to 1 (a clip's fades, PLAN 4.7a, ramp it with the picture). A
+   * muted clip stays silent.
+   */
+  setLevel(level: number) {
+    for (const d of this.decks.values()) if (d.original) d.original.video.volume = level;
+  }
+
   /** The clip under timeline frame `t` (clamped to the timeline). */
   private spanIndex(t: number) {
     let i = 0;

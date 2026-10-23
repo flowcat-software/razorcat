@@ -10,6 +10,7 @@ import { Peaks, waveHeight } from "./wave";
 import { timecode, needsHours } from "./timecode";
 import {
   clipAt,
+  clipFades,
   clipLength,
   clipStarts,
   laneCount,
@@ -36,6 +37,7 @@ import {
 } from "./doc";
 import { useDoc } from "./docStore";
 import {
+  copiedFades,
   copiedMarks,
   copySelectedClip,
   copySelectedMarks,
@@ -138,13 +140,13 @@ const TOKENS = [
 type Edge = "in" | "out";
 
 /**
- * What the pointer is on: a clip's edge (trims it) or title bar (moves it); a range's edge
- * (resizes it) or bar (moves it); the empty range strip (draws one); the pending in-point;
- * markup's edge (when it starts or ends), a fade's handle on its top corners, or its bar
- * (moves it, along or to another lane).
+ * What the pointer is on: a clip's edge (trims it), title bar (moves it) or a fade's handle on
+ * its top corners (PLAN 4.7a); a range's edge (resizes it) or bar (moves it); the empty range
+ * strip (draws one); the pending in-point; markup's edge (when it starts or ends), a fade's
+ * handle on its top corners, or its bar (moves it, along or to another lane).
  */
 type Hit =
-  | { kind: Edge | "move"; clip: Clip }
+  | { kind: Edge | "move" | "clipFadeIn" | "clipFadeOut"; clip: Clip }
   | { kind: "rangeA" | "rangeB" | "rangeMove"; range: ShownRange }
   | { kind: "markStart" | "markEnd" | "markMove" | "fadeIn" | "fadeOut"; mark: ShownMark }
   | { kind: "rangeNew" | "pendingIn" };
@@ -154,6 +156,8 @@ const TIPS: Record<Hit["kind"], [string, string]> = {
   in: ["Trim the clip's start", "the rest ripples along · Shift: no snap"],
   out: ["Trim the clip's end", "the rest ripples along · Shift: no snap"],
   move: ["Move the clip", "drag left or right · Ctrl+[ ]"],
+  clipFadeIn: ["Fade in from black", "drag right for a longer fade"],
+  clipFadeOut: ["Fade out to black", "drag left for a longer fade"],
   rangeA: ["Range start", "drag"],
   rangeB: ["Range end", "drag"],
   rangeMove: ["Move the range", "drag"],
@@ -173,6 +177,8 @@ const CURSORS: Record<Hit["kind"], string> = {
   in: "ew-resize",
   out: "ew-resize",
   move: "grab",
+  clipFadeIn: "col-resize",
+  clipFadeOut: "col-resize",
   rangeA: "ew-resize",
   rangeB: "ew-resize",
   rangeMove: "grab",
@@ -277,12 +283,7 @@ const laneAt = (L: Lanes, y: number) =>
  * elsewhere on the bar, both. Remove is greyed when none of it has a fade there.
  */
 function fadeItems(kind: Hit["kind"]): MenuItems {
-  const ends =
-    kind === "markStart" || kind === "fadeIn"
-      ? "in"
-      : kind === "markEnd" || kind === "fadeOut"
-        ? "out"
-        : "both";
+  const ends = fadeEnds(kind);
   const names = { in: "Fade-in", out: "Fade-out", both: "Fades" }[ends];
   const { doc, selectedMarks } = useDoc.getState();
   const faded = shownMarks(doc).some((m) => {
@@ -300,6 +301,50 @@ function fadeItems(kind: Hit["kind"]): MenuItems {
       label: `Remove ${names}`,
       disabled: !faded,
       run: () => useDoc.getState().removeFades(selected(), ends),
+    },
+  ];
+}
+
+/** The end a right-click on `kind` gives fades to: an edge's or fade handle's, else both. */
+function fadeEnds(kind: Hit["kind"] | undefined): "in" | "out" | "both" {
+  if (kind === "markStart" || kind === "fadeIn" || kind === "in" || kind === "clipFadeIn") {
+    return "in";
+  }
+  if (kind === "markEnd" || kind === "fadeOut" || kind === "out" || kind === "clipFadeOut") {
+    return "out";
+  }
+  return "both";
+}
+
+/**
+ * The selected clips' fades (PLAN 4.7a), as markup's (`fadeItems`): the default clip fade or
+ * none, where the right-click was; and the copied fades.
+ */
+function clipFadeItems(kind: Hit["kind"] | undefined): MenuItems {
+  const ends = fadeEnds(kind);
+  const names = { in: "Fade-in", out: "Fade-out", both: "Fades" }[ends];
+  const { doc, selectedClips } = useDoc.getState();
+  const faded = doc.clips.some((c) => {
+    if (!selectedClips.includes(c.id)) return false;
+    const f = clipFades(c);
+    return ends === "in" ? f.fadeIn > 0 : ends === "out" ? f.fadeOut > 0 : f.fadeIn + f.fadeOut > 0;
+  });
+  const selected = () => useDoc.getState().selectedClips;
+  return [
+    {
+      label: `Apply Default ${names}`,
+      run: () => useDoc.getState().clipDefaultFades(selected(), ends),
+    },
+    {
+      label: `Remove ${names}`,
+      disabled: !faded,
+      run: () => useDoc.getState().clipRemoveFades(selected(), ends),
+    },
+    {
+      label: "Paste Fades",
+      hint: "Ctrl+Shift+F",
+      disabled: !copiedFades(),
+      run: () => void pasteFades(),
     },
   ];
 }
@@ -397,6 +442,24 @@ function hitAt(
   if (y > CLIP_TOP + CLIP_H) return null;
   const starts = clipStarts(doc);
   const last = doc.clips.length - 1;
+  // Its top corners: the fades' handles (the fade-out's first, as markup's), each on its own
+  // clip's side of a cut, the timeline's two ends reaching outward.
+  if (y <= CLIP_TOP + FADE_HIT) {
+    for (let i = 0; i <= last; i++) {
+      const clip = doc.clips[i];
+      const x0 = xOf(view, starts[i]);
+      const x1 = xOf(view, starts[i] + clipLength(clip));
+      const f = clipFades(clip);
+      const out = xOf(view, starts[i] + clipLength(clip) - f.fadeOut);
+      if (Math.abs(x - out) <= EDGE_HIT && x <= x1 + (i === last ? EDGE_HIT : 0)) {
+        return { kind: "clipFadeOut", clip };
+      }
+      const into = xOf(view, starts[i] + f.fadeIn);
+      if (Math.abs(x - into) <= EDGE_HIT && x >= x0 - (i === 0 ? EDGE_HIT : 0)) {
+        return { kind: "clipFadeIn", clip };
+      }
+    }
+  }
   // Edges first. The boundary between two clips belongs to whichever side the pointer is on;
   // the timeline's two ends reach outward too.
   for (let i = 0; i <= last; i++) {
@@ -648,6 +711,17 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
   const ranging = useRef<RangeDrag | null>(null);
   /** Markup being dragged. */
   const marking = useRef<MarkDrag | null>(null);
+  /**
+   * A clip's fade being dragged (PLAN 4.7a): which, from where, its length then, and (several
+   * selected) theirs.
+   */
+  const clipFading = useRef<{
+    id: ClipId;
+    fadeIn: boolean;
+    x0: number;
+    orig: number;
+    group: { id: ClipId; fadeIn: number; fadeOut: number }[] | null;
+  } | null>(null);
 
   // Shift pressed or let go while dragging markup takes effect at once: snapping goes off or on,
   // and several items' fades switch between keeping their lengths and all one length. The last
@@ -655,7 +729,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
   const lastMove = useRef<{ x: number; y: number; id: number; alt: boolean } | null>(null);
   useEffect(() => {
     const onShift = (e: KeyboardEvent) => {
-      const d = marking.current;
+      const d = marking.current ?? clipFading.current;
       const last = lastMove.current;
       const canvas = canvasRef.current;
       if (e.key !== "Shift" || e.repeat || !d || !last || !canvas) return;
@@ -959,6 +1033,28 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
           drawWave(g, wave, view, span, Math.min(x1, W));
           g.globalAlpha = 1;
         }
+        // Its fades: a ramp from each top corner it fades at, darker than markup's (to black),
+        // its slope outlined so it reads on any picture.
+        const f = clipFades(clip);
+        const fx0 = xOf(view, span.start + f.fadeIn);
+        const fx1 = xOf(view, span.start + len - f.fadeOut);
+        g.fillStyle = "rgb(0 0 0 / 0.45)";
+        g.strokeStyle = "rgb(255 255 255 / 0.7)";
+        for (const [edge, fx, on] of [
+          [x0, fx0, f.fadeIn > 0],
+          [x1, fx1, f.fadeOut > 0],
+        ] as const) {
+          if (!on) continue;
+          g.beginPath();
+          g.moveTo(edge, CLIP_TOP);
+          g.lineTo(fx, CLIP_TOP);
+          g.lineTo(edge, CLIP_TOP + CLIP_H);
+          g.fill();
+          g.beginPath();
+          g.moveTo(fx, CLIP_TOP);
+          g.lineTo(edge, CLIP_TOP + CLIP_H);
+          g.stroke();
+        }
         const audible = (sources.find((s) => s.id === clip.source)?.audioTracks ?? 0) > 0;
         if (clip.muted && audible && x1 - Math.max(x0, HEADER) > 30) {
           g.fillStyle = g.strokeStyle = "#fff";
@@ -998,6 +1094,26 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
           flashing = true;
         }
         g.restore();
+        // Its fades' handles: triangles on the top corners, while it's selected, hovered or
+        // its fade dragged; outlined, to read on any picture.
+        const hv = hover.current;
+        if (
+          selectedClips.includes(clip.id) ||
+          (hv && "clip" in hv && hv.clip.id === clip.id) ||
+          clipFading.current?.id === clip.id
+        ) {
+          g.fillStyle = "#fff";
+          g.strokeStyle = "rgb(0 0 0 / 0.6)";
+          for (const fx of [fx0, fx1]) {
+            g.beginPath();
+            g.moveTo(fx - 5, CLIP_TOP);
+            g.lineTo(fx + 5, CLIP_TOP);
+            g.lineTo(fx, CLIP_TOP + 7);
+            g.closePath();
+            g.fill();
+            g.stroke();
+          }
+        }
         if (selectedClips.includes(clip.id)) {
           g.strokeStyle = c["accent"];
           g.lineWidth = 2;
@@ -1592,6 +1708,39 @@ ${d.group.length} items`,
   };
 
   /**
+   * A clip's fade follows the pointer: a fade-in grows to the right, a fade-out to the left. Several
+   * selected change by as much, each as far as it can; with Shift, each the dragged one's length.
+   */
+  const clipFadeTo = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+    d: NonNullable<typeof clipFading.current>,
+  ) => {
+    const { x, view } = at(e);
+    const df = Math.round((x - d.x0) / view.zoom);
+    const by = d.fadeIn ? df : -df;
+    const set = (v: number) => (d.fadeIn ? { fadeIn: v } : { fadeOut: v });
+    const store = useDoc.getState();
+    store.setClipFades(d.id, set(d.orig + by));
+    const clip = useDoc.getState().doc.clips.find((c) => c.id === d.id);
+    const own = clip ? clipFades(clip)[d.fadeIn ? "fadeIn" : "fadeOut"] : 0;
+    const fmt = formatter();
+    const name = d.fadeIn ? "Fade in" : "Fade out";
+    if (d.group) {
+      const same = e.shiftKey;
+      for (const c of d.group) {
+        if (c.id === d.id) continue;
+        store.setClipFades(c.id, set(same ? own : (d.fadeIn ? c.fadeIn : c.fadeOut) + by));
+      }
+      showReadout(
+        `${name} ${same ? `${fmt(own)} each` : signed(own - d.orig)}\n${d.group.length} clips`,
+        e.clientX,
+        e.clientY,
+      );
+    } else showReadout(`${name} ${fmt(own)}`, e.clientX, e.clientY);
+    draw.current();
+  };
+
+  /**
    * An Alt-drag let go: copies of what was dragged (with its fades, if Settings say so) placed
    * where its ghost was, as a drop of the originals would be (on a busy lane, a new one above or
    * below), and selected. One undo step with the drag.
@@ -1696,6 +1845,7 @@ ${d.group.length} items`,
   /** What's being dragged, for the hint line's modifiers (`scrubbing`: the playhead). */
   const dragHintNow = (scrubbing: boolean): DragHint | null => {
     const d = marking.current;
+    if (clipFading.current) return "fade";
     if (trim.current) return "trim";
     if (moving.current !== null) return "clipMove";
     if (ranging.current) return "range";
@@ -1719,6 +1869,10 @@ ${d.group.length} items`,
     }
     if (moving.current !== null) {
       moving.current = null;
+      docState.endGesture();
+    }
+    if (clipFading.current) {
+      clipFading.current = null;
       docState.endGesture();
     }
     if (ranging.current) {
@@ -1769,6 +1923,27 @@ ${d.group.length} items`,
         targets: trimTargets(docState.doc, index, hit.kind, player.getState().frame),
       };
       player.peek(hit.kind === "in" ? hit.clip.in : hit.clip.out - 1, hit.clip.source);
+      return;
+    }
+    if (hit.kind === "clipFadeIn" || hit.kind === "clipFadeOut") {
+      // One of several selected: theirs fade with it.
+      if (!docState.selectedClips.includes(hit.clip.id)) docState.select(hit.clip.id);
+      docState.beginGesture();
+      const picked = useDoc.getState().selectedClips;
+      const fadeIn = hit.kind === "clipFadeIn";
+      const f = clipFades(hit.clip);
+      clipFading.current = {
+        id: hit.clip.id,
+        fadeIn,
+        x0: x,
+        orig: fadeIn ? f.fadeIn : f.fadeOut,
+        group:
+          picked.length > 1
+            ? docState.doc.clips
+                .filter((c) => picked.includes(c.id))
+                .map((c) => ({ id: c.id, ...clipFades(c) }))
+            : null,
+      };
       return;
     }
     if (hit.kind === "move") {
@@ -1947,6 +2122,11 @@ ${d.group.length} items`,
             trimTo(e, trim.current);
             return;
           }
+          if (clipFading.current) {
+            lastMove.current = { x: e.clientX, y: e.clientY, id: e.pointerId, alt: e.altKey };
+            clipFadeTo(e, clipFading.current);
+            return;
+          }
           if (ranging.current) {
             rangeTo(e, ranging.current);
             return;
@@ -2029,7 +2209,7 @@ ${d.group.length} items`,
                 {
                   label: "Paste Fades",
                   hint: "Ctrl+Shift+F",
-                  disabled: !copiedMarks(),
+                  disabled: !copiedFades(),
                   run: () => void pasteFades(),
                 },
                 {
@@ -2084,7 +2264,8 @@ ${d.group.length} items`,
           if (x < HEADER || y < CLIP_TOP || y > CLIP_TOP + CLIP_H) return;
           const under = clipAt(docState.doc, Math.floor(fOf(view, x)));
           if (!under) return;
-          const { clip } = under;
+          // On a clip's edge or fade handle: that clip (an edge's pixel can be the next one's).
+          const clip = hit && "clip" in hit ? hit.clip : under.clip;
           // On one of several selected: their menu (PLAN 4.5f), what works on them all.
           const group = docState.selectedClips;
           if (group.length > 1 && group.includes(clip.id)) {
@@ -2093,6 +2274,8 @@ ${d.group.length} items`,
               y: e.clientY,
               items: [
                 ...clipsExportItems(group),
+                "-",
+                ...clipFadeItems(hit?.kind),
                 "-",
                 {
                   label: "Duplicate clips",
@@ -2119,6 +2302,8 @@ ${d.group.length} items`,
             items: [
               { label: "Export clip as MP4…", run: () => exportClip(clip.id, "mp4") },
               { label: "Export clip as GIF…", run: () => exportClip(clip.id, "gif") },
+              "-",
+              ...clipFadeItems(hit?.kind),
               "-",
               { label: "Split at the playhead", hint: "S", run: () => splitAtPlayhead(player) },
               { label: "Duplicate", hint: "Ctrl+D", run: () => duplicateSelectedClip(player) },
@@ -2154,6 +2339,7 @@ ${d.group.length} items`,
             trim.current ||
             ranging.current ||
             marking.current ||
+            clipFading.current ||
             moving.current !== null ||
             !hover.current
           ) {

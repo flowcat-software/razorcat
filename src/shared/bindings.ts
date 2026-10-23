@@ -252,6 +252,12 @@ export type ExportClip = {
 	muted: boolean,
 	/**  Where it starts on the whole edit's timeline, which the markup's frames count on. */
 	start: number,
+	/**
+	 *  How many of its frames it fades in from black over, and out to black over (fitted to
+	 *  its length).
+	 */
+	fadeIn: number,
+	fadeOut: number,
 };
 
 /**
@@ -643,10 +649,20 @@ export type Timeline = {
 	 */
 	defaultMarkupFade?: number,
 	/**
-	 *  Markup duplicated, Alt-dragged or pasted keeps the original's fades (on by default;
-	 *  Richard, 2026-10-23). Off: copies start without.
+	 *  Markup and clips duplicated, Alt-dragged or pasted keep the original's fades (on by
+	 *  default; Richard, 2026-10-23). Off: copies start without.
 	 */
 	copiesKeepFades?: boolean,
+	/**
+	 *  The fade Apply Default Fades gives clips (PLAN 4.7a), in frames (15 by default; kept to
+	 *  `DEFAULT_FADE_RANGE`).
+	 */
+	defaultClipFade?: number,
+	/**
+	 *  A clip split fades at the cut, each part as the whole did at that end (off by default:
+	 *  the cut is clean).
+	 */
+	fadeSplitClips?: boolean,
 };
 
 /**

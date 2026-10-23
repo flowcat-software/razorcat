@@ -22,6 +22,9 @@ import {
   packLanes,
   moveClips,
   fadeEnds,
+  fadeClipEnds,
+  setClipFades,
+  setClipsFades,
   deleteClip,
   deleteMarks,
   deleteRange,
@@ -76,8 +79,12 @@ export interface RangeOptions {
   fadeCuts: boolean;
   /** The fade Apply Default Fades gives markup, in frames. */
   defaultFade: number;
-  /** Markup duplicated, Alt-dragged or pasted keeps the original's fades (else none). */
+  /** Markup and clips duplicated, Alt-dragged or pasted keep the original's fades (else none). */
   copyFades: boolean;
+  /** The fade Apply Default Fades gives clips, in frames (PLAN 4.7a). */
+  defaultClipFade: number;
+  /** A clip split (or cut by ranges) fades at the cut as the whole did at its ends. */
+  fadeClipCuts: boolean;
 }
 
 export interface DocState {
@@ -135,6 +142,14 @@ export interface DocState {
   moveClips: (ids: readonly ClipId[], at: number) => boolean;
   /** Mutes all the sound, or unmutes it. */
   muteTrack: (muted: boolean) => boolean;
+  /** Clip `id` fades in from black over so many frames, or out to it (PLAN 4.7a). */
+  setClipFades: (id: ClipId, set: { fadeIn: number } | { fadeOut: number }) => boolean;
+  /** Clips `ids` given the default clip fade (Settings) at one end or both. */
+  clipDefaultFades: (ids: readonly ClipId[], ends: "both" | "in" | "out") => boolean;
+  /** Clips `ids`'s fades removed at one end or both. */
+  clipRemoveFades: (ids: readonly ClipId[], ends: "both" | "in" | "out") => boolean;
+  /** Clips `ids` fading in and out over these (Paste Fades). */
+  setClipsFades: (ids: readonly ClipId[], fadeIn: number, fadeOut: number) => boolean;
 
   /** Adds a range over timeline frames `a` to `b` and selects it; its id, or null. */
   addRange: (a: number, b: number) => RangeId | null;
@@ -305,6 +320,8 @@ export const useDoc = create<DocState>()((set, get) => {
       fadeCuts: false,
       defaultFade: 15,
       copyFades: true,
+      defaultClipFade: 15,
+      fadeClipCuts: false,
     },
 
     load: (frames, size, id) =>
@@ -321,31 +338,38 @@ export const useDoc = create<DocState>()((set, get) => {
       }),
 
     split: (f) => {
-      const { splitMarks, fadeCuts } = get().options;
-      return applyClips((doc) => split(doc, f, splitMarks, fadeCuts));
+      const { splitMarks, fadeCuts, fadeClipCuts } = get().options;
+      return applyClips((doc) => split(doc, f, splitMarks, fadeCuts, fadeClipCuts));
     },
     remove: (id) => applyClips((doc) => deleteClip(doc, id, get().options.deleteWithClip)),
     move: (id, to) => applyClips((doc) => moveClip(doc, id, to)),
     trim: (id, inF, outF) => applyClips((doc) => trimClip(doc, id, inF, outF)),
-    duplicate: (id) => added(applyClips((doc) => duplicateClip(doc, id))),
-    paste: (copy, at) => added(applyClips((doc) => insertClip(doc, copy, at))),
+    duplicate: (id) => added(applyClips((doc) => duplicateClip(doc, id, get().options.copyFades))),
+    paste: (copy, at) =>
+      added(applyClips((doc) => insertClip(doc, copy, at, get().options.copyFades))),
     muteClip: (id, muted) => apply((doc) => muteClip(doc, id, muted)),
     removeClips: (ids) => applyClips((doc) => deleteClips(doc, ids, get().options.deleteWithClip)),
     duplicateClips: (ids) => {
       const n = get().doc.clips.filter((c) => ids.includes(c.id)).length;
       return addedMany(
-        applyClips((doc) => duplicateClips(doc, ids)),
+        applyClips((doc) => duplicateClips(doc, ids, get().options.copyFades)),
         n,
       );
     },
     pasteClips: (copies, at) =>
       addedMany(
-        applyClips((doc) => insertClips(doc, copies, at)),
+        applyClips((doc) => insertClips(doc, copies, at, get().options.copyFades)),
         copies.length,
       ),
     muteClips: (ids, muted) => apply((doc) => muteClips(doc, ids, muted)),
     moveClips: (ids, at) => applyClips((doc) => moveClips(doc, ids, at)),
     muteTrack: (muted) => apply((doc) => muteTrack(doc, muted)),
+    setClipFades: (id, set) => apply((doc) => setClipFades(doc, id, set)),
+    clipDefaultFades: (ids, ends) =>
+      apply((doc) => fadeClipEnds(doc, ids, get().options.defaultClipFade, ends)),
+    clipRemoveFades: (ids, ends) => apply((doc) => fadeClipEnds(doc, ids, 0, ends)),
+    setClipsFades: (ids, fadeIn, fadeOut) =>
+      apply((doc) => setClipsFades(doc, ids, fadeIn, fadeOut)),
 
     addRange: (a, b) => {
       const id = get().doc.nextRangeId;
@@ -356,12 +380,12 @@ export const useDoc = create<DocState>()((set, get) => {
     setRange: (id, a, b) => apply((doc) => setRange(doc, id, a, b)),
     removeRange: (id) => apply((doc) => deleteRange(doc, id)),
     keepRanges: () => {
-      const { splitMarks, fadeCuts } = get().options;
-      return apply((doc) => keepRanges(doc, splitMarks, fadeCuts));
+      const { splitMarks, fadeCuts, fadeClipCuts } = get().options;
+      return apply((doc) => keepRanges(doc, splitMarks, fadeCuts, fadeClipCuts));
     },
     removeRanges: () => {
-      const { splitMarks, fadeCuts } = get().options;
-      return apply((doc) => removeRanges(doc, splitMarks, fadeCuts));
+      const { splitMarks, fadeCuts, fadeClipCuts } = get().options;
+      return apply((doc) => removeRanges(doc, splitMarks, fadeCuts, fadeClipCuts));
     },
     setPendingIn: (f) => set({ pendingIn: f }),
 

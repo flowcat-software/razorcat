@@ -5,7 +5,7 @@
 import { drawMarks } from "../markup/drawMarks";
 import { playheadFrame } from "../markup/model/store";
 import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
-import { clipStarts, markFades, type ClipId, type Doc } from "./doc";
+import { clipFades, clipStarts, markFades, type ClipId, type Doc } from "./doc";
 import { useDoc } from "./docStore";
 import { darkLayer } from "./spotlights";
 import { growColour, outputSize, type Side } from "./frame";
@@ -16,8 +16,8 @@ export type ExportFormat = "mp4" | "gif";
 
 /**
  * The clips as export reads them, in timeline order: their numbers, files and source frames,
- * whether they're heard (the track's mute mutes them all), and where they start on the timeline
- * (which the markup's frames count on).
+ * whether they're heard (the track's mute mutes them all), where they start on the timeline
+ * (which the markup's frames count on), and their fades (PLAN 4.7a).
  */
 export function exportClips(doc: Doc) {
   const starts = clipStarts(doc);
@@ -28,6 +28,7 @@ export function exportClips(doc: Doc) {
     out: c.out,
     muted: doc.muted || !!c.muted,
     start: starts[i],
+    ...clipFades(c),
   }));
 }
 

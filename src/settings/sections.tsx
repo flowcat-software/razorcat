@@ -145,8 +145,44 @@ export const sections: Section[] = [
             path: "timeline.copiesKeepFades",
             label: "Copies keep their fades",
             description:
-              "Markup duplicated (Ctrl+D), Alt-dragged or pasted fades as the original does. Off: copies start without fades.",
-            keywords: ["markup", "fade", "copy", "duplicate", "paste", "alt", "drag", "timeline"],
+              "Markup and clips duplicated (Ctrl+D), Alt-dragged or pasted fade as the original does. Off: copies start without fades.",
+            keywords: [
+              "markup",
+              "clip",
+              "fade",
+              "copy",
+              "duplicate",
+              "paste",
+              "alt",
+              "drag",
+              "timeline",
+            ],
+          },
+        ],
+      },
+      {
+        title: "Clip fades",
+        items: [
+          {
+            id: "defaultClipFade",
+            kind: "number",
+            path: "timeline.defaultClipFade",
+            label: "Default clip fade",
+            description:
+              "What Apply Default Fades gives clips, from and to black (right-click a clip on the timeline: on its middle, both ends; on an edge or fade handle, that end). A short clip gets as much as fits.",
+            min: 1,
+            max: 300,
+            unit: "frames",
+            keywords: ["clip", "fade", "black", "default", "in", "out", "length", "frames"],
+          },
+          {
+            id: "fadeSplitClips",
+            kind: "toggle",
+            path: "timeline.fadeSplitClips",
+            label: "Split clip fades at the cut",
+            description:
+              "When a clip is split, the part before the cut fades out there and the part after fades in, as the whole did at its ends. Off: the cut is clean.",
+            keywords: ["clip", "fade", "black", "split", "cut", "ranges", "timeline"],
           },
         ],
       },
