@@ -117,6 +117,11 @@ const TOKENS = [
   "tl-bg",
   "tl-lane",
   "clip",
+  "clip-2",
+  "clip-3",
+  "clip-4",
+  "clip-5",
+  "clip-6",
   "border",
   "playhead",
   "snap",
@@ -399,6 +404,9 @@ const sameHit = (a: Hit | null, b: Hit | null) =>
 /** A change in frames, signed: "+14 frames", "−3 frames". */
 const signed = (n: number) =>
   `${n > 0 ? "+" : n < 0 ? "−" : "±"}${Math.abs(n)} ${Math.abs(n) === 1 ? "frame" : "frames"}`;
+
+/** Each file's clip colour, in the order they were added, round again after the last. */
+const CLIP_COLOURS = ["clip", "clip-2", "clip-3", "clip-4", "clip-5", "clip-6"];
 
 /**
  * Canvas can't read `light-dark()`: each colour token is resolved through a probe element, and
@@ -839,7 +847,12 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
         g.beginPath();
         g.roundRect(x0 + CLIP_GAP, CLIP_TOP, x1 - x0 - 2 * CLIP_GAP, CLIP_H, CLIP_RADIUS);
         g.clip();
-        g.fillStyle = c["clip"];
+        // Its file's colour (PLAN 4.5e).
+        const file = Math.max(
+          0,
+          doc.sources.findIndex((s) => s.id === clip.source),
+        );
+        g.fillStyle = c[CLIP_COLOURS[file % CLIP_COLOURS.length]];
         g.fillRect(x0, CLIP_TOP, x1 - x0, CLIP_H);
         const strip = strips.current.get(clip.source);
         if (strip) drawThumbs(g, strip, view, span, Math.min(x1, W));
@@ -857,12 +870,18 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
           drawSpeaker(g, Math.max(x0, HEADER) + 15, WAVE_MID, true);
         }
         // Its name and length, kept in view as the timeline scrolls. The name is the clip's
-        // id, so it stays with the clip as clips move: a reorder or a delete shows.
+        // id, so it stays with the clip as clips move: a reorder or a delete shows. With
+        // several files, its file's name after it, if there's room.
         const lx = Math.max(x0, HEADER) + 9;
-        const name = `Clip ${clip.id}`;
+        let name = `Clip ${clip.id}`;
         if (x1 - lx > 50) {
           g.fillStyle = "#fff";
           g.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
+          const named = sources.length > 1 && sources.find((s) => s.id === clip.source)?.name;
+          if (named) {
+            const full = `${name} · ${named.replace(/\.[^.]+$/, "")}`;
+            if (x1 - lx > g.measureText(full).width + 10) name = full;
+          }
           g.fillText(name, lx, CLIP_TOP + 10);
           const w = g.measureText(`${name} `).width;
           g.font = "11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";

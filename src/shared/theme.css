@@ -54,6 +54,13 @@
   --tl-lane: light-dark(#e2e2e2, #232323);
   --clip: light-dark(#3d6fb8, #34598f);
   --clip-sel: light-dark(#2a5aa3, #4570b0);
+  /* The clips of each file added after the first, in turn (PLAN 4.5e): clear of the markup's
+     violet, the ranges' amber and the playhead's red, white text legible on each. */
+  --clip-2: light-dark(#23827d, #1f6763);
+  --clip-3: light-dark(#4a8a35, #3b6c2b);
+  --clip-4: light-dark(#a8642f, #855027);
+  --clip-5: light-dark(#b0496f, #8c3b59);
+  --clip-6: light-dark(#5d6b7d, #4a5563);
   --mark: light-dark(#8a5cc4, #6f4aa0);
   --range: light-dark(rgb(240 160 0 / 0.3), rgb(255 190 40 / 0.22));
   --range-edge: light-dark(#d08a00, #ffbe28);
