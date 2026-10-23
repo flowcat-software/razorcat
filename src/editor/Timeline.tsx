@@ -14,6 +14,7 @@ import {
   laneCount,
   longestSource,
   moveGroupSlot,
+  packLanes,
   moveSlot,
   markFades,
   markLabel,
@@ -1864,6 +1865,23 @@ ${d.group.length} items`,
                   label: "Delete range",
                   hint: "Delete",
                   run: () => useDoc.getState().removeRange(id),
+                },
+              ],
+            });
+            return;
+          }
+          // The markup lanes' empty space: tidying them up.
+          if (x >= HEADER && y >= LANE_TOP && y < LANE_TOP + LANES_H) {
+            setMenu({
+              x: e.clientX,
+              y: e.clientY,
+              items: [
+                {
+                  label: "Clean up timeline",
+                  title:
+                    "Close up the markup lanes as far as they go, keeping every item's place and order",
+                  disabled: packLanes(docState.doc) === docState.doc,
+                  run: () => useDoc.getState().packLanes(),
                 },
               ],
             });

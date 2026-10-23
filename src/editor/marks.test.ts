@@ -17,6 +17,7 @@ import {
   markLabel,
   markOpacity,
   moveClip,
+  packLanes,
   placeMarks,
   removeRanges,
   setMark,
@@ -398,5 +399,48 @@ describe("lanes", () => {
     const doc = with_([0, 10, 0], [20, 40, 1], [25, 35, 2]);
     expect(lanes(doc)).toEqual({ 1: 0, 2: 1, 3: 2 });
     expect(lanes(stepLane(doc, 3, -1))).toEqual({ 1: 0, 2: 1, 3: 0 });
+  });
+});
+
+describe("cleaning up the lanes", () => {
+  /** Markup at these frames, in these lanes, on a 300-frame source (ids 1 on, in order). */
+  const laid = (items: [number, number, number][]): Doc => {
+    let doc = wholeSource(300);
+    for (const [start, end] of items) doc = addMark(doc, text(""), start, end - start, 0);
+    return { ...doc, marks: doc.marks.map((m, i) => ({ ...m, lane: items[i][2] })) };
+  };
+  const lanes = (doc: Doc) => shownMarks(doc).map((m) => m.lane);
+
+  it("closes the lanes up, keeping every item's frames and its order against what it overlaps", () => {
+    // Richard's screenshot: eight lanes, steps stacked at 130-150 with gaps under the long one.
+    const doc = laid([
+      [130, 150, 0],
+      [175, 195, 0],
+      [210, 230, 0],
+      [175, 240, 1],
+      [215, 235, 2],
+      [130, 150, 3],
+      [190, 210, 4],
+      [130, 150, 5],
+      [130, 150, 6],
+      [130, 150, 7],
+    ]);
+    const packed = packLanes(doc);
+    expect(lanes(packed)).toEqual([0, 0, 0, 1, 2, 1, 2, 2, 3, 4]);
+    expect(shownMarks(packed).map((m) => [m.start, m.end])).toEqual(
+      shownMarks(doc).map((m) => [m.start, m.end]),
+    );
+    // Nothing more to close up.
+    expect(packLanes(packed)).toBe(packed);
+  });
+
+  it("never moves an item down, or past what's in front of it", () => {
+    // B under A, both at 10-20; C alone further on, low down: up to the top.
+    const doc = laid([
+      [10, 20, 0],
+      [10, 20, 2],
+      [50, 60, 3],
+    ]);
+    expect(lanes(packLanes(doc))).toEqual([0, 1, 0]);
   });
 });

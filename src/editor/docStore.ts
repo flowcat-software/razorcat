@@ -19,6 +19,7 @@ import {
   duplicateClips,
   insertClips,
   muteClips,
+  packLanes,
   moveClips,
   fadeEnds,
   deleteClip,
@@ -168,6 +169,8 @@ export interface DocState {
   stepMark: (id: MarkId, dir: -1 | 1) => boolean;
   /** Markup `id` fades in over so many frames, or out. */
   setMarkFades: (id: MarkId, set: { fadeIn: number } | { fadeOut: number }) => boolean;
+  /** Clean up timeline: the markup's lanes closed up as far as they go (`packLanes`). */
+  packLanes: () => boolean;
   removeMark: (id: MarkId) => boolean;
   removeMarks: (ids: readonly MarkId[]) => boolean;
 
@@ -375,6 +378,7 @@ export const useDoc = create<DocState>()((set, get) => {
         places.map((p) => p.id),
       ),
     setMarkFades: (id, set) => apply((doc) => setMarkFades(doc, id, set)),
+    packLanes: () => apply(packLanes),
     removeMark: (id) => apply((doc) => deleteMarks(doc, [id])),
     removeMarks: (ids) => apply((doc) => deleteMarks(doc, ids)),
     crop: (crop) => apply((doc) => setCrop(doc, crop)),

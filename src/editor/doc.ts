@@ -1025,6 +1025,33 @@ export function settleLanes(doc: Doc, yielding: readonly MarkId[] = []): Doc {
 }
 
 /**
+ * Clean up timeline (Richard, 2026-10-23): the lanes closed up as far as they go. Each item,
+ * the front lanes' first, goes up to the first lane below everything it overlaps in time that's
+ * in front of it, so nothing changes its frames, or its order front to back against what it
+ * overlaps, and nothing goes down. Hidden markup keeps its lane. The same document if nothing
+ * moves.
+ */
+export function packLanes(doc: Doc): Doc {
+  const order = shownMarks(doc).sort((a, b) => a.lane - b.lane || a.start - b.start);
+  const placed: { start: number; end: number; lane: number }[] = [];
+  const lanes = new Map<MarkId, number>();
+  for (const m of order) {
+    const over = placed.filter((p) => p.start < m.end && m.start < p.end);
+    const lane = over.length ? Math.max(...over.map((p) => p.lane)) + 1 : 0;
+    placed.push({ start: m.start, end: m.end, lane });
+    lanes.set(m.id, lane);
+  }
+  let changed = false;
+  const marks = doc.marks.map((m) => {
+    const lane = lanes.get(m.id);
+    if (lane === undefined || lane === m.lane) return m;
+    changed = true;
+    return { ...m, lane };
+  });
+  return changed ? { ...doc, marks } : doc;
+}
+
+/**
  * The lane that puts markup `id` in front of everything it overlaps in time (`front`), or
  * behind it all (`back`): above the highest of them or below the lowest, a new lane if need
  * be. Its own lane if nothing overlaps it.
