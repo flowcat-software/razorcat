@@ -13,7 +13,9 @@ import {
   addRangeAtPlayhead,
   copySelectedClip,
   copySelectedMarks,
+  pasteFades,
   pasteStyle,
+  pasteTiming,
   deleteSelected,
   duplicateSelectedClip,
   moveSelected,
@@ -373,9 +375,11 @@ export function EditorApp() {
         } else moveSelected(player, e.shiftKey ? (earlier ? "first" : "last") : earlier ? -1 : 1);
         return;
       }
-      // Ctrl+Shift+V: the copied markup's style onto the selected markup.
-      if (e.shiftKey && e.code === "KeyV" && !isTyping(e.target)) {
-        if (pasteStyle()) e.preventDefault();
+      // Ctrl+Shift+V, F and T: the copied markup's style, fades or timing onto the selected
+      // markup.
+      const pasting = { KeyV: pasteStyle, KeyF: pasteFades, KeyT: pasteTiming }[e.code];
+      if (e.shiftKey && pasting && !isTyping(e.target)) {
+        if (pasting()) e.preventDefault();
         return;
       }
       if (e.shiftKey) return;

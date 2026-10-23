@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { copiedMarks, copySelectedMarks, pasteStyle } from "../editor/edits";
+import {
+  copiedMarks,
+  copySelectedMarks,
+  pasteFades,
+  pasteStyle,
+  pasteTiming,
+} from "../editor/edits";
 import { markupClipboard } from "./markupClipboard";
 import { useMenuPlacement } from "./menuPlacement";
 import { docStore, useDoc } from "./model/store";
@@ -112,13 +118,25 @@ export function ObjectMenu({ at, onObject, onClose }: Props) {
           <div className={styles.menuSep} role="separator" />
         </>
       )}
-      {/* Razorcat: copying markup, and pasting its style (PLAN 4.5d3). */}
+      {/* Razorcat: copying markup, and pasting its style, fades or timing (PLAN 4.5d3-4). */}
       <Row label="Copy" keys="Ctrl+C" disabled={!onObject} onClick={run(copySelectedMarks)} />
       <Row
         label="Paste Style"
         keys="Ctrl+Shift+V"
         disabled={!onObject || !copiedMarks()}
         onClick={run(pasteStyle)}
+      />
+      <Row
+        label="Paste Fades"
+        keys="Ctrl+Shift+F"
+        disabled={!onObject || !copiedMarks()}
+        onClick={run(pasteFades)}
+      />
+      <Row
+        label="Paste Timing"
+        keys="Ctrl+Shift+T"
+        disabled={!onObject || !copiedMarks()}
+        onClick={run(pasteTiming)}
       />
       <Row label="Duplicate" keys="Ctrl+D" disabled={!onObject} onClick={run(duplicateSelection)} />
       <div className={styles.menuSep} role="separator" />

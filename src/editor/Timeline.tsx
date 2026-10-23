@@ -35,7 +35,9 @@ import {
   copySelectedMarks,
   deleteSelected,
   duplicateSelectedClip,
+  pasteFades,
   pasteStyle,
+  pasteTiming,
   splitAtPlayhead,
 } from "./edits";
 import { exportClip } from "./exports";
@@ -1663,6 +1665,18 @@ ${d.group.length} items`,
                   hint: "Ctrl+Shift+V",
                   disabled: !copiedMarks(),
                   run: () => void pasteStyle(),
+                },
+                {
+                  label: "Paste Fades",
+                  hint: "Ctrl+Shift+F",
+                  disabled: !copiedMarks(),
+                  run: () => void pasteFades(),
+                },
+                {
+                  label: "Paste Timing",
+                  hint: "Ctrl+Shift+T",
+                  disabled: !copiedMarks(),
+                  run: () => void pasteTiming(),
                 },
                 { label: "Duplicate", hint: "Ctrl+D", run: () => void duplicateSelection() },
                 "-",

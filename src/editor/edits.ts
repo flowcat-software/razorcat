@@ -203,6 +203,33 @@ function pasteMarks(marks: readonly MarkCopy[], at: number): boolean {
   return ids.length > 0;
 }
 
+/** Ctrl+Shift+F: the copied markup's fades (its first item's) onto the selected markup. */
+export function pasteFades(): boolean {
+  const marks = copiedMarks();
+  const { selectedMarks, setFades } = useDoc.getState();
+  if (!marks || !selectedMarks.length) return false;
+  setFades(selectedMarks, marks[0].fadeIn, marks[0].fadeOut);
+  return true;
+}
+
+/**
+ * Ctrl+Shift+T: the selected markup to the copied markup's place on the timeline (its first
+ * item's start and end), one undo step; several stack in lanes of their own, in their order
+ * front to back (`placeMarks`).
+ */
+export function pasteTiming(): boolean {
+  const marks = copiedMarks();
+  const { doc, selectedMarks, placeMarks } = useDoc.getState();
+  if (!marks || !selectedMarks.length) return false;
+  const { start, end } = marks[0];
+  placeMarks(
+    shownMarks(doc)
+      .filter((m) => selectedMarks.includes(m.id))
+      .map((m) => ({ id: m.id, start, end, lane: m.lane })),
+  );
+  return true;
+}
+
 /**
  * Ctrl+Shift+V: the copied markup's style (its first item's) onto the selected markup, one undo
  * step (`stylePatchFor`). False with no markup copied or none selected.

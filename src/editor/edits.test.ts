@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { shownMarks, type MarkObject } from "./doc";
 import { useDoc } from "./docStore";
-import { copySelectedMarks, pasteClip, pasteStyle } from "./edits";
+import { copySelectedMarks, pasteClip, pasteFades, pasteStyle, pasteTiming } from "./edits";
 import type { Player } from "./player";
 
 const s = () => useDoc.getState();
@@ -59,5 +59,41 @@ describe("copying markup", () => {
     expect((s().doc.marks.find((m) => m.id === b)!.object as { style: unknown }).style).toEqual(
       style("#0000ff", 2),
     );
+  });
+
+  it("pastes its fades onto the selected markup, kept to each one's length", () => {
+    const a = s().addMark(rect, 0, 60, 0)!;
+    const b = s().addMark(arrow, 70, 60, 0)!;
+    const c = s().addMark(arrow, 140, 12, 0)!;
+    s().setMarkFades(a, { fadeIn: 10 });
+    s().setMarkFades(a, { fadeOut: 20 });
+    s().setMarkFades(b, { fadeIn: 3 });
+    s().selectMarks([a]);
+    copySelectedMarks();
+    s().selectMarks([b, c]);
+    expect(pasteFades()).toBe(true);
+    const fades = (id: number) => {
+      const m = s().doc.marks.find((k) => k.id === id)!;
+      return [m.fadeIn ?? 0, m.fadeOut ?? 0];
+    };
+    expect(fades(b)).toEqual([10, 20]);
+    // 12 frames: the fade-in, then what's left.
+    expect(fades(c)).toEqual([10, 2]);
+  });
+
+  it("pastes its timing onto the selected markup, stacked in their order", () => {
+    const a = s().addMark(rect, 10, 30, 0)!;
+    const b = s().addMark(arrow, 100, 20, 0)!;
+    const c = s().addMark(arrow, 150, 20, 1)!;
+    s().selectMarks([a]);
+    copySelectedMarks();
+    s().selectMarks([b, c]);
+    expect(pasteTiming()).toBe(true);
+    const place = (id: number) => shownMarks(s().doc).find((m) => m.id === id)!;
+    expect([place(b).start, place(b).end, place(c).start, place(c).end]).toEqual([10, 40, 10, 40]);
+    // a stays put; b over c, under a.
+    expect([place(a).lane, place(b).lane, place(c).lane]).toEqual([0, 1, 2]);
+    s().undo();
+    expect(place(b).start).toBe(100);
   });
 });

@@ -754,6 +754,20 @@ export function fadeEnds(
     }, doc);
 }
 
+/**
+ * Markup `ids` fading in over `fadeIn` frames and out over `fadeOut` (Paste Fades, PLAN 4.5d4),
+ * each as far as its length allows: the fade-in first, the fade-out in what's left.
+ */
+export function setFades(doc: Doc, ids: readonly MarkId[], fadeIn: number, fadeOut: number): Doc {
+  return ids.reduce(
+    (d, id) =>
+      setMarkFades(setMarkFades(setMarkFades(d, id, { fadeOut: 0 }), id, { fadeIn }), id, {
+        fadeOut,
+      }),
+    doc,
+  );
+}
+
 /** Clip `from` was cut at source frame `at`: markup starting past it now belongs to clip `to`. */
 function handMarksOver(marks: readonly Mark[], from: ClipId, to: ClipId, at: number): Mark[] {
   return marks.map((m) => (m.clip === from && m.at >= at ? { ...m, clip: to } : m));

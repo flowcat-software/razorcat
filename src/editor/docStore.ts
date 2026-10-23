@@ -31,6 +31,7 @@ import {
   setCrop,
   setGrow,
   setMark,
+  setFades,
   setMarkFades,
   placeMarks,
   stepLane,
@@ -131,6 +132,8 @@ export interface DocState {
   ) => boolean;
   /** Markup `ids` given the default fade (Settings) at one end or both: `fadeEnds`. */
   defaultFades: (ids: readonly MarkId[], ends: "both" | "in" | "out") => boolean;
+  /** Markup `ids` fading in and out over these (`setFades`: Paste Fades). */
+  setFades: (ids: readonly MarkId[], fadeIn: number, fadeOut: number) => boolean;
   /** Markup `ids`'s fades removed at one end or both. */
   removeFades: (ids: readonly MarkId[], ends: "both" | "in" | "out") => boolean;
   /** Markup dragged to `start`–`end` and dropped on `lane` (`dropMark`: between busy lanes). */
@@ -295,6 +298,7 @@ export const useDoc = create<DocState>()((set, get) => {
     defaultFades: (ids, ends) =>
       apply((doc) => fadeEnds(doc, ids, get().options.defaultFade, ends)),
     removeFades: (ids, ends) => apply((doc) => fadeEnds(doc, ids, 0, ends)),
+    setFades: (ids, fadeIn, fadeOut) => apply((doc) => setFades(doc, ids, fadeIn, fadeOut)),
     placeMarks: (places) =>
       apply(
         (doc) => {
