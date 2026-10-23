@@ -68,6 +68,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             editor::SourceOpened,
             editor::SourceAdded,
             editor::OpenOffered,
+            editor::DropHover,
             editor::OpenFailed,
             editor::SourceConverted,
             convert::ConvertProgress,
@@ -117,20 +118,15 @@ pub(crate) fn product_name(app: &AppHandle) -> String {
         .unwrap_or_else(|| app.package_info().name.clone())
 }
 
-/// Opens the file a launch was given. The MVP edits one source: of several, the first wins.
+/// Opens the files a launch was given, in order (offered, if the timeline has files).
 fn open_from_args(app: &AppHandle, args: &[String], cwd: &Path) {
     let checking = check::requested(args);
-    let mut files = cli::file_paths(args, cwd).into_iter();
-    if let Some(file) = files.next() {
-        // A check replaces the timeline without asking.
-        if checking {
-            editor::request_open(app, file, false);
-        } else {
-            editor::offer(app, file);
-        }
-    }
-    for extra in files {
-        eprintln!("[startup] one file at a time; ignored {}", extra.display());
+    let files = cli::file_paths(args, cwd);
+    // A check replaces the timeline without asking.
+    if checking {
+        editor::request_open_all(app, files, false);
+    } else {
+        editor::offer(app, files);
     }
 }
 
@@ -165,17 +161,28 @@ pub fn run() {
             eprintln!("[startup] ready");
             Ok(())
         })
-        // The editor: a file dropped on it opens there (the first, if several: one source), and
-        // its place on screen is remembered.
+        // The editor: files dropped on it open there (the timeline shows where, as they're
+        // dragged over it), and its place on screen is remembered.
         .on_window_event(|window, event| {
             if window.label() != editor::LABEL {
                 return;
             }
             let app = window.app_handle();
             match event {
-                tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
-                    if let Some(path) = paths.first() {
-                        editor::offer(app, path.clone());
+                tauri::WindowEvent::DragDrop(drag) => {
+                    let scale = window.scale_factor().unwrap_or(1.0);
+                    let hover = |position: &tauri::PhysicalPosition<f64>| {
+                        let at = position.to_logical::<f64>(scale);
+                        editor::drop_hover(app, Some((at.x, at.y)));
+                    };
+                    match drag {
+                        tauri::DragDropEvent::Enter { position, .. }
+                        | tauri::DragDropEvent::Over { position } => hover(position),
+                        tauri::DragDropEvent::Drop { paths, .. } => {
+                            editor::offer(app, paths.clone())
+                        }
+                        tauri::DragDropEvent::Leave => editor::drop_hover(app, None),
+                        _ => {}
                     }
                 }
                 tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {

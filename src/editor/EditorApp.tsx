@@ -165,7 +165,7 @@ export function EditorApp() {
    * A question before the timeline is replaced (PLAN 4.5e3): Open with edits on it, or a file
    * dropped on it (add or replace).
    */
-  const [asking, setAsking] = useState<{ open: true } | { offered: string } | null>(null);
+  const [asking, setAsking] = useState<{ open: true } | { offered: string[] } | null>(null);
   /** Open (the button, Ctrl+O): with edits, asks first. */
   const replace = () => (edited() ? setAsking({ open: true }) : openVideo());
   /** Time as frame numbers, not timecode: the readout and the ruler (a click on the readout). */
@@ -262,17 +262,32 @@ export function EditorApp() {
       // Rust's f64s arrive typed `number | null` (see ipc.ts): `SourceInfo` is what's sent.
       events.sourceOpened.listen(({ payload }) => {
         setSources([payload as SourceInfo]);
+        useTimeline.getState().setDropAt(null);
         setNotice(null);
         setConverting(null);
       }),
-      // A file dropped while the timeline has files: add it, or replace them?
-      events.openOffered.listen(({ payload }) => setAsking({ offered: payload.name })),
+      // Files dropped while the timeline has files: onto a cut, they go in there (PLAN
+      // 4.5e5); elsewhere, add them or replace the timeline's?
+      events.openOffered.listen(({ payload }) => {
+        const at = useTimeline.getState().dropAt;
+        useTimeline.getState().setDropAt(null);
+        if (at !== null) void commands.answerOffer(true, at);
+        else setAsking({ offered: payload.names });
+      }),
       // One more file, on the end of the timeline (one undo step).
       events.sourceAdded.listen(({ payload }) => {
-        const added = payload as SourceInfo;
+        const added = payload.source as SourceInfo;
         setSources((now) => [...now, added]);
-        useDoc.getState().addSource(added.id, added.frames);
-        setNotice({ text: `Added ${added.name} to the end of the timeline.` });
+        // Dropped onto a cut, it goes in there, and lights up to show where.
+        const id = useDoc.getState().doc.nextId;
+        useDoc.getState().addSource(added.id, added.frames, payload.at);
+        if (payload.at !== null) useTimeline.getState().flashClip(id);
+        setNotice({
+          text:
+            payload.at === null
+              ? `Added ${added.name} to the end of the timeline.`
+              : `Added ${added.name} to the timeline.`,
+        });
         setConverting(null);
       }),
       // A file, now playing from a converted copy.
@@ -625,22 +640,29 @@ export function EditorApp() {
           confirm="Add"
           onConfirm={() => {
             setAsking(null);
-            void commands.answerOffer(true);
+            void commands.answerOffer(true, null);
           }}
           onCancel={() => {
             setAsking(null);
-            void commands.answerOffer(null);
+            void commands.answerOffer(null, null);
           }}
           other={{
             label: "Replace",
             onClick: () => {
               setAsking(null);
-              void commands.answerOffer(false);
+              void commands.answerOffer(false, null);
             },
           }}
         >
           <p>
-            Add {asking.offered} after the clips on the timeline, or replace the timeline with it.
+            {asking.offered.length === 1
+              ? `Add ${asking.offered[0]} after the clips on the timeline, or replace the timeline with it.`
+              : `Add these ${asking.offered.length} videos after the clips on the timeline, or replace the timeline with them (in this order: ${asking.offered.join(", ")}).`}
+          </p>
+          <p>
+            To put {asking.offered.length === 1 ? "it" : "them"} between clips, drop{" "}
+            {asking.offered.length === 1 ? "it" : "them"} onto the cut where{" "}
+            {asking.offered.length === 1 ? "it goes" : "they go"}.
           </p>
           {edited() && <p>Replacing loses the timeline&apos;s edits.</p>}
         </ConfirmDialog>

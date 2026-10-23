@@ -96,7 +96,7 @@ export interface DocState {
    */
   load: (frames: number, size?: Size, id?: SourceId) => void;
   /** Source `id`, `frames` long, on the end of the timeline (PLAN 4.5e): one undo step. */
-  addSource: (id: SourceId, frames: number) => boolean;
+  addSource: (id: SourceId, frames: number, at?: number | null) => boolean;
   /** Splits the clip under timeline frame `f`. False if there was nothing to split. */
   split: (f: number) => boolean;
   /** Deletes clip `id` (ripple). False if it can't (the last clip). */
@@ -300,7 +300,7 @@ export const useDoc = create<DocState>()((set, get) => {
     setMark: (id, start, end, lane) => apply((doc) => setMark(doc, id, start, end, lane), [id]),
     setMarkObject: (id, object) => apply((doc) => setMarkObject(doc, id, object)),
     stepMark: (id, dir) => apply((doc) => stepLane(doc, id, dir)),
-    addSource: (id, frames) => apply((doc) => addSource(doc, id, frames)),
+    addSource: (id, frames, at) => apply((doc) => addSource(doc, id, frames, at)),
     dropMark: (id, start, end, lane, below) =>
       apply((doc) => dropMark(doc, id, start, end, lane, below)),
     defaultFades: (ids, ends) =>

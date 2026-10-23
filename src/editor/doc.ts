@@ -175,16 +175,18 @@ export function wholeSource(
 }
 
 /**
- * Source `id`, `frames` long, added on the end of the timeline whole, as a clip of its own (PLAN
- * 4.5e).
+ * Source `id`, `frames` long, added to the timeline whole, as a clip of its own (PLAN 4.5e):
+ * before clip `at` (its index; dropped onto a cut), else on the end.
  */
-export function addSource(doc: Doc, id: SourceId, frames: number): Doc {
+export function addSource(doc: Doc, id: SourceId, frames: number, at?: number | null): Doc {
   if (frames < 1) return doc;
   const sources = doc.sources.some((s) => s.id === id)
     ? doc.sources
     : [...doc.sources, { id, frames }];
   const clip = { id: doc.nextId, source: id, in: 0, out: frames };
-  return { ...doc, sources, clips: [...doc.clips, clip], nextId: doc.nextId + 1 };
+  const k = at == null ? doc.clips.length : Math.max(0, Math.min(doc.clips.length, at));
+  const clips = [...doc.clips.slice(0, k), clip, ...doc.clips.slice(k)];
+  return { ...doc, sources, clips, nextId: doc.nextId + 1 };
 }
 
 /** The longest source's length: how long a timecode can get by pulling clips out. */

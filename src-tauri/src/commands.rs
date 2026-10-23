@@ -28,12 +28,12 @@ pub async fn open_dialog(app: AppHandle, add: bool) {
     let _ = tauri::async_runtime::spawn_blocking(move || editor::ask_open(&app, add)).await;
 }
 
-/// The answer to [`editor::OpenOffered`]: add the dropped file (true), replace the timeline's
-/// files with it (false), or neither (null).
+/// The answer to [`editor::OpenOffered`]: add the dropped files (true; before clip `at`, its
+/// index, else on the end), replace the timeline's files with them (false), or neither (null).
 #[tauri::command]
 #[specta::specta]
-pub fn answer_offer(app: AppHandle, add: Option<bool>) {
-    editor::answer_offer(&app, add);
+pub fn answer_offer(app: AppHandle, add: Option<bool>, at: Option<u32>) {
+    editor::answer_offer(&app, add, at);
 }
 
 /// The Windows accent color, if Windows has one. Async, so it's read on a worker thread: as a

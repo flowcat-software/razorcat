@@ -236,4 +236,13 @@ describe("several sources", () => {
     expect(again.clips).toHaveLength(3);
     expect(again.sources).toHaveLength(2);
   });
+
+  it("puts a file dropped onto a cut in there, kept to the timeline", () => {
+    const at = (k: number) => addSource(doc, "c", 10, k).clips.map((c) => c.source);
+    expect(at(0)).toEqual(["c", "a", "b"]);
+    expect(at(1)).toEqual(["a", "c", "b"]);
+    expect(at(2)).toEqual(["a", "b", "c"]);
+    expect(at(9)).toEqual(["a", "b", "c"]);
+    expect(addSource(doc, "c", 10, null).clips.map((c) => c.source)).toEqual(["a", "b", "c"]);
+  });
 });

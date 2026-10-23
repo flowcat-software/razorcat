@@ -20,10 +20,10 @@ export const commands = {
 	 */
 	openDialog: (add: boolean) => __TAURI_INVOKE<void>("open_dialog", { add }),
 	/**
-	 *  The answer to [`editor::OpenOffered`]: add the dropped file (true), replace the timeline's
-	 *  files with it (false), or neither (null).
+	 *  The answer to [`editor::OpenOffered`]: add the dropped files (true; before clip `at`, its
+	 *  index, else on the end), replace the timeline's files with them (false), or neither (null).
 	 */
-	answerOffer: (add: boolean | null) => __TAURI_INVOKE<void>("answer_offer", { add }),
+	answerOffer: (add: boolean | null, at: number | null) => __TAURI_INVOKE<void>("answer_offer", { add, at }),
 	/**
 	 *  The Windows accent color, if Windows has one. Async, so it's read on a worker thread: as a
 	 *  plain command it ran on the main thread, WinRT and a COM init amid the window's start-up, the
@@ -123,6 +123,7 @@ export const events = {
 	checkFrames: makeEvent<CheckFrames>("check-frames"),
 	convertEnded: makeEvent<ConvertEnded>("convert-ended"),
 	convertProgress: makeEvent<ConvertProgress>("convert-progress"),
+	dropHover: makeEvent<DropHover>("drop-hover"),
 	exportEnded: makeEvent<ExportEnded>("export-ended"),
 	exportProgress: makeEvent<ExportProgress>("export-progress"),
 	openFailed: makeEvent<OpenFailed>("open-failed"),
@@ -199,6 +200,16 @@ export type Crop = {
 
 /**  How fast a number field's value changes as it's dragged: scales the mouse's speed. */
 export type DragSpeed = "verySlow" | "slow" | "normal" | "fast" | "veryFast";
+
+/**
+ *  Rust → editor: files are being dragged over the window, the pointer here (CSS pixels in the
+ *  page), or (`over` false) no longer: the timeline shows where they'd go in (PLAN 4.5e5).
+ */
+export type DropHover = {
+	x: number | null,
+	y: number | null,
+	over: boolean,
+};
 
 export type Editing = {
 	/**  Dragging a number field (crop, grow). */
@@ -403,12 +414,12 @@ export type OpenFailed = {
 };
 
 /**
- *  Rust → editor: a file was dropped on the window (or launched with) while the timeline has
- *  files: ask whether to add it or replace them, then `answer_offer` (PLAN 4.5e3).
+ *  Rust → editor: files were dropped on the window (or launched with) while the timeline has
+ *  files: ask whether to add them or replace its files, then `answer_offer` (PLAN 4.5e3).
  */
 export type OpenOffered = {
-	/**  Its file name. */
-	name: string,
+	/**  Their file names, in order. */
+	names: string[],
 };
 
 /**
@@ -477,8 +488,14 @@ export type Settings = {
 /**  Rust → all windows: settings changed (from any source), here's the new state. */
 export type SettingsChanged = Settings;
 
-/**  Rust → editor: a file was added to the timeline's (PLAN 4.5e): it goes on the end. */
-export type SourceAdded = SourceInfo;
+/**
+ *  Rust → editor: a file was added to the timeline's (PLAN 4.5e): it goes before clip `at` (its
+ *  index), else on the end.
+ */
+export type SourceAdded = {
+	source: SourceInfo,
+	at: number | null,
+};
 
 /**
  *  Rust → editor: the open source plays from a converted copy now (its codec): the same

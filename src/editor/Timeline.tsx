@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { annotationId, docStore as markupDoc } from "../markup/model/store";
 import type { Reorder } from "../markup/model/commands";
 import { duplicateSelection } from "../markup/objectActions";
-import type { SourceInfo, ThumbsInfo } from "../shared/ipc";
+import { events, type SourceInfo, type ThumbsInfo } from "../shared/ipc";
 import type { Player } from "./player";
 import { ThumbStrip } from "./thumbs";
 import { Peaks, waveHeight } from "./wave";
@@ -572,6 +572,44 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const draw = useRef<() => void>(() => {});
   const [redraw] = useState(() => () => draw.current());
+
+  // Files dragged over the window (PLAN 4.5e5): over the clip row, the nearest cut (or the
+  // start, or the end) is where they'd go in.
+  useEffect(() => {
+    const off = events.dropHover.listen(({ payload: { x, y, over } }) => {
+      const canvas = canvasRef.current;
+      let at: number | null = null;
+      if (over && canvas && x !== null && y !== null) {
+        const r = canvas.getBoundingClientRect();
+        const px = x - r.left;
+        const py = y - r.top;
+        const { doc } = useDoc.getState();
+        if (
+          doc.clips.length &&
+          px >= HEADER &&
+          px <= r.width &&
+          py >= CLIP_TOP - 12 &&
+          py <= CLIP_TOP + CLIP_H + 12
+        ) {
+          const { view } = useTimeline.getState();
+          const bounds = [...clipStarts(doc), total(doc)];
+          let best = Infinity;
+          bounds.forEach((f, k) => {
+            const d = Math.abs(xOf(view, f) - px);
+            if (d < best) {
+              best = d;
+              at = k;
+            }
+          });
+        }
+      }
+      if (at !== useTimeline.getState().dropAt) {
+        useTimeline.getState().setDropAt(at);
+        redraw();
+      }
+    });
+    return () => void off.then((f) => f());
+  }, [redraw]);
   const colours = useColours(redraw);
   const frames = useDoc((s) => total(s.doc));
   /** The edge or title bar under the pointer (not dragging). */
@@ -1039,6 +1077,22 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
         g.stroke();
         g.fillStyle = "rgb(0 0 0 / 0.45)";
         for (const dy of [-5, 0, 5]) g.fillRect(gx + 2, gy + gh / 2 + dy - 0.5, gw - 4, 1);
+      }
+
+      // Files dragged over the clip row (PLAN 4.5e5): where they'd go in, an accent bar across
+      // the row with a "+" on top (unlike the neutral snap guide and the red playhead).
+      const dropAt = useTimeline.getState().dropAt;
+      if (dropAt !== null) {
+        const bounds = [...starts, total(doc)];
+        const dx = Math.round(xOf(view, bounds[Math.min(dropAt, bounds.length - 1)]));
+        g.fillStyle = c["accent"];
+        g.fillRect(dx - 2, CLIP_TOP - 6, 4, CLIP_H + 12);
+        g.beginPath();
+        g.arc(dx, CLIP_TOP - 6, 9, 0, 2 * Math.PI);
+        g.fill();
+        g.fillStyle = "#fff";
+        g.fillRect(dx - 5, CLIP_TOP - 7, 10, 2);
+        g.fillRect(dx - 1, CLIP_TOP - 11, 2, 10);
       }
 
       // The snap guide: a dashed line with a small diamond on the ruler, while a drag is held

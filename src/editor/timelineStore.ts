@@ -27,6 +27,11 @@ interface TimelineState {
   snap: boolean;
   /** A clip lit up to show where it went (a duplicate or a paste), and when (ms). */
   flash: { id: ClipId; at: number } | null;
+  /**
+   * Files dragged over the clip row (PLAN 4.5e5): the cut they'd go in at (before clip `k`; the
+   * clip count is the end), else null.
+   */
+  dropAt: number | null;
   /** The timeline was measured, or its length changed (an edit): fitted stays fitted. */
   setSize: (width: number, frames: number) => void;
   /** Holds the view still (a trim starts), or lets it fit the timeline again (it ends). */
@@ -34,6 +39,7 @@ interface TimelineState {
   toggleSnap: () => void;
   /** Lights clip `id` up for a moment. */
   flashClip: (id: ClipId) => void;
+  setDropAt: (at: number | null) => void;
   fit: () => void;
   /** Zooms by `factor`, about `anchorX` (default: the middle). */
   zoomBy: (factor: number, anchorX?: number) => void;
@@ -54,6 +60,7 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   held: false,
   snap: true,
   flash: null,
+  dropAt: null,
 
   setSize: (width, frames) => {
     const s = get();
@@ -84,6 +91,7 @@ export const useTimeline = create<TimelineState>((set, get) => ({
 
   toggleSnap: () => set({ snap: !get().snap }),
   flashClip: (id) => set({ flash: { id, at: performance.now() } }),
+  setDropAt: (dropAt) => set({ dropAt }),
 
   fit: () => {
     const { width, frames } = get();
