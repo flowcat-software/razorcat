@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { setDragHint, setHoverHint, type ControlHint, type DragHint } from "../markup/hints";
 import { annotationId, docStore as markupDoc } from "../markup/model/store";
 import type { Reorder } from "../markup/model/commands";
 import { duplicateSelection } from "../markup/objectActions";
@@ -1692,8 +1693,23 @@ ${d.group.length} items`,
     draw.current();
   };
 
+  /** What's being dragged, for the hint line's modifiers (`scrubbing`: the playhead). */
+  const dragHintNow = (scrubbing: boolean): DragHint | null => {
+    const d = marking.current;
+    if (trim.current) return "trim";
+    if (moving.current !== null) return "clipMove";
+    if (ranging.current) return "range";
+    if (d) {
+      if (d.kind === "move") return d.copying ? "markCopy" : "markMove";
+      return d.kind === "start" || d.kind === "end" ? "markEdge" : "fade";
+    }
+    if (boxing.current) return "box";
+    return scrubbing ? "scrub" : null;
+  };
+
   /** The drag ended (or was cancelled by the system): one undo step, and back to hovering. */
   const endDrag = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    setDragHint(null);
     const docState = useDoc.getState();
     if (trim.current) {
       trim.current = null;
@@ -1921,6 +1937,12 @@ ${d.group.length} items`,
         }}
         onPointerMove={(e) => {
           const canvas = e.currentTarget;
+          // The hint line (PLAN 4.6b): a drag's modifiers while one's under way.
+          const drag = dragHintNow(canvas.hasPointerCapture(e.pointerId));
+          if (drag) {
+            setHoverHint(null);
+            setDragHint(drag);
+          }
           if (trim.current) {
             trimTo(e, trim.current);
             return;
@@ -1968,6 +1990,16 @@ ${d.group.length} items`,
           // None while a menu is open (its tooltip would read as part of it).
           if (menu) hideTip();
           else hoverTip(hit?.kind ?? null, e.clientX, e.clientY);
+          // The hint line: what the handle under the pointer does, or the lanes or ruler.
+          setHoverHint(
+            speaker
+              ? "timeline.speaker"
+              : hit
+                ? (`timeline.${hit.kind}` as ControlHint)
+                : y >= LANE_TOP && y < CLIP_TOP
+                  ? "timeline.lanes"
+                  : "timeline.ruler",
+          );
         }}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -2117,6 +2149,7 @@ ${d.group.length} items`,
         onPointerLeave={() => {
           hideTip();
           tipFor.current = null;
+          setHoverHint(null);
           if (
             trim.current ||
             ranging.current ||

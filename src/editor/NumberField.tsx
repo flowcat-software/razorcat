@@ -1,5 +1,7 @@
 import { LogicalPosition, getCurrentWindow } from "@tauri-apps/api/window";
 import { useRef, useState, type PointerEvent } from "react";
+import { hint as hintFor } from "../markup/HintLine";
+import type { ControlHint } from "../markup/hints";
 import { useDoc } from "./docStore";
 import { DRAG_THRESHOLD, dragGain } from "./numberDrag";
 import { useTool } from "./toolStore";
@@ -27,6 +29,8 @@ interface Props {
   width?: number;
   /** How fast a drag changes it, against the usual (0.5: half as fast). */
   gain?: number;
+  /** Its hint in the status bar (PLAN 4.6b; else the plain number's). */
+  hint?: ControlHint;
 }
 
 const readNumber = (text: string) => {
@@ -57,6 +61,7 @@ export function NumberField({
   shift = { by: 10, label: "10× faster" },
   width,
   gain = 1,
+  hint = "number",
 }: Props) {
   /** What's typed, until Enter or leaving the field sets it (Esc drops it). */
   const [typed, setTyped] = useState<string | null>(null);
@@ -157,7 +162,7 @@ export function NumberField({
   };
 
   return (
-    <label className={styles.field}>
+    <label className={styles.field} {...hintFor(hint)}>
       {label}
       <input
         className={styles.numberField}

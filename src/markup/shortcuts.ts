@@ -22,6 +22,27 @@ export type ShortcutKeys = Record<
 >;
 export type ShortcutId = keyof ShortcutKeys;
 
+/**
+ * Razorcat's tool keys, fixed (editor/cropTool.ts's `TOOL_KEYS`), for the hint line and the
+ * tooltips: Vandal's are settings, and some of its letters are the timeline's here (L, R, O, S).
+ */
+export const RAZORCAT_SHORTCUTS: ShortcutKeys = {
+  select: "V",
+  pen: "P",
+  highlighter: "H",
+  line: "/",
+  arrow: "A",
+  rect: "B",
+  ellipse: "E",
+  text: "T",
+  callout: "Q",
+  redact: null,
+  spotlight: "F",
+  step: "N",
+  crop: "C",
+  swapColors: "X",
+};
+
 /** The Rust defaults (`shortcuts.rs`), used until the host passes the real settings. */
 export const DEFAULT_SHORTCUTS: ShortcutKeys = {
   select: "V",

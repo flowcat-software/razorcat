@@ -111,6 +111,11 @@
   text-overflow: ellipsis;
 }
 
+/* Why a key did nothing (Razorcat): said, for a moment, in the text's own colour. */
+.hintLine[data-said] {
+  color: var(--text);
+}
+
 .keys {
   white-space: nowrap;
 }

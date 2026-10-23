@@ -1,4 +1,5 @@
 import { Fragment, useEffect } from "react";
+import { useDoc as useEdit } from "../editor/docStore";
 import { useDoc } from "./model/store";
 import { chooseHint, parseHint, useHintSources, withShortcuts, type ControlHint } from "./hints";
 import { colorSlots, styleTarget, targetSections, targetValues } from "./restyle";
@@ -12,11 +13,16 @@ export function hint(id: ControlHint): { "data-hint": ControlHint } {
 }
 
 /**
- * The status bar's hint line (PLAN 2A.6e): the keys that do something right
- * now. Off with `editor.showShortcutHints`.
+ * The status bar's hint line (PLAN 2A.6e; Razorcat 4.6b): the keys that do something right
+ * now. Off with `markup.showShortcutHints`, but for why a key did nothing.
  */
 export function HintLine() {
-  const { hover, drag, mode, overObject, overRedactedWord } = useHintSources();
+  const { said, hover, drag, mode, overObject, overRedactedWord } = useHintSources();
+  // What's selected on the timeline (Razorcat).
+  const clips = useEdit((s) => s.selectedClips.length);
+  const range = useEdit((s) => s.selectedRange !== null);
+  const marks = useEdit((s) => s.selectedMarks.length);
+  const pendingIn = useEdit((s) => s.pendingIn !== null);
   const tool = useToolStore((s) => s.tool);
   const typing = useToolStore((s) => s.editing !== null);
   const selected = useDoc((s) => s.selection.length);
@@ -74,9 +80,10 @@ export function HintLine() {
     };
   }, []);
 
-  if (!config.showShortcutHints) return null;
+  if (!config.showShortcutHints && !said) return null;
   const text = withShortcuts(
     chooseHint({
+      said,
       hover,
       drag,
       mode,
@@ -93,12 +100,13 @@ export function HintLine() {
       drawingToolsSelect: config.drawingToolsSelect,
       redactText,
       overRedactedWord,
+      timeline: { clips, range, marks, pendingIn },
     }),
     config.shortcuts,
   );
 
   return (
-    <span className={styles.hintLine}>
+    <span className={styles.hintLine} data-said={said ? "" : undefined}>
       {parseHint(text).map((part, i) =>
         "text" in part ? (
           <Fragment key={i}>{part.text}</Fragment>

@@ -1,4 +1,6 @@
 import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { hint } from "../markup/HintLine";
+import type { ControlHint } from "../markup/hints";
 import type { SourceInfo } from "../shared/ipc";
 import { shownRanges, total as docTotal } from "./doc";
 import { useDoc } from "./docStore";
@@ -33,11 +35,14 @@ const keepFocus = (e: React.MouseEvent) => e.preventDefault();
 
 function BarButton({
   label,
+  hintId,
   disabled,
   onClick,
   children,
 }: {
   label: string;
+  /** Its hint in the status bar (PLAN 4.6b). */
+  hintId: ControlHint;
   disabled: boolean;
   onClick?: () => void;
   children: ReactNode;
@@ -48,6 +53,7 @@ function BarButton({
       className={styles.barButton}
       aria-label={label}
       title={label}
+      {...hint(hintId)}
       disabled={disabled}
       onMouseDown={keepFocus}
       onClick={onClick}
@@ -86,6 +92,7 @@ function Readout({
       type="button"
       className={styles.timecode}
       title="Click: timecode / frames"
+      {...hint("readout")}
       disabled={!source}
       onMouseDown={keepFocus}
       onClick={onToggle}
@@ -122,35 +129,66 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
     <div className={styles.timelineBar}>
       <Readout source={source} frame={frame} inFrames={inFrames} onToggle={onToggleFrames} />
       <span className={styles.barDivider} />
-      <BarButton label="Start (Home)" disabled={off} onClick={() => player?.seek(0)}>
+      <BarButton label="Start (Home)" hintId="start" disabled={off} onClick={() => player?.seek(0)}>
         <path d="M6 5v14M18 6l-8 6 8 6z" />
       </BarButton>
       <BarButton
         label="Previous edit (↑)"
+        hintId="prevEdit"
         disabled={off}
         onClick={() => player && seekEdit(player, -1)}
       >
         <path d="M11 6l-6 6 6 6M19 6l-6 6 6 6" />
       </BarButton>
-      <BarButton label="Back one frame (←)" disabled={off} onClick={() => player?.step(-1)}>
+      <BarButton
+        label="Back one frame (←)"
+        hintId="back"
+        disabled={off}
+        onClick={() => player?.step(-1)}
+      >
         <path d="M15 6l-6 6 6 6" />
       </BarButton>
       {speed === 0 ? (
-        <BarButton label="Play (Space)" disabled={off} onClick={() => player?.toggle()}>
+        <BarButton
+          label="Play (Space)"
+          hintId="play"
+          disabled={off}
+          onClick={() => player?.toggle()}
+        >
           <path d="M7 5l12 7-12 7z" />
         </BarButton>
       ) : (
-        <BarButton label="Pause (Space)" disabled={off} onClick={() => player?.toggle()}>
+        <BarButton
+          label="Pause (Space)"
+          hintId="play"
+          disabled={off}
+          onClick={() => player?.toggle()}
+        >
           <path d="M8 5v14M16 5v14" />
         </BarButton>
       )}
-      <BarButton label="Forward one frame (→)" disabled={off} onClick={() => player?.step(1)}>
+      <BarButton
+        label="Forward one frame (→)"
+        hintId="forward"
+        disabled={off}
+        onClick={() => player?.step(1)}
+      >
         <path d="M9 6l6 6-6 6" />
       </BarButton>
-      <BarButton label="Next edit (↓)" disabled={off} onClick={() => player && seekEdit(player, 1)}>
+      <BarButton
+        label="Next edit (↓)"
+        hintId="nextEdit"
+        disabled={off}
+        onClick={() => player && seekEdit(player, 1)}
+      >
         <path d="M13 6l6 6-6 6M5 6l6 6-6 6" />
       </BarButton>
-      <BarButton label="End (End)" disabled={off} onClick={() => player?.seek(player.frames - 1)}>
+      <BarButton
+        label="End (End)"
+        hintId="end"
+        disabled={off}
+        onClick={() => player?.seek(player.frames - 1)}
+      >
         <path d="M18 5v14M6 6l8 6-8 6z" />
       </BarButton>
       {speed !== 0 && speed !== 1 ? (
@@ -161,6 +199,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
         type="button"
         className={`${styles.barButton} ${styles.withText}`}
         title="Split at the playhead (S)"
+        {...hint("split")}
         disabled={off}
         onMouseDown={keepFocus}
         onClick={() => player && splitAtPlayhead(player)}
@@ -174,6 +213,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
         type="button"
         className={`${styles.barButton} ${styles.withText}`}
         title="Add a range at the playhead (R); I and O mark its in and out"
+        {...hint("range")}
         disabled={off}
         onMouseDown={keepFocus}
         onClick={() => player && addRangeAtPlayhead(player)}
@@ -196,6 +236,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
                   ? "Delete the selected clips (Delete)"
                   : "Delete the clip (Delete)"
           }
+          {...hint("delete")}
           disabled={!deletable || (selected === "clip" && deletesAll)}
           onMouseDown={keepFocus}
           onClick={deleteSelected}
@@ -215,6 +256,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
               ? "Put copies of the selected clips after the last of them (Ctrl+D); Ctrl+C and Ctrl+V copy them and paste them at the cut nearest the playhead"
               : "Put a copy of the clip straight after it (Ctrl+D); Ctrl+C and Ctrl+V copy it and paste it at the cut nearest the playhead"
           }
+          {...hint("duplicateClip")}
           disabled={off}
           onMouseDown={keepFocus}
           onClick={() => player && duplicateSelectedClip(player)}
@@ -234,6 +276,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
               ? "Export the selected clips, as one file or a file each (MP4 or GIF)"
               : "Export this clip (MP4 or GIF)"
           }
+          {...hint("exportClip")}
           aria-expanded={menu !== null}
           onMouseDown={keepFocus}
           onClick={(e) => {
@@ -270,6 +313,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
             type="button"
             className={`${styles.barButton} ${styles.withText}`}
             title="Keep only the ranges: cut out everything else"
+            {...hint("keepRanges")}
             onMouseDown={keepFocus}
             onClick={() => useDoc.getState().keepRanges()}
           >
@@ -279,6 +323,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
             type="button"
             className={`${styles.barButton} ${styles.withText}`}
             title="Cut the ranges out"
+            {...hint("removeRanges")}
             onMouseDown={keepFocus}
             onClick={() => useDoc.getState().removeRanges()}
           >

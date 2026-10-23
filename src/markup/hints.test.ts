@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { CONTROL_HINTS, chooseHint, parseHint, type HintState } from "./hints";
+import { CONTROL_HINTS, WHY, chooseHint, parseHint, withShortcuts, type HintState } from "./hints";
+import { RAZORCAT_SHORTCUTS } from "./shortcuts";
 
+const nothing = { clips: 0, range: false, marks: 0, pendingIn: false };
 const base: HintState = {
+  said: null,
   hover: null,
   drag: null,
   mode: null,
@@ -18,23 +21,56 @@ const base: HintState = {
   drawingToolsSelect: true,
   redactText: false,
   overRedactedWord: false,
+  timeline: nothing,
 };
 
 describe("chooseHint", () => {
   it("prefers the hovered control, then the drag, then the tool", () => {
-    const s: HintState = { ...base, tool: "rect", hover: "copy", drag: "square" };
-    expect(chooseHint(s)).toBe(CONTROL_HINTS.copy);
+    const s: HintState = { ...base, tool: "rect", hover: "open", drag: "square" };
+    expect(chooseHint(s)).toBe(CONTROL_HINTS.open);
     expect(chooseHint({ ...s, hover: null })).toBe("[Shift] square");
     expect(chooseHint({ ...s, hover: null, drag: null })).toMatch(/^\[Shift\] square/);
   });
 
-  it("shows only how to get an image in an empty editor", () => {
+  it("shows only how to get a video in an empty editor", () => {
     const hint = chooseHint({ ...base, mode: "empty" });
-    expect(hint).toMatch(/^\[Ctrl[Ctrl+1…9]N\] capture/);
-    expect(hint).toContain("[Ctrl+O]");
+    expect(hint).toMatch(/^\[Ctrl\+O\] open a video/);
     expect(hint).not.toContain("tools");
     // A hovered control still explains itself.
-    expect(chooseHint({ ...base, mode: "empty", hover: "copy" })).toBe(CONTROL_HINTS.copy);
+    expect(chooseHint({ ...base, mode: "empty", hover: "open" })).toBe(CONTROL_HINTS.open);
+  });
+
+  it("says why a key did nothing first, for its moment", () => {
+    const s: HintState = { ...base, hover: "open", drag: "trim", said: "split.cut" };
+    expect(chooseHint(s)).toBe(WHY["split.cut"]);
+    expect(chooseHint({ ...s, said: null })).toBe(CONTROL_HINTS.open);
+  });
+
+  it("shows the crop and grow keys while they're picked up", () => {
+    expect(chooseHint({ ...base, mode: "crop" })).toContain("[Shift] keeps the shape");
+    expect(chooseHint({ ...base, mode: "grow" })).toContain("[Shift] the opposite side too");
+  });
+
+  it("shows the keys for what's selected on the timeline", () => {
+    const on = (t: Partial<HintState["timeline"]>) =>
+      chooseHint({ ...base, timeline: { ...nothing, ...t } });
+    expect(on({ clips: 1 })).toContain("[M] mute");
+    expect(on({ clips: 3 })).toMatch(/^Drag one to move them all/);
+    expect(on({ range: true })).toContain("keep the ranges");
+    expect(on({ marks: 2 })).toContain("paste style");
+    expect(on({ pendingIn: true, clips: 1 })).toMatch(/^\[O\] sets the out/);
+    // Markup selected on the preview has Vandal's keys.
+    expect(chooseHint({ ...base, selected: 1, timeline: { ...nothing, marks: 1 } })).toMatch(
+      /nudge/,
+    );
+  });
+
+  it("names Razorcat's tool keys", () => {
+    const idle = withShortcuts(chooseHint(base), RAZORCAT_SHORTCUTS);
+    expect(idle).toMatch(
+      /^\[V\] \[P\] \[H\] \[\/\] \[A\] \[B\] \[E\] \[T\] \[Q\] \[F\] \[N\] tools/,
+    );
+    expect(withShortcuts(CONTROL_HINTS["tool.spotlight"], RAZORCAT_SHORTCUTS)).toMatch(/^\[F\]/);
   });
 
   it("shows the general shortcuts with Select and nothing selected", () => {
@@ -104,8 +140,8 @@ describe("parseHint", () => {
     expect(parseHint("a [b")).toEqual([{ text: "a [b" }]);
   });
 
-  it("parses every hint in the table", () => {
-    for (const hint of Object.values(CONTROL_HINTS)) {
+  it("parses every hint in the tables", () => {
+    for (const hint of [...Object.values(CONTROL_HINTS), ...Object.values(WHY)]) {
       for (const part of parseHint(hint)) {
         if ("text" in part) expect(part.text).not.toMatch(/[[\]]/);
         else expect(part.keys.every((k) => k.length > 0)).toBe(true);

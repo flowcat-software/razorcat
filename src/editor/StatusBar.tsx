@@ -1,3 +1,6 @@
+import { hint, HintLine } from "../markup/HintLine";
+import { useHintSources } from "../markup/hints";
+import { useStyleConfig } from "../markup/styles";
 import { SETTINGS_ICON } from "../shared/icons";
 import { commands } from "../shared/ipc";
 import { useTimeline } from "./timelineStore";
@@ -18,18 +21,28 @@ interface Props {
   empty: boolean;
 }
 
-/** The bottom row: messages, snapping, the timeline's zoom, and Settings (Vandal's gear). */
+/**
+ * The bottom row: messages, else the hint line (PLAN 4.6b; why a key did nothing even over a
+ * message), snapping, the timeline's zoom, and Settings (Vandal's gear).
+ */
 export function StatusBar({ notice, empty }: Props) {
   const timeline = useTimeline();
   const slider = Math.round(timeline.slider() * 1000);
+  const said = useHintSources((s) => s.said !== null);
+  const hints = useStyleConfig((s) => s.showShortcutHints);
+  const message = said ? null : notice;
   return (
     <footer className={styles.status}>
-      <span className={notice?.error ? styles.noticeError : undefined} role="status">
-        {notice?.text ?? "Ready"}
-      </span>
-      {notice?.action && (
-        <button type="button" className={styles.textButton} onClick={notice.action.run}>
-          {notice.action.label}
+      {message || !hints ? (
+        <span className={message?.error ? styles.noticeError : undefined} role="status">
+          {message?.text ?? "Ready"}
+        </span>
+      ) : (
+        <HintLine />
+      )}
+      {message?.action && (
+        <button type="button" className={styles.textButton} onClick={message.action.run}>
+          {message.action.label}
         </button>
       )}
       <span className={styles.spacer} />
@@ -37,6 +50,7 @@ export function StatusBar({ notice, empty }: Props) {
         type="button"
         className={styles.textButton}
         title="Snapping (hold Shift: off)"
+        {...hint("snap")}
         aria-pressed={timeline.snap}
         disabled={empty}
         onMouseDown={(e) => e.preventDefault()}
@@ -50,6 +64,7 @@ export function StatusBar({ notice, empty }: Props) {
         className={styles.iconButton}
         aria-label="Zoom out (Ctrl+−)"
         title="Zoom out (Ctrl+−)"
+        {...hint("zoom")}
         disabled={empty}
         onClick={() => timeline.zoomBy(1 / 1.5)}
       >
@@ -62,6 +77,7 @@ export function StatusBar({ notice, empty }: Props) {
         className={styles.zoomSlider}
         aria-label="Timeline zoom (Ctrl+wheel)"
         title="Timeline zoom (Ctrl+wheel)"
+        {...hint("zoom")}
         min={0}
         max={1000}
         value={Number.isFinite(slider) ? slider : 0}
@@ -73,6 +89,7 @@ export function StatusBar({ notice, empty }: Props) {
         className={styles.iconButton}
         aria-label="Zoom in (Ctrl+=)"
         title="Zoom in (Ctrl+=)"
+        {...hint("zoom")}
         disabled={empty}
         onClick={() => timeline.zoomBy(1.5)}
       >
@@ -84,6 +101,7 @@ export function StatusBar({ notice, empty }: Props) {
         type="button"
         className={styles.textButton}
         title="Fit the timeline (Ctrl+0)"
+        {...hint("zoom")}
         disabled={empty}
         onClick={timeline.fit}
       >
@@ -95,6 +113,7 @@ export function StatusBar({ notice, empty }: Props) {
         className={styles.iconButton}
         aria-label="Settings"
         title="Settings (Ctrl+,)"
+        {...hint("settings")}
         onClick={() => void commands.openSettings(null)}
       >
         {SETTINGS_ICON}

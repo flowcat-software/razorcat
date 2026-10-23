@@ -1,7 +1,8 @@
-// The hint line in the status bar (PLAN 2A.6e): one line saying which keys
-// and modifiers do something right now. Most specific first: the control under
-// the pointer, then the modifiers of a drag in progress, then the active tool
-// (or typing), then, with Select and nothing selected, the general shortcuts.
+// The hint line in the status bar (Vandal's, PLAN 4.6b): one line saying which keys
+// and modifiers do something right now. Most specific first: why a key just did
+// nothing, for a moment (`sayWhy`); the control under the pointer, or the
+// timeline's handle; the modifiers of a drag in progress; then the active tool
+// (or typing), what's selected, and, with nothing, the general shortcuts.
 //
 // Every hint is written here, in one table. Keys go in brackets: "[Ctrl+1…9]"
 // shows as key caps; " · " separates the parts. Put the most useful part
@@ -16,7 +17,7 @@ import { TOOLS, type ToolId } from "./toolStore";
 
 /** Hints for controls, by the id in their `data-hint` attribute. */
 export const CONTROL_HINTS = {
-  "tool.select": "{select} Select and move objects · [Esc] steps back to Select",
+  "tool.select": "{select} Select and move markup · [Esc] steps back to Select",
   "tool.pen": "{pen} Draw freehand · [Shift] straight line",
   "tool.highlighter": "{highlighter} Highlight freehand · [Shift] straight line",
   "tool.line": "{line} Draw a line · [Shift] 45° steps",
@@ -28,7 +29,8 @@ export const CONTROL_HINTS = {
   "tool.spotlight": "{spotlight} Darken everything outside a box or ellipse",
   "tool.step": "{step} Click to place numbered or lettered markers · they count up",
   "tool.callout": "{callout} Drag from what to point at to where the text goes, or click",
-  "tool.crop": "{crop} Crop the image · [Ctrl+Z] undoes a crop",
+  "tool.crop": "{crop} Crop the picture, the same for the whole video · [Enter] done",
+  "tool.grow": "[G] Grow the frame: space round the picture, in a colour · [Enter] done",
   undo: "[Ctrl+Z] Undo",
   redo: "[Ctrl+Y] or [Ctrl+Shift+Z] Redo",
   swatch: "[Ctrl+1…9] Pick a color by number · Right-click to change or delete it",
@@ -86,15 +88,67 @@ export const CONTROL_HINTS = {
   head: "The shape of the arrow heads",
   "ends.one": "Click again to flip the arrow",
   "ends.both": "Heads on both ends",
-  newCapture: "[Ctrl+N] Capture a region, back into the editor",
-  open: "[Ctrl+O] Open an image file · or drop one on the window",
-  copy: "[Ctrl+C] Copy the image with its markup",
-  save: "[Ctrl+S] Save · [Ctrl+Shift+S] Save as",
-  zoom: "[Ctrl]+wheel Zoom at the pointer · [Ctrl+=] [Ctrl+−] Zoom in and out",
-  fit: "[Ctrl+0] Fit to window · press it again for Fit width, when the image is tall",
-  fitWidth: "[Ctrl+0] twice Fit the width to the window, then scroll down and up",
-  actualSize: "[Ctrl+Shift+0] Actual size",
-  settings: "Open Settings",
+  // Razorcat's own controls (PLAN 4.6b).
+  open: "[Ctrl+O] Open a video in place of the timeline · or drop one on the window",
+  addVideo: "[Ctrl+Shift+O] Add a video to the end of the timeline · or drop one on a cut",
+  export: "[Ctrl+E] Export the timeline as MP4",
+  exportMenu:
+    "Export a GIF, each clip on its own, or the selected clips · and the export's settings",
+  settings: "[Ctrl+,] Open Settings",
+  number: "Drag left or right to change it · [Shift] faster · Click to type · [Esc] puts it back",
+  time: "Drag left or right to change it · [Shift] faster · Click to type a time or a frame number",
+  source: "The video the timeline started from · the others conform to its size and rate",
+  "crop.ratio": "Keep the crop to this shape · [Shift] while dragging keeps the shape it has",
+  "crop.portrait": "Taller than wide: 9:16 instead of 16:9",
+  "crop.reset": "Back to the whole picture · [Ctrl+Z] undoes it",
+  "grow.colour": "The colour of the space grown · one for every side, once they meet",
+  "grow.reset": "Back to the picture alone · [Ctrl+Z] undoes it",
+  "grow.presets": "Grows kept for one click · keep the one shown, or set them up in Settings",
+  readout: "The playhead and the timeline's length · Click: timecode or frame numbers",
+  start: "[Home] To the start",
+  end: "[End] To the end",
+  prevEdit: "[↑] To the cut, range or markup edge before the playhead",
+  nextEdit: "[↓] To the cut, range or markup edge after the playhead",
+  back: "[←] Back a frame · [Shift+←] a second · held, it keeps going",
+  forward: "[→] Forward a frame · [Shift+→] a second · held, it keeps going",
+  play: "[Space] Play or pause · [J] [K] [L] back, stop, forward: again for faster",
+  split: "[S] Split the clip at the playhead · the markup over it splits too (Settings)",
+  range: "[R] A range of two seconds at the playhead · [I] and [O] mark its in and out",
+  delete: "[Del] Delete what's selected · the clips after it close up · [Ctrl+Z] undo",
+  duplicateClip:
+    "[Ctrl+D] Copies straight after · [Ctrl+C] and [Ctrl+V] copy, and paste at the cut nearest the playhead",
+  exportClip: "Export the selected clip, or the selected clips as one file or a file each",
+  keepRanges: "Keep only the ranges, cutting out everything else · [Ctrl+Z] undoes it",
+  removeRanges: "Cut the ranges out · [Ctrl+Z] undoes it",
+  snap: "Snapping to cuts, edges and the playhead · [Shift] while dragging turns it off for a moment",
+  zoom: "[Ctrl]+wheel Zoom at the pointer · [Ctrl+=] [Ctrl+−] Zoom in and out · [Ctrl+0] Fit",
+  resizer: "Drag to make the timeline taller, for more markup lanes · Double-click puts it back",
+  // The timeline's handles (Timeline.tsx's hit kinds).
+  "timeline.in":
+    "Drag to trim the clip's start · the rest ripples along · [Shift] no snapping · Right-click for more",
+  "timeline.out":
+    "Drag to trim the clip's end · the rest ripples along · [Shift] no snapping · Right-click for more",
+  "timeline.move":
+    "Drag to move the clip between the others · [Ctrl] or [Shift]+click select more · [Ctrl+[] [Ctrl+]] a place earlier or later · Right-click for more",
+  "timeline.rangeA": "Drag the range's start · [Shift] no snapping",
+  "timeline.rangeB": "Drag the range's end · [Shift] no snapping",
+  "timeline.rangeMove":
+    "Drag to move the range · [Shift] no snapping · Right-click to keep or cut ranges",
+  "timeline.rangeNew": "Drag to draw a range · or [R], or [I] and [O] at the playhead",
+  "timeline.pendingIn": "Drag the in-point · [O] sets the out at the playhead · [Esc] drops it",
+  "timeline.markStart": "Drag when it starts · the others selected follow · [Shift] no snapping",
+  "timeline.markEnd": "Drag when it ends · the others selected follow · [Shift] no snapping",
+  "timeline.markMove":
+    "Drag to move it in time, or up or down to another lane · [Alt]+drag a copy · [Ctrl] or [Shift]+click select more · Right-click for fades and order",
+  "timeline.fadeIn":
+    "Drag right to fade in for longer · several selected fade together, [Shift] all as long",
+  "timeline.fadeOut":
+    "Drag left to fade out for longer · several selected fade together, [Shift] all as long",
+  "timeline.speaker": "[Shift+M] Mute or unmute all the sound · [M] the selected clips",
+  "timeline.lanes":
+    "Drag to select markup, or clips from their row · [Ctrl] or [Shift] keeps the selection · Right-click to clean up the lanes",
+  "timeline.ruler":
+    "Click or drag to move the playhead · [Shift] no snapping · [Ctrl]+wheel zoom · wheel scrolls",
 } as const;
 
 export type ControlHint = keyof typeof CONTROL_HINTS;
@@ -112,7 +166,17 @@ export type DragHint =
   | "calloutMove"
   | "resize"
   | "rotate"
-  | "redactText";
+  | "redactText"
+  // The timeline's (PLAN 4.6b).
+  | "trim"
+  | "clipMove"
+  | "markMove"
+  | "markCopy"
+  | "markEdge"
+  | "fade"
+  | "range"
+  | "scrub"
+  | "box";
 
 const DRAG_HINTS: Record<DragHint, string> = {
   segment: "[Shift] 45° steps",
@@ -127,6 +191,17 @@ const DRAG_HINTS: Record<DragHint, string> = {
   resize: "[Shift] keep proportions",
   rotate: "Snaps to 45° steps near them",
   redactText: "Release to redact the selected text · [Esc] cancel",
+  trim: "[Shift] no snapping · the clips after it ripple along",
+  clipMove: "Let go between two clips to move it there",
+  markMove:
+    "[Shift] no snapping · Up or down: another lane · Let go on a busy lane for a new one, above or below by the pointer",
+  markCopy:
+    "Let go to place the copy · [Shift] no snapping · Over something on its lane, a new lane, above or below by the pointer",
+  markEdge: "[Shift] no snapping · The others selected change by as much, each as far as it can",
+  fade: "[Shift] all the same length (several selected) · press and let go of it while dragging",
+  range: "[Shift] no snapping · Ranges stop against each other",
+  scrub: "[Shift] no snapping",
+  box: "Touching the clip row, it selects clips; else markup · [Ctrl] or [Shift] keeps what was selected",
 };
 
 /** Redact with its Detect text toggle on and words found (PLAN 3J). */
@@ -136,8 +211,6 @@ const REDACT_TEXT =
 /** Over a word that's already redacted (PLAN 3J.5). */
 const UNREDACT =
   "Click to unredact: the whole redaction outlined goes · [Ctrl] select it instead · [Ctrl+Z] undo";
-
-const PAN_ZOOM = "[Space]+drag pan · [Ctrl]+wheel zoom";
 
 /** The color keys, naming both colors only when there are two. */
 function colorKeys(tool: ToolId, twoColors: boolean): string {
@@ -186,16 +259,58 @@ const LABEL_TYPING = "[Enter] done · [Esc] cancel · Leave it empty to count up
 const SEGMENT_SELECTED = `Drag the ◆ handle to bend it, double-click it to straighten · ${SELECTED}`;
 const TYPING =
   "[Esc] done · [Ctrl+B] bold · [Ctrl+I] italic · [Alt+1…0] font · [Alt+↑↓] previous or next font";
+// Razorcat's (PLAN 4.6b): its modes, the timeline's selection, and the keys with nothing
+// selected.
 const CROP =
-  "Drag edges or corners, [Shift] keeps proportions · Drag outside, or [Ctrl]+drag anywhere, for a new box · [Enter] apply · [Esc] cancel · [←↑↓→] nudge, [Ctrl] resize";
+  "Drag the edges or corners · [Shift] keeps the shape · [←↑↓→] nudge, [Shift] 10 px, [Ctrl] resizes · [Enter] done · [Ctrl+Z] undoes";
+const GROW =
+  "Drag a side to grow it · [Shift] the opposite side too · Type sizes above · [Enter] done";
 
-/** The editor with no image yet (PLAN 3G): only what gets one. */
-const EMPTY =
-  "[Ctrl+N] capture · [Ctrl+O] open an image · [Ctrl+V] paste one · or drop an image file here · [Ctrl+,] settings";
+/** No video yet: only what gets one. */
+const EMPTY = "[Ctrl+O] open a video · or drop video files here · [Ctrl+,] settings";
 
-const IDLE = `{tools} tools · [Ctrl+Z] undo · [Ctrl+C] copy · [Ctrl+S] save · ${PAN_ZOOM}`;
+const IDLE =
+  "{tools} tools · [Space] play · [J] [K] [L] shuttle · [←→] a frame · [S] split · [R] range · [Ctrl+Z] undo · [Ctrl+E] export";
+
+const CLIP_SELECTED =
+  "[Del] delete · [Ctrl+D] duplicate · [Ctrl+C] copy · [Ctrl+[] [Ctrl+]] a place earlier or later, [Shift] to the start or end · [M] mute · [Esc] deselect";
+const CLIPS_SELECTED =
+  "Drag one to move them all · [Del] delete · [Ctrl+D] duplicate · [Ctrl+C] copy · [Ctrl+[] [Ctrl+]] move · [M] mute · [Ctrl] or [Shift]+click adds or takes one out";
+const RANGE_SELECTED =
+  "[Del] delete · Drag it or its edges · Right-click to keep the ranges or cut them out · [Esc] deselect";
+const PENDING_IN = "[O] sets the out at the playhead · [Esc] drops the in-point";
+const MARKS_SELECTED =
+  "[Del] delete · [Ctrl+D] duplicate · [Ctrl+C] copy · [Ctrl+[] [Ctrl+]] a lane back or forward · [Ctrl+Shift+V] [Ctrl+Shift+F] [Ctrl+Shift+T] paste style, fades, timing · [Ctrl+A] again: all of it";
+
+/**
+ * Why a key did nothing (Richard, 2026-10-08), said for a moment (`sayWhy`). Keys go in
+ * brackets, as above.
+ */
+export const WHY = {
+  "split.cut": "Nothing to split: the playhead is on a cut",
+  "split.start": "Nothing to split at the very start",
+  "range.on":
+    "No new range: the playhead is on one already · drag its edges, or move the playhead off it",
+  "out.early": "No range: the playhead is before the in-point · move it later, or [I] again",
+  "delete.none": "Nothing selected to delete",
+  "delete.last": "The timeline keeps at least one clip",
+  "mute.none": "Select a clip to mute it · [Shift+M] mutes all the sound",
+  "mute.silent": "There's no sound to mute",
+  "duplicate.none": "Select a clip or markup to duplicate it",
+  "copy.none": "Select clips or markup to copy them",
+  "paste.none": "Nothing copied yet · [Ctrl+C] copies the selected clips or markup",
+  "pasteOnto.none":
+    "Copy markup first ([Ctrl+C]), then select the markup to paste its style, fades or timing onto",
+  "order.none": "Select a clip or markup to move it",
+  "order.end": "It's as far as it goes",
+  "export.none": "Open a video first",
+} as const;
+
+export type WhyHint = keyof typeof WHY;
 
 export interface HintState {
+  /** Why a key did nothing, for a moment. */
+  said: WhyHint | null;
   hover: ControlHint | null;
   drag: DragHint | null;
   /** A host mode instead of a tool (the editor's crop, or no image yet). */
@@ -223,13 +338,17 @@ export interface HintState {
   redactText: boolean;
   /** The pointer is over a word that's already redacted. */
   overRedactedWord: boolean;
+  /** On the timeline (Razorcat): what's selected there, and an in-point waiting for its out. */
+  timeline: { clips: number; range: boolean; marks: number; pendingIn: boolean };
 }
 
 /** The hint to show, in the table's bracket format. */
 export function chooseHint(s: HintState): string {
+  if (s.said) return WHY[s.said];
   if (s.hover) return CONTROL_HINTS[s.hover];
   if (s.drag) return DRAG_HINTS[s.drag];
   if (s.mode === "crop") return CROP;
+  if (s.mode === "grow") return GROW;
   if (s.mode === "empty") return EMPTY;
   if (s.typing)
     return `${TYPING} · ${colorKeys(s.tool === "callout" || s.calloutSelected ? "callout" : "text", s.twoColors)}`;
@@ -244,6 +363,12 @@ export function chooseHint(s: HintState): string {
     if (s.selected === 1 && s.textSelected) return TEXT_SELECTED;
     if (s.selected === 1 && s.segmentSelected) return SEGMENT_SELECTED;
     if (s.selected) return SELECTED;
+    const t = s.timeline;
+    if (t.pendingIn) return PENDING_IN;
+    if (t.marks) return MARKS_SELECTED;
+    if (t.range) return RANGE_SELECTED;
+    if (t.clips > 1) return CLIPS_SELECTED;
+    if (t.clips) return CLIP_SELECTED;
     return IDLE;
   }
   if (s.tool === "redact" && s.redactText && s.overRedactedWord) return UNREDACT;
@@ -308,9 +433,10 @@ export function parseHint(hint: string): HintPart[] {
 }
 
 /** Modes a host adds beside the tools. */
-export type HostMode = "crop" | "empty";
+export type HostMode = "crop" | "grow" | "empty";
 
 interface HintSources {
+  said: WhyHint | null;
   hover: ControlHint | null;
   drag: DragHint | null;
   mode: HostMode | null;
@@ -320,12 +446,29 @@ interface HintSources {
 
 /** What the canvas and the pointer report; the rest comes from the stores. */
 export const useHintSources = create<HintSources>(() => ({
+  said: null,
   hover: null,
   drag: null,
   mode: null,
   overObject: false,
   overRedactedWord: false,
 }));
+
+/** How long the line says why a key did nothing (ms). */
+const SAY_FOR = 4000;
+let sayTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Says why a key did nothing, for a moment (PLAN 4.6b). */
+export function sayWhy(said: WhyHint): void {
+  clearTimeout(sayTimer);
+  useHintSources.setState({ said });
+  sayTimer = setTimeout(() => useHintSources.setState({ said: null }), SAY_FOR);
+}
+
+/** What the pointer is over that has a hint (a timeline handle, set by the timeline). */
+export function setHoverHint(hover: ControlHint | null): void {
+  if (useHintSources.getState().hover !== hover) useHintSources.setState({ hover });
+}
 
 export function setDragHint(drag: DragHint | null): void {
   if (useHintSources.getState().drag !== drag) useHintSources.setState({ drag });

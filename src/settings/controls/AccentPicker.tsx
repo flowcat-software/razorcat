@@ -1,4 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ColorPicker } from "../../markup/ColorPicker";
+import { boxOf, useMenuPlacement } from "../../markup/menuPlacement";
+import { usePopover } from "../../markup/usePopover";
+import markup from "../../markup/options.module.css";
 import { commands, events, type WindowsAccent } from "../../shared/ipc";
 import type { AccentItem } from "../schema";
 import { useSetting } from "../store";
@@ -18,12 +22,14 @@ const PRESETS = [
 ];
 
 /**
- * The accent color: the Windows accent (default) or a preset. Vandal's custom color comes with
- * the markup's color picker (Phase 4); a custom color set by hand still shows in the caption.
+ * The accent color: the Windows accent (default), a preset, or any color from the picker
+ * (Vandal's, PLAN 4.6a).
  */
 export function AccentPicker({ item, id, disabled }: ControlProps<AccentItem>) {
   const [accent, setAccent] = useSetting(item.path);
   const [windows, setWindows] = useState<WindowsAccent | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const customRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     void commands.windowsAccent().then(setWindows);
@@ -32,6 +38,7 @@ export function AccentPicker({ item, id, disabled }: ControlProps<AccentItem>) {
   }, []);
 
   const preset = PRESETS.find((p) => p.color === accent);
+  const custom = accent !== "windows" && !preset ? accent : null;
   const caption =
     accent === "windows"
       ? windows
@@ -72,8 +79,68 @@ export function AccentPicker({ item, id, disabled }: ControlProps<AccentItem>) {
             onClick={() => setAccent(p.color)}
           />
         ))}
+        <button
+          ref={customRef}
+          type="button"
+          role="radio"
+          aria-checked={!!custom}
+          className={markup.customSwatch}
+          data-custom={custom ? "" : undefined}
+          style={custom ? ({ "--custom": custom } as React.CSSProperties) : undefined}
+          title="Custom color"
+          aria-label="Custom color"
+          disabled={disabled}
+          onClick={() => setEditing(custom ?? windows?.light ?? "#1f6fe5")}
+        />
       </div>
       <span className={styles.help}>{caption}</span>
+      {editing && (
+        <AccentPopover
+          color={editing}
+          anchor={() => boxOf(customRef.current)}
+          onDraft={setEditing}
+          onDone={(keep) => {
+            if (keep) setAccent(editing);
+            setEditing(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AccentPopover({
+  color,
+  anchor,
+  onDraft,
+  onDone,
+}: {
+  color: string;
+  anchor: () => ReturnType<typeof boxOf>;
+  onDraft: (color: string) => void;
+  onDone: (keep: boolean) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useMenuPlacement(true, ref, anchor);
+  // Enter or a click elsewhere keeps; Esc cancels.
+  usePopover(true, ref, onDone, "keep");
+  return (
+    <div
+      ref={ref}
+      className={`${markup.menu} ${markup.colorMenu}`}
+      role="dialog"
+      aria-label="Custom accent color"
+    >
+      <ColorPicker value={color} onChange={onDraft} />
+      <div className={markup.colorActions}>
+        <span className={markup.spacer} />
+        <button type="button" className={markup.ghostButton} onClick={() => onDone(false)}>
+          Cancel
+        </button>
+        <button type="button" className={markup.accentButton} onClick={() => onDone(true)}>
+          Done
+        </button>
+      </div>
     </div>
   );
 }

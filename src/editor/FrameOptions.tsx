@@ -1,4 +1,5 @@
 import { ColorSwatch } from "../markup/ColorSwatch";
+import { hint } from "../markup/HintLine";
 import { useDoc as useMarkup } from "../markup/model/store";
 import { ToolOptions } from "../markup/ToolOptions";
 import type { Settings, SourceInfo } from "../shared/ipc";
@@ -55,10 +56,10 @@ export function FrameOptions({
     .join(", ");
   return (
     <div className={styles.optionsBar}>
-      <b className={styles.sourceName} title={source.path}>
+      <b className={styles.sourceName} title={source.path} {...hint("source")}>
         {source.name}
       </b>
-      <span>{sourceFacts(source).join(" · ")}</span>
+      <span {...hint("source")}>{sourceFacts(source).join(" · ")}</span>
       <span className={styles.spacer} />
       <span className={styles.frameSummary}>
         Output {out.width} × {out.height} · Crop:{" "}
@@ -112,17 +113,19 @@ function GrowOptions({ settings }: { settings: Settings | null }) {
             unit="px"
           />
           {each && grow[side] > 0 && (
-            <ColorSwatch
-              name={`${SIDE_NAMES[side]} colour`}
-              value={growColour(grow, side)}
-              onPick={(v) => colour(side, v)}
-              {...ONE_STEP}
-            />
+            <span {...hint("grow.colour")}>
+              <ColorSwatch
+                name={`${SIDE_NAMES[side]} colour`}
+                value={growColour(grow, side)}
+                onPick={(v) => colour(side, v)}
+                {...ONE_STEP}
+              />
+            </span>
           )}
         </span>
       ))}
       {!each && (
-        <span className={styles.field}>
+        <span className={styles.field} {...hint("grow.colour")}>
           Colour
           <ColorSwatch
             name="Colour"
@@ -137,6 +140,7 @@ function GrowOptions({ settings }: { settings: Settings | null }) {
         type="button"
         className={styles.ghostButton}
         title="Back to the picture alone"
+        {...hint("grow.reset")}
         disabled={!isGrown(grow)}
         onMouseDown={(e) => e.preventDefault()}
         onClick={resetGrow}
@@ -144,7 +148,9 @@ function GrowOptions({ settings }: { settings: Settings | null }) {
         Reset
       </button>
       <span className={styles.optionsSep} />
-      <GrowPresets settings={settings} />
+      <span {...hint("grow.presets")}>
+        <GrowPresets settings={settings} />
+      </span>
     </div>
   );
 }
@@ -193,6 +199,7 @@ function CropOptions() {
               className={styles.toggle}
               aria-checked={ratioId === r.id}
               title={r.ratio ? `Keep it ${ratioLabel(r, portrait)}` : "Any shape"}
+              {...hint("crop.ratio")}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pickCropRatio(r.id)}
             >
@@ -205,6 +212,7 @@ function CropOptions() {
             aria-pressed={portrait}
             aria-label="Portrait"
             title="Portrait: taller than wide (9:16 instead of 16:9)"
+            {...hint("crop.portrait")}
             onMouseDown={(e) => e.preventDefault()}
             onClick={toggleCropPortrait}
           >
@@ -219,16 +227,13 @@ function CropOptions() {
         type="button"
         className={styles.ghostButton}
         title="Back to the whole picture"
+        {...hint("crop.reset")}
         disabled={!isCropped(frame)}
         onMouseDown={(e) => e.preventDefault()}
         onClick={resetCrop}
       >
         Reset
       </button>
-      <span className={styles.spacer} />
-      <span className={styles.kbd}>
-        Shift keeps the shape · arrows nudge, Shift 10 px, Ctrl resizes · Enter: done
-      </span>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 // The timeline's edits, as the keys and buttons invoke them: on the document (docStore.ts) at the
-// player's playhead.
+// player's playhead. One that does nothing says why on the hint line (PLAN 4.6b).
+import { sayWhy } from "../markup/hints";
 import { annotationId, docStore as markupDoc } from "../markup/model/store";
 import { stylePatchFor } from "../markup/pasteStyle";
 import { patchAnnotation } from "../markup/restyle";
@@ -25,7 +26,8 @@ import { useTimeline } from "./timelineStore";
 
 /** S: splits the clip under the playhead there. */
 export function splitAtPlayhead(player: Player) {
-  useDoc.getState().split(player.getState().frame);
+  const f = player.getState().frame;
+  if (!useDoc.getState().split(f)) sayWhy(f === 0 ? "split.start" : "split.cut");
 }
 
 /**
@@ -37,7 +39,8 @@ export function deleteSelected() {
     useDoc.getState();
   if (selectedMarks.length) removeMarks(selectedMarks);
   else if (selectedRange !== null) removeRange(selectedRange);
-  else if (selectedClips.length) removeClips(selectedClips);
+  else if (!selectedClips.length) sayWhy("delete.none");
+  else if (!removeClips(selectedClips)) sayWhy("delete.last");
 }
 
 /**
@@ -48,7 +51,10 @@ export function addRangeAtPlayhead(player: Player) {
   const f = player.getState().frame;
   const { doc, addRange } = useDoc.getState();
   // On or in a range already: nothing, rather than another range over it (Richard).
-  if (shownRanges(doc).some((r) => r.a <= f && f <= r.b)) return;
+  if (shownRanges(doc).some((r) => r.a <= f && f <= r.b)) {
+    sayWhy("range.on");
+    return;
+  }
   addRange(f, f + Math.round(2 * player.fps));
 }
 
@@ -65,7 +71,10 @@ export function rangeOut(player: Player) {
   const { pendingIn, addRange, setPendingIn } = useDoc.getState();
   const f = player.getState().frame;
   const a = pendingIn ?? 0;
-  if (f < a) return;
+  if (f < a) {
+    sayWhy("out.early");
+    return;
+  }
   addRange(a, f + 1);
   setPendingIn(null);
 }
@@ -82,15 +91,24 @@ export function moveSelected(player: Player, to: -1 | 1 | "first" | "last") {
     const first = doc.clips.findIndex((c) => selectedClips.includes(c.id));
     const slot = doc.clips.slice(0, first).filter((c) => !selectedClips.includes(c.id)).length;
     const at = to === "first" ? 0 : to === "last" ? rest.length : slot + to;
-    if (!moveClips(selectedClips, at)) return;
+    if (!moveClips(selectedClips, at)) {
+      sayWhy("order.end");
+      return;
+    }
     const now = useDoc.getState().doc;
     player.seek(clipStarts(now)[now.clips.findIndex((c) => selectedClips.includes(c.id))]);
     return;
   }
   const from = doc.clips.findIndex((c) => c.id === selected);
-  if (from < 0) return;
+  if (from < 0) {
+    sayWhy("order.none");
+    return;
+  }
   const at = to === "first" ? 0 : to === "last" ? doc.clips.length - 1 : from + to;
-  if (!move(doc.clips[from].id, at)) return;
+  if (!move(doc.clips[from].id, at)) {
+    sayWhy("order.end");
+    return;
+  }
   const now = useDoc.getState().doc;
   player.seek(clipStarts(now)[now.clips.findIndex((c) => c.id === selected)]);
 }
@@ -114,7 +132,10 @@ function showNewClip(player: Player, id: ClipId) {
 export function muteSelectedClip(): boolean {
   const { doc, selectedClips, muteClips } = useDoc.getState();
   const clips = doc.clips.filter((c) => selectedClips.includes(c.id));
-  if (!clips.length) return false;
+  if (!clips.length) {
+    sayWhy("mute.none");
+    return false;
+  }
   return muteClips(
     clips.map((c) => c.id),
     !clips.every((c) => c.muted),

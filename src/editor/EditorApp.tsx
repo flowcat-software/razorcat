@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { hint } from "../markup/HintLine";
+import { sayWhy, useHintSources } from "../markup/hints";
 import { annotationId, docStore as markupDoc } from "../markup/model/store";
 import { startToolStylesSync } from "../markup/toolStylesSync";
 import { useMarkupKeys } from "../markup/useMarkupKeys";
@@ -76,9 +78,10 @@ const applySettings = (s: Settings) => {
 function transportKey(e: KeyboardEvent, player: Player, audio: boolean): boolean {
   if (e.ctrlKey || e.altKey || e.metaKey) return false;
   // M mutes the selected clip, Shift+M all the sound (as Logic's M and modifier+M).
-  if (e.code === "KeyM" && audio) {
+  if (e.code === "KeyM") {
     if (e.repeat) return true;
-    if (e.shiftKey) muteSound();
+    if (!audio) sayWhy("mute.silent");
+    else if (e.shiftKey) muteSound();
     else muteSelectedClip();
     return true;
   }
@@ -448,6 +451,7 @@ export function EditorApp() {
       const pasting = { KeyV: pasteStyle, KeyF: pasteFades, KeyT: pasteTiming }[e.code];
       if (e.shiftKey && pasting && !isTyping(e.target)) {
         if (pasting()) e.preventDefault();
+        else sayWhy("pasteOnto.none");
         return;
       }
       // Ctrl+Shift+O: Add Video.
@@ -471,6 +475,14 @@ export function EditorApp() {
           e.preventDefault();
           return;
         }
+        const why = ({ KeyD: "duplicate.none", KeyC: "copy.none", KeyV: "paste.none" } as const)[
+          e.code as "KeyD" | "KeyC" | "KeyV"
+        ];
+        if (why) {
+          e.preventDefault();
+          sayWhy(why);
+          return;
+        }
       }
       const zoom = {
         Digit0: 0,
@@ -488,6 +500,7 @@ export function EditorApp() {
       } else if (e.code === "KeyE") {
         e.preventDefault();
         if (total(useDoc.getState().doc) > 0) exportTimeline("mp4");
+        else sayWhy("export.none");
       } else if (e.code === "KeyO") {
         e.preventDefault();
         if (edited()) setAsking({ open: true });
@@ -508,6 +521,12 @@ export function EditorApp() {
 
   // V, C, G and T pick up the select, crop, grow and text tools; arrows nudge the crop box.
   useToolKeys(source !== null);
+  // The hint line's mode: no video yet, or the crop or grow tool picked up (PLAN 4.6b).
+  const tool = useTool((s) => s.tool);
+  useEffect(() => {
+    const mode = !source ? "empty" : tool === "crop" ? "crop" : tool === "grow" ? "grow" : null;
+    useHintSources.setState({ mode });
+  }, [source, tool]);
   // The markup's own keys (Vandal's: the style digits, Enter to type, nudging...).
   const open = source !== null;
   useMarkupKeys(() => open && useTool.getState().tool !== "crop");
@@ -686,6 +705,7 @@ function Resizer({ height, onHeight }: { height: number; onHeight: (h: number) =
     <div
       className={styles.resizer}
       title="Drag to resize the timeline · double-click to reset"
+      {...hint("resizer")}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         e.preventDefault();

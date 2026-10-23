@@ -68,6 +68,7 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
   // too), dragged a frame at a time when slow, Shift ×10 (a second's worth zoomed through
   // short clips; Richard). Fades, short by nature, drag at half speed.
   const time = {
+    hint: "time" as const,
     format: fmt,
     parse: (text: string) => parseTimecode(text, num, den),
     width: inFrames ? 64 : hours ? 92 : 76,

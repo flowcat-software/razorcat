@@ -3,6 +3,8 @@ import { commands, type Settings } from "../shared/ipc";
 import { canRedo, canUndo, useDoc } from "./docStore";
 import { muteSound } from "./edits";
 import { exportClip, exportClipsJoined, exportEach, exportEachOf, exportTimeline } from "./exports";
+import { hint } from "../markup/HintLine";
+import type { ControlHint } from "../markup/hints";
 import { Menu, type MenuItems } from "./Menu";
 import { useTool, type Tool } from "./toolStore";
 import styles from "./EditorApp.module.css";
@@ -206,6 +208,7 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }:
             aria-label={t.label}
             aria-pressed={!empty && t.id === tool}
             title={t.label}
+            {...hint(`tool.${t.id}` as ControlHint)}
             disabled={empty}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => useTool.getState().setTool(t.id)}
@@ -221,6 +224,7 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }:
           className={styles.tool}
           aria-label="Undo (Ctrl+Z)"
           title="Undo (Ctrl+Z)"
+          {...hint("undo")}
           disabled={empty || !undoable}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => useDoc.getState().undo()}
@@ -235,6 +239,7 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }:
           className={styles.tool}
           aria-label="Redo (Ctrl+Y)"
           title="Redo (Ctrl+Y)"
+          {...hint("redo")}
           disabled={empty || !redoable}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => useDoc.getState().redo()}
@@ -251,6 +256,7 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }:
         className={styles.button}
         aria-label="Open (Ctrl+O)"
         title="Open (Ctrl+O)"
+        {...hint("open")}
         onClick={onOpen}
       >
         <svg viewBox="0 0 24 24" aria-hidden>
@@ -264,6 +270,7 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }:
           className={styles.button}
           aria-label="Add Video (Ctrl+Shift+O)"
           title="Add a video to the end of the timeline (Ctrl+Shift+O)"
+          {...hint("addVideo")}
           onClick={onAdd}
         >
           <svg viewBox="0 0 24 24" aria-hidden>
@@ -279,6 +286,7 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }:
           className={styles.splitMain}
           aria-label="Export the timeline (Ctrl+E)"
           title={exporting ? "An export is under way" : "Export the timeline (Ctrl+E)"}
+          {...hint("export")}
           disabled={noExport}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => exportTimeline("mp4")}
@@ -293,6 +301,7 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }:
           className={styles.splitMore}
           aria-label="Export options"
           title="Export options"
+          {...hint("exportMenu")}
           aria-expanded={menu !== null}
           disabled={noExport}
           onMouseDown={(e) => e.preventDefault()}

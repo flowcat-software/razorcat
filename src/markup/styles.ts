@@ -21,7 +21,7 @@ import type {
 import { nearestValue } from "./pickers";
 import type { ColorKey } from "./restyle";
 import { contrastingText, stepsOf, type StepStyle } from "./steps";
-import { DEFAULT_SHORTCUTS, type ShortcutKeys } from "./shortcuts";
+import { RAZORCAT_SHORTCUTS, type ShortcutKeys } from "./shortcuts";
 import { TOOLS, useToolStore, type PaletteKey, type ToolId } from "./toolStore";
 
 export interface StyleConfig {
@@ -83,7 +83,7 @@ export const DEFAULT_STYLE_CONFIG: StyleConfig = {
   showButtonUnits: false,
   drawingToolsSelect: true,
   fonts: [],
-  shortcuts: DEFAULT_SHORTCUTS,
+  shortcuts: RAZORCAT_SHORTCUTS,
 };
 
 /** Set by the host from settings (and kept in step with `SettingsChanged`). */
