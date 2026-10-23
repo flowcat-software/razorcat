@@ -21,7 +21,10 @@ interface Props {
   onAdd: () => void;
 }
 
-/** The tools that work on the picture, by the mockup; Vandal's markup tools' icons. */
+/**
+ * The tools that work on the picture, by the mockup: crop and grow, then the markup tools in
+ * Vandal's order, with its icons.
+ */
 const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
   { id: "select", label: "Select (V)", icon: <path d="M5 3l14 8-6 2-3 6z" /> },
   {
@@ -44,25 +47,37 @@ const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
       </>
     ),
   },
-  { id: "text", label: "Text (T)", icon: <path d="M5 6V4h14v2M12 4v16M9 20h6" /> },
-  { id: "arrow", label: "Arrow (A)", icon: <path d="M5 19L19 5M10 5h9v9" /> },
+  {
+    id: "pen",
+    label: "Pen (P)",
+    // Vandal's: a pen's nib.
+    icon: (
+      <>
+        <path d="M4 20l1-4L16 5l3 3L8 19z" />
+        <path d="M14 7l3 3" />
+      </>
+    ),
+  },
+  {
+    id: "highlighter",
+    label: "Highlighter (H)",
+    // Vandal's: a marker's chisel tip.
+    icon: (
+      <>
+        <path d="M9 15l-2 5h5l1-2" />
+        <path d="M9 15l8-11 4 3-8 11z" />
+      </>
+    ),
+  },
   { id: "line", label: "Line (/)", icon: <path d="M5 19L19 5" /> },
+  { id: "arrow", label: "Arrow (A)", icon: <path d="M5 19L19 5M10 5h9v9" /> },
   {
     id: "rect",
     label: "Rectangle (B)",
     icon: <rect x="4" y="6" width="16" height="12" rx="1" />,
   },
   { id: "ellipse", label: "Ellipse (E)", icon: <ellipse cx="12" cy="12" rx="8.5" ry="6.5" /> },
-  {
-    id: "step",
-    label: "Step (N)",
-    icon: (
-      <>
-        <circle cx="12" cy="12" r="8.5" />
-        <path d="M10.3 9.4L12.6 7.8v8.4" />
-      </>
-    ),
-  },
+  { id: "text", label: "Text (T)", icon: <path d="M5 6V4h14v2M12 4v16M9 20h6" /> },
   {
     id: "callout",
     label: "Callout (Q)",
@@ -76,13 +91,12 @@ const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
     ),
   },
   {
-    id: "highlighter",
-    label: "Highlighter (H)",
-    // Vandal's: a marker's chisel tip.
+    id: "step",
+    label: "Step (N)",
     icon: (
       <>
-        <path d="M9 15l-2 5h5l1-2" />
-        <path d="M9 15l8-11 4 3-8 11z" />
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="M10.3 9.4L12.6 7.8v8.4" />
       </>
     ),
   },
