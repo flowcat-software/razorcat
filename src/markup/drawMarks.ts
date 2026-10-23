@@ -1,7 +1,8 @@
 // Markup for the export (PLAN 4.3a): each item drawn alone at output size by the preview's own
 // shapes, cut to what it covers of the frame, as straight-alpha RGBA, with where and when it
 // shows. The preview's layer holds only the playhead's markup, so MarkupDrawing.tsx keeps every
-// item drawn, out of sight, for this. Rust overlays them on the frame between their frames.
+// item drawn, out of sight, for this. Rust overlays them on the frame between their frames. A
+// spotlight is its hole, drawn by the preview's path (PLAN 4.5g): Rust cuts it out of the dark.
 
 import type Konva from "konva";
 import { shownMarks, type Doc, type MarkId } from "../editor/doc";
@@ -10,6 +11,7 @@ import { outputSize } from "../editor/frame";
 import { annotationBounds } from "./geometry";
 import { annotationId, annotationOf } from "./model/store";
 import type { Annotation } from "./model/types";
+import { fillSpotlight } from "./spotlightHole";
 
 export interface DrawnMark {
   id: MarkId;
@@ -23,8 +25,11 @@ export interface DrawnMark {
   end: number;
   /** Straight-alpha RGBA, `width` × `height`. */
   pixels: Uint8ClampedArray<ArrayBuffer>;
-  /** A highlighter's: multiplied into the frame, beneath the rest (PLAN 4.5c). */
-  highlight: boolean;
+  /**
+   * What it is to the export: laid over the frame; a highlighter's, multiplied in beneath the
+   * rest (PLAN 4.5c); or a spotlight's hole, cut out of the dark (PLAN 4.5g).
+   */
+  layer: "item" | "highlight" | "hole";
 }
 
 /** The longest the drawing waits for fonts to load (ms). */
@@ -82,6 +87,11 @@ export async function drawMarks(doc: Doc): Promise<DrawnMark[]> {
     const node = group.findOne((n: Konva.Node) => n.id() === annotationId(m.id));
     const kept = doc.marks.find((k) => k.id === m.id);
     if (!node || !kept) throw new Error("The markup isn't ready to export yet.");
+    if (kept.object.kind === "spotlight") {
+      const hole = drawHole(kept.object, frame);
+      if (hole) drawn.push({ id: m.id, ...hole, start: m.start, end: m.end, layer: "hole" });
+      continue;
+    }
     const box = drawnBox(
       annotationOf(m.id, kept.object),
       node.getClientRect({ relativeTo: group }),
@@ -106,10 +116,33 @@ export async function drawMarks(doc: Doc): Promise<DrawnMark[]> {
       start: m.start,
       end: m.end,
       pixels: cut.pixels,
-      highlight: kept.object.kind === "highlighter",
+      layer: kept.object.kind === "highlighter" ? "highlight" : "item",
     });
   }
   return drawn;
+}
+
+/** Spotlight `spot`'s hole on a `frame`-sized picture, as the preview cuts it: null if it's off. */
+function drawHole(
+  spot: Parameters<typeof fillSpotlight>[1],
+  frame: { width: number; height: number },
+): ReturnType<typeof trim> {
+  const r = spot.rect;
+  const x0 = Math.max(0, Math.floor(r.x));
+  const y0 = Math.max(0, Math.floor(r.y));
+  const x1 = Math.min(frame.width, Math.ceil(r.x + r.width));
+  const y1 = Math.min(frame.height, Math.ceil(r.y + r.height));
+  if (x1 <= x0 || y1 <= y0) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = x1 - x0;
+  canvas.height = y1 - y0;
+  const g = canvas.getContext("2d");
+  if (!g) throw new Error("No 2D canvas context.");
+  g.translate(-x0, -y0);
+  g.fillStyle = "#000";
+  fillSpotlight(g, spot);
+  const cut = trim(g.getImageData(0, 0, x1 - x0, y1 - y0));
+  return cut && { ...cut, x: x0 + cut.x, y: y0 + cut.y };
 }
 
 /** `image` without its transparent edges; null if it's all transparent. */

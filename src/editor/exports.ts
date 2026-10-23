@@ -1,11 +1,13 @@
 // Export, as the buttons, menus and Ctrl+E invoke it: the document's clips to Rust (export.rs),
 // which asks where to save, renders, and reports progress (`ExportProgress`, `ExportEnded`).
-// The markup goes first, each item drawn and its pixels sent (drawMarks.ts, markup.rs).
+// The markup goes first, each item drawn and its pixels sent (drawMarks.ts, markup.rs), and the
+// spotlights' darkness on each run of them (spotlights.ts), which Rust makes.
 import { drawMarks } from "../markup/drawMarks";
 import { playheadFrame } from "../markup/model/store";
 import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
 import { clipStarts, markFades, type ClipId, type Doc } from "./doc";
 import { useDoc } from "./docStore";
+import { darkLayer } from "./spotlights";
 import { growColour, outputSize, type Side } from "./frame";
 import { checkMarkup } from "./markupCheck";
 import type { MenuItems } from "./Menu";
@@ -54,11 +56,25 @@ async function sendMarkup(doc: Doc): Promise<ExportMark[]> {
       console.error("[markup check]", e),
     );
   }
-  return drawn.map(({ id, x, y, width, height, start, end, highlight }) => {
+  const dark = darkLayer(doc);
+  const items = drawn.map(({ id, x, y, width, height, start, end, layer }): ExportMark => {
     const mark = doc.marks.find((m) => m.id === id);
-    const fades = markFades(mark ?? {}, end - start);
-    return { id, x, y, width, height, start, end, ...fades, highlight };
+    // A hole's fades are its own but where the darkness's are (spotlights.ts).
+    const hole = layer === "hole" ? dark?.holes.get(id) : undefined;
+    const fades = hole ?? markFades(mark ?? {}, end - start);
+    const { fadeIn, fadeOut } = fades;
+    return { id, x, y, width, height, start, end, fadeIn, fadeOut, layer: { kind: layer } };
   });
+  const frame = outputSize(doc.frame);
+  const runs = (dark?.runs ?? []).map((r): ExportMark => ({
+    id: 0,
+    x: 0,
+    y: 0,
+    ...frame,
+    ...r,
+    layer: { kind: "dark", dim: dark?.dim ?? 0 },
+  }));
+  return [...items, ...runs];
 }
 
 /** Told when an export can't start here, before Rust has it (the editor's status bar). */

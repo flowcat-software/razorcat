@@ -293,8 +293,7 @@ export type ExportMark = {
 	/**  How many of its frames it fades in over, and out over (fitted to its length). */
 	fadeIn: number,
 	fadeOut: number,
-	/**  A highlighter's: multiplied into the frame, beneath the other markup (PLAN 4.5c). */
-	highlight: boolean,
+	layer: MarkLayer,
 };
 
 /**  Rust → editor: an export is this far along. */
@@ -373,6 +372,20 @@ export type GrowSide = {
  *  bottom) or width (left, right), so it fits any video.
  */
 export type GrowUnit = "px" | "percent";
+
+/**  What an item of markup is to the export, as the page names it. */
+export type MarkLayer = 
+/**  Laid over the frame. */
+{ kind: "item" } | 
+/**  A highlighter's: multiplied into the frame, beneath the other markup (PLAN 4.5c). */
+{ kind: "highlight" } | 
+/**  A spotlight's hole, cut out of the darkness (PLAN 4.5g). */
+{ kind: "hole" } | 
+/**
+ *  The spotlights' darkness, over the whole frame on a stretch with any showing, `dim`
+ *  percent dark (PLAN 4.5g). No pixels are sent for it.
+ */
+{ kind: "dark"; dim: number | null };
 
 /**  How the markup tools behave (Vandal's editor settings, the markup's part). */
 export type Markup = {

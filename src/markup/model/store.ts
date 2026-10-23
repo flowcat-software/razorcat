@@ -7,7 +7,8 @@
 // - stacking order is the lanes: the top lane's markup is in front;
 // - gestures, undo and redo are the edit's, so a drag on the preview is one undo step there;
 // - the selection is the edit's selected markup (what of it is showing);
-// - each showing item's opacity at the playhead, as its fades make it (`opacity`);
+// - each showing item's opacity at the playhead, as its fades make it (`opacity`); a
+//   spotlight's is its hole's, and the darkness has its own (`dark`; editor/spotlights.ts);
 // - step markers count up by their start times on the timeline, all of them, not only those
 //   showing (`labels`; Richard, 2026-10-21), where Vandal counts in creation order.
 
@@ -22,6 +23,7 @@ import {
   type MarkObject,
 } from "../../editor/doc";
 import type { Doc as EditDoc } from "../../editor/doc";
+import { darkAt, darkLayer } from "../../editor/spotlights";
 import { useDoc as useEdit } from "../../editor/docStore";
 import { stepLabel } from "../steps";
 import { outputSize } from "../../editor/frame";
@@ -49,8 +51,13 @@ export interface DocState {
   selection: AnnotationId[];
   /** Not null during the edit's gesture (the document then, as far as markup goes: this one). */
   gestureStart: Doc | null;
-  /** How opaque each showing item is at the playhead, if it's fading (the rest are opaque). */
+  /**
+   * How opaque each showing item is at the playhead, if it's fading (the rest are opaque); a
+   * spotlight's, how open its hole is.
+   */
   opacity: Readonly<Record<AnnotationId, number>>;
+  /** The spotlights' darkness at the playhead (%), and how far it has faded in; null if none. */
+  dark: { dim: number; level: number } | null;
   /** Every step marker's label (`timelineStepLabels`). */
   labels: Readonly<Record<AnnotationId, string>>;
 
@@ -146,7 +153,10 @@ export function stepsDoc(): Doc {
   };
 }
 
-function view(): Pick<DocState, "doc" | "selection" | "gestureStart" | "opacity" | "labels"> {
+function view(): Pick<
+  DocState,
+  "doc" | "selection" | "gestureStart" | "opacity" | "dark" | "labels"
+> {
   const edit = useEdit.getState();
   const frame = player?.getState().frame ?? 0;
   const editing = useToolStore.getState().editing;
@@ -164,16 +174,24 @@ function view(): Pick<DocState, "doc" | "selection" | "gestureStart" | "opacity"
     annotations: on.map((m) => annotationOf(m.id, objects.get(m.id)!)),
   };
   const showing = new Set(on.map((m) => m.id));
+  const layer = darkLayer(edit.doc);
+  const darkNow = layer && darkAt(layer, frame);
   const opacity: Record<AnnotationId, number> = {};
   for (const m of on) {
     const kept = edit.doc.marks.find((k) => k.id === m.id);
     const length = m.end - m.start;
-    const a = kept ? markOpacity(markFades(kept, length), length, frame - m.start) : 1;
+    const a =
+      kept?.object.kind === "spotlight"
+        ? (darkNow?.holes.get(m.id) ?? 1)
+        : kept
+          ? markOpacity(markFades(kept, length), length, frame - m.start)
+          : 1;
     // Text being typed into shows whole.
     if (a < 1 && m.id !== typing) opacity[annotationId(m.id)] = a;
   }
   return {
     opacity,
+    dark: layer && darkNow ? { dim: layer.dim, level: darkNow.level } : null,
     labels: timelineStepLabels(edit.doc),
     doc,
     selection: edit.selectedMarks.filter((id) => showing.has(id)).map(annotationId),
@@ -196,12 +214,26 @@ function refresh() {
   const sameOpacity =
     Object.keys(next.opacity).length === Object.keys(s.opacity).length &&
     Object.entries(next.opacity).every(([id, a]) => s.opacity[id] === a);
+  const sameDark =
+    next.dark === s.dark ||
+    (next.dark !== null &&
+      s.dark !== null &&
+      next.dark.dim === s.dark.dim &&
+      next.dark.level === s.dark.level);
   const sameLabels =
     Object.keys(next.labels).length === Object.keys(s.labels).length &&
     Object.entries(next.labels).every(([id, l]) => s.labels[id] === l);
-  if (same && sameSelection && sameOpacity && sameLabels && !next.gestureStart === !s.gestureStart)
+  if (
+    same &&
+    sameSelection &&
+    sameOpacity &&
+    sameDark &&
+    sameLabels &&
+    !next.gestureStart === !s.gestureStart
+  )
     return;
   docStore.setState({
+    dark: sameDark ? s.dark : next.dark,
     labels: sameLabels ? s.labels : next.labels,
     opacity: sameOpacity ? s.opacity : next.opacity,
     doc: same ? s.doc : next.doc,
@@ -220,6 +252,7 @@ export const docStore = createStore<DocState>()(() => ({
   selection: [],
   gestureStart: null,
   opacity: {},
+  dark: null,
   labels: {},
 
   load: (doc) => {
@@ -283,6 +316,17 @@ export const docStore = createStore<DocState>()(() => ({
 
   select: (ids) => useEdit.getState().selectMarks(ids.map(markId)),
 }));
+
+/**
+ * Every spotlight in the edit, showing at the playhead or not: their darkness is shared (Vandal's,
+ * PLAN 3D.7), so changing it reaches them all.
+ */
+export function allSpotlights(): Annotation[] {
+  return useEdit
+    .getState()
+    .doc.marks.filter((m) => m.object.kind === "spotlight")
+    .map((m) => annotationOf(m.id, m.object));
+}
 
 /**
  * All the selected markup as annotations, showing at the playhead or not (selected on the

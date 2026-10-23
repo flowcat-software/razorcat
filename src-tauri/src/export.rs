@@ -28,7 +28,7 @@ use tauri_specta::Event;
 
 use crate::editor::LABEL;
 use crate::ffmpeg::{self, Outcome};
-use crate::markup::{self, ExportMark, Markup};
+use crate::markup::{self, ExportMark, MarkLayer, Markup};
 use crate::media::grid::{self, Rate};
 use crate::sidecar::{self, Tool};
 use crate::source::file_name;
@@ -283,12 +283,12 @@ struct Cut {
 /// rounding, and a source frame shown for several grid frames (VFR) is there for `fps`.
 const SEEK_EARLY: f64 = 0.5;
 
-/// An item of markup as ffmpeg lays it over the frame: its pixels' file (raw RGBA; a highlight's,
-/// RGB over white, multiplied in), its size and place, the export's stretches it shows on, and
-/// its fades (over its own `length` frames).
+/// An item of markup as ffmpeg lays it over the frame: its pixels' file (raw RGBA; a highlight's
+/// or a spotlight's hole's, RGB over white, multiplied in; the darkness has none), its size and
+/// place, the export's stretches it shows on, and its fades (over its own `length` frames).
 #[derive(Debug, Clone, PartialEq)]
 struct Overlay {
-    highlight: bool,
+    layer: MarkLayer,
     path: PathBuf,
     x: u32,
     y: u32,
@@ -311,19 +311,24 @@ struct Show {
 
 /// The markup over `clips` (in the export's order), with the export's frames each item shows
 /// on: what of its timeline frames the clips cover, wherever they are in the export. Items over
-/// none of them are left out. The highlights come first, beneath the rest, as the preview draws
-/// them (Vandal's rule, Richard 2026-10-23); otherwise back to front as sent.
+/// none of them are left out. As the preview draws them (Vandal's rule, Richard 2026-10-23): the
+/// highlights first, then the spotlights' holes and darkness, then the rest, back to front as
+/// sent.
 fn overlays(clips: &[ExportClip], markup: &Markup) -> Vec<Overlay> {
-    let (highlights, rest): (Vec<_>, Vec<_>) =
-        markup.items.iter().partition(|item| item.mark.highlight);
-    highlights
+    let mut items: Vec<_> = markup.items.iter().collect();
+    items.sort_by_key(|item| match item.mark.layer {
+        MarkLayer::Highlight => 0,
+        MarkLayer::Hole => 1,
+        MarkLayer::Dark { .. } => 2,
+        MarkLayer::Item => 3,
+    });
+    items
         .into_iter()
-        .chain(rest)
         .filter_map(|item| {
             let m = &item.mark;
             let shows = shown(clips, m.start, m.end);
             (!shows.is_empty()).then(|| Overlay {
-                highlight: m.highlight,
+                layer: m.layer,
                 path: item.path.clone(),
                 x: m.x,
                 y: m.y,
@@ -463,9 +468,21 @@ fn graph(
         a.extend(["-ss".into(), format!("{:.6}", c.seek).into()]);
         a.extend(["-i".into(), c.path.as_os_str().to_owned()]);
     }
-    // Each item's pixels: one picture, raw RGBA (a highlight's, RGB).
+    // Each item's pixels: one picture, raw RGBA (a highlight's or a hole's, RGB). Each one's
+    // input (the darkness has none: 0).
+    let mut inputs = Vec::new();
+    let mut next = cuts.len();
     for o in overlays {
-        let pixels = if o.highlight { "rgb24" } else { "rgba" };
+        let pixels = match o.layer {
+            MarkLayer::Dark { .. } => {
+                inputs.push(0);
+                continue;
+            }
+            MarkLayer::Highlight | MarkLayer::Hole => "rgb24",
+            MarkLayer::Item => "rgba",
+        };
+        inputs.push(next);
+        next += 1;
         a.extend(["-f", "rawvideo", "-pix_fmt", pixels, "-video_size"].map(OsString::from));
         a.push(format!("{}x{}", o.width, o.height).into());
         a.extend(["-i".into(), o.path.as_os_str().to_owned()]);
@@ -537,13 +554,27 @@ fn graph(
         f.push(format!("[vc]{frame}[vf]"));
         at = "vf".into();
     }
+    let mut darkened = false;
     for (k, o) in overlays.iter().enumerate() {
         let place = format!("x={}:y={}:format=yuv444", o.x, o.y);
-        if o.highlight {
-            at = highlight(&mut f, &at, n + k, k, o, rate);
-            continue;
+        let input = inputs[k];
+        match o.layer {
+            MarkLayer::Highlight => {
+                at = highlight(&mut f, &at, input, k, o, rate);
+                continue;
+            }
+            MarkLayer::Hole | MarkLayer::Dark { .. } => {
+                // The spotlights all at once, at the first of them.
+                if !darkened {
+                    darkened = true;
+                    let total = cuts.iter().map(|c| c.out - c.from).sum();
+                    at = dark(&mut f, &at, overlays, &inputs, total, rate);
+                }
+                continue;
+            }
+            MarkLayer::Item => {}
         }
-        f.push(format!("[{}:v:0]format=yuva444p[m{k}]", n + k));
+        f.push(format!("[{input}:v:0]format=yuva444p[m{k}]"));
         if o.fade_in == 0 && o.fade_out == 0 {
             // Unfaded: the one picture, on between its frames.
             let shows: Vec<String> = o
@@ -677,6 +708,114 @@ fn highlight(
             rate.den
         ));
         at = back(f, &at, &format!("hw{name}"), &name, s.from, s.to);
+    }
+    at
+}
+
+/// The spotlights' darkness laid over the picture `at` (PLAN 4.5g), as the preview's is: on each
+/// stretch with a spotlight showing, black at the darkness (`MarkLayer::Dark`, faded as an item
+/// is), with every hole showing cut out of it. The holes are multiplied into one white picture
+/// the export's `total` frames long, as highlights are into the frame (a hole's RGB is white
+/// outside it and black inside, and fades towards white): its grey is how much of the darkness
+/// is left, which each stretch's black takes as its alpha. The picture's label after it.
+fn dark(
+    f: &mut Vec<String>,
+    at: &str,
+    overlays: &[Overlay],
+    inputs: &[usize],
+    total: u32,
+    rate: Rate,
+) -> String {
+    let runs: Vec<(usize, &Overlay, f64)> = overlays
+        .iter()
+        .enumerate()
+        .filter_map(|(k, o)| match o.layer {
+            MarkLayer::Dark { dim } => Some((k, o, dim)),
+            _ => None,
+        })
+        .collect();
+    let Some((_, first, _)) = runs.first() else {
+        return at.to_string();
+    };
+    let size = format!("{}x{}", first.width, first.height);
+    let clock = format!("r={}/{}", rate.num, rate.den);
+    // On the holes' clock (`highlight`'s times), or a hole's frame and the white's can round
+    // apart and the hole show a frame late.
+    f.push(format!(
+        "color=c=white:s={size}:{clock},format=gbrp,trim=end_frame={total},settb=AVTB,setpts=N/({}/{}*TB)[k]",
+        rate.num, rate.den
+    ));
+    let mut left = "k".to_string();
+    for (k, o) in overlays.iter().enumerate() {
+        if o.layer == MarkLayer::Hole {
+            left = highlight(f, &left, inputs[k], k, o, rate);
+        }
+    }
+    let parts: usize = runs.iter().map(|(_, o, _)| o.shows.len()).sum();
+    let split = if parts > 1 {
+        format!("split={parts}")
+    } else {
+        "null".to_string()
+    };
+    f.push(format!(
+        "[{left}]{split}{}",
+        (0..parts).map(|i| format!("[ks{i}]")).collect::<String>()
+    ));
+    let mut at = at.to_string();
+    let mut part = 0;
+    for (k, o, dim) in runs {
+        let mut chain = format!(
+            "color=c=black@{:.4}:s={size}:{clock},format=gbrap,trim=end_frame={}",
+            (dim / 100.0).clamp(0.0, 1.0),
+            o.length
+        );
+        if o.fade_in > 0 {
+            chain += &format!(",fade=t=in:s=0:n={}:alpha=1", o.fade_in);
+        }
+        if o.fade_out > 0 {
+            chain += &format!(
+                ",fade=t=out:s={}:n={}:alpha=1",
+                o.length - o.fade_out,
+                o.fade_out
+            );
+        }
+        let shows = o.shows.len();
+        if shows > 1 {
+            chain += &format!(",split={shows}");
+        }
+        chain += &(0..shows)
+            .map(|j| format!("[dv{k}_{j}]"))
+            .collect::<String>();
+        f.push(chain);
+        for (j, s) in o.shows.iter().enumerate() {
+            let name = format!("{k}_{j}");
+            f.push(format!(
+                "[dv{name}]trim=start_frame={}:end_frame={},settb=AVTB,setpts=(N+{})/({}/{}*TB)[dw{name}]",
+                s.at,
+                s.at + s.to - s.from,
+                s.from,
+                rate.num,
+                rate.den
+            ));
+            // What's left of the darkness on these frames, as a grey picture's alpha.
+            f.push(format!(
+                "[ks{part}]trim=start_frame={}:end_frame={},split[ka{name}][kb{name}]",
+                s.from, s.to
+            ));
+            f.push(format!(
+                "[ka{name}]format=gbrap[kc{name}];[kc{name}][kb{name}]alphamerge[kd{name}]"
+            ));
+            f.push(format!(
+                "[dw{name}][kd{name}]blend=all_mode=multiply[dk{name}]"
+            ));
+            f.push(format!(
+                "[{at}][dk{name}]overlay=x=0:y=0:format=yuv444:eof_action=pass:enable='between(n,{},{})'[d{name}]",
+                s.from,
+                s.to - 1
+            ));
+            at = format!("d{name}");
+            part += 1;
+        }
     }
     at
 }
@@ -1923,7 +2062,7 @@ mod tests {
         }];
         let rate = Rate { num: 30, den: 1 };
         let mark = |x, shows: Vec<(u32, u32)>| Overlay {
-            highlight: false,
+            layer: MarkLayer::Item,
             path: PathBuf::from("m.rgba"),
             x,
             y: 4,
@@ -1999,7 +2138,7 @@ mod tests {
             den: 1001,
         };
         let faded = Overlay {
-            highlight: false,
+            layer: MarkLayer::Item,
             path: PathBuf::from("m.rgba"),
             x: 2,
             y: 4,
@@ -2055,7 +2194,11 @@ mod tests {
             ..Default::default()
         }];
         let item = |highlight: bool, fade_in: u32| Overlay {
-            highlight,
+            layer: if highlight {
+                MarkLayer::Highlight
+            } else {
+                MarkLayer::Item
+            },
             path: PathBuf::from(if highlight { "h.rgb" } else { "m.rgba" }),
             x: 10,
             y: 20,
@@ -2118,7 +2261,7 @@ mod tests {
                     end: 10,
                     fade_in: 0,
                     fade_out: 0,
-                    highlight: false,
+                    layer: MarkLayer::Item,
                 },
             },
             markup::MarkFile {
@@ -2133,14 +2276,104 @@ mod tests {
                     end: 10,
                     fade_in: 0,
                     fade_out: 0,
-                    highlight: true,
+                    layer: MarkLayer::Highlight,
                 },
             },
         ];
-        let order: Vec<bool> = overlays(&[clip(1, 0, 90, 0)], &markup)
+        let order: Vec<MarkLayer> = overlays(&[clip(1, 0, 90, 0)], &markup)
             .iter()
-            .map(|o| o.highlight)
+            .map(|o| o.layer)
             .collect();
-        assert_eq!(order, [true, false]);
+        assert_eq!(order, [MarkLayer::Highlight, MarkLayer::Item]);
+    }
+
+    #[test]
+    fn the_spotlights_darken_the_frame_but_their_holes() {
+        let rate = Rate { num: 30, den: 1 };
+        let c = [Cut {
+            out: 90,
+            ..Default::default()
+        }];
+        let at = |from, to, at| Show { from, to, at };
+        let over = |layer, path: &str, (x, y, width, height), shows: Vec<Show>, fade_in| Overlay {
+            layer,
+            path: PathBuf::from(path),
+            x,
+            y,
+            width,
+            height,
+            shows,
+            length: 20,
+            fade_in,
+            fade_out: 0,
+        };
+        let marks = [
+            over(
+                MarkLayer::Hole,
+                "s.rgb",
+                (10, 20, 30, 40),
+                vec![at(5, 15, 0)],
+                3,
+            ),
+            over(
+                MarkLayer::Dark { dim: 60.0 },
+                "",
+                (0, 0, 64, 48),
+                vec![at(0, 10, 0), at(40, 50, 10)],
+                4,
+            ),
+            over(
+                MarkLayer::Item,
+                "m.rgba",
+                (1, 2, 3, 4),
+                vec![at(0, 5, 0)],
+                0,
+            ),
+        ];
+        let a = joined(&one_file(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            0,
+            None,
+            &marks,
+            Encoder::X264,
+            6_000_000,
+        ));
+        // The hole's picture and the item's are inputs; the darkness isn't.
+        assert!(a.contains(
+            "-video_size 30x40 -i s.rgb -f rawvideo -pix_fmt rgba -video_size 3x4 -i m.rgba -filter_complex"
+        ));
+        // The holes multiplied into white, as long as the export.
+        assert!(a.contains(
+            "color=c=white:s=64x48:r=30/1,format=gbrp,trim=end_frame=90,settb=AVTB,setpts=N/(30/1*TB)[k];"
+        ));
+        assert!(a.contains("[k]split[hb0_0][hc0_0]"));
+        assert!(a.contains(
+            "[1:v:0]format=gbrp,loop=loop=19:size=1:start=0,fade=t=in:s=0:n=3:color=white[hf0_0]"
+        ));
+        assert!(a.contains("[h0_0]split=2[ks0][ks1]"));
+        // The darkness: black, faded as an item, each stretch timed to the export's.
+        assert!(a.contains(
+            "color=c=black@0.6000:s=64x48:r=30/1,format=gbrap,trim=end_frame=20,\
+             fade=t=in:s=0:n=4:alpha=1,split=2[dv1_0][dv1_1]"
+        ));
+        assert!(a.contains(
+            "[dv1_1]trim=start_frame=10:end_frame=20,settb=AVTB,setpts=(N+40)/(30/1*TB)[dw1_1]"
+        ));
+        // What's left of it on those frames is its alpha.
+        assert!(a.contains("[ks1]trim=start_frame=40:end_frame=50,split[ka1_1][kb1_1]"));
+        assert!(a.contains(
+            "[kc1_1][kb1_1]alphamerge[kd1_1];[dw1_1][kd1_1]blend=all_mode=multiply[dk1_1]"
+        ));
+        assert!(a.contains(
+            "[vc][dk1_0]overlay=x=0:y=0:format=yuv444:eof_action=pass:enable='between(n,0,9)'[d1_0]"
+        ));
+        assert!(a.contains(
+            "[d1_0][dk1_1]overlay=x=0:y=0:format=yuv444:eof_action=pass:enable='between(n,40,49)'[d1_1]"
+        ));
+        // The rest over it.
+        assert!(a.contains("[2:v:0]format=yuva444p[m2];[d1_1][m2]overlay="));
     }
 }

@@ -92,6 +92,24 @@ const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
     ),
   },
   {
+    id: "spotlight",
+    label: "Spotlight (F)",
+    // Vandal's: a bright circle in a darkened frame.
+    icon: (
+      <>
+        <path
+          d="M3 5h18v14H3zM12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8z"
+          fill="currentColor"
+          fillRule="evenodd"
+          stroke="none"
+          opacity="0.45"
+        />
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <circle cx="12" cy="12" r="4" />
+      </>
+    ),
+  },
+  {
     id: "step",
     label: "Step (N)",
     icon: (

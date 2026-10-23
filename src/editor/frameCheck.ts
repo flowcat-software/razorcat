@@ -21,11 +21,15 @@
 // without it at the ramp's opacity (`markOpacity`, the preview's).
 // Two highlights (PLAN 4.5c), yellow: each pixel under one must be the export without markup
 // multiplied by it (towards white as it fades), and one under item 2 must leave it on top.
+// Then spotlights (PLAN 4.5g), on their own: two holes in one run of darkness, overlapping, each
+// pixel the export without markup darkened by as much as is left of it there.
 import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
 import { clipStarts, markOpacity, total } from "./doc";
 import { useDoc } from "./docStore";
 import { exportClips, exportFrame } from "./exports";
+import { outputSize } from "./frame";
 import type { Player } from "./player";
+import { fadedAt } from "./spotlights";
 
 /** The barcode: cells along the bottom sixteenth of the picture, least significant on the left. */
 const BITS = 16;
@@ -313,7 +317,8 @@ export async function checkFrames(
     const even = (v: number) => Math.round(v / 2) * 2;
     const cut = clipStarts(useDoc.getState().doc)[1];
     const size = { width: even(width / 10), height: even(height / 10) };
-    const still = { fadeIn: 0, fadeOut: 0, highlight: false };
+    const still = { fadeIn: 0, fadeOut: 0, layer: { kind: "item" } } as const;
+    const lit = (m: ExportMark) => m.layer.kind === "highlight";
     const marks: ExportMark[] = [
       {
         id: 1,
@@ -334,7 +339,7 @@ export async function checkFrames(
         end: 52,
         fadeIn: 4,
         fadeOut: 4,
-        highlight: false,
+        layer: { kind: "item" },
       },
       {
         id: 4,
@@ -344,7 +349,7 @@ export async function checkFrames(
         start: 5,
         end: 25,
         ...still,
-        highlight: true,
+        layer: { kind: "highlight" },
       },
       {
         id: 5,
@@ -355,7 +360,7 @@ export async function checkFrames(
         end: 72,
         fadeIn: 4,
         fadeOut: 4,
-        highlight: true,
+        layer: { kind: "highlight" },
       },
     ];
     const MAGENTA = [255, 0, 255];
@@ -367,13 +372,13 @@ export async function checkFrames(
     const bare = await exportPass("export unmarked", BITS, want, [], probes);
     for (const m of marks) {
       const pixels = new Uint8ClampedArray(m.width * m.height * 4);
-      const [r, g, b] = m.highlight ? YELLOW : MAGENTA;
+      const [r, g, b] = lit(m) ? YELLOW : MAGENTA;
       for (let i = 0; i < pixels.length; i += 4) pixels.set([r, g, b, 255], i);
       await uploadPixels(`http://media.localhost/markup/${m.id}`, pixels);
     }
     const marked = await exportPass("export marked", BITS, want, marks, probes);
     // Highlights first (beneath), then the rest, back to front, as the export lays them.
-    const layered = [...marks.filter((m) => m.highlight), ...marks.filter((m) => !m.highlight)];
+    const layered = [...marks.filter(lit), ...marks.filter((m) => !lit(m))];
     let wrongMarks = 0;
     for (let k = 0; k < n; k++) {
       probes.forEach((at, p) => {
@@ -390,10 +395,10 @@ export async function checkFrames(
           if (!inside || k < m.start || k >= m.end) continue;
           covered = true;
           const a = markOpacity(m, m.end - m.start, k - m.start);
-          want3 = m.highlight
+          want3 = lit(m)
             ? want3.map((c, i) => c * (1 - a + (a * YELLOW[i]) / 255))
             : want3.map((c, i) => a * MAGENTA[i] + (1 - a) * c);
-          solid = !m.highlight && a === 1;
+          solid = !lit(m) && a === 1;
         }
         // Magenta, more or less (an encode's colour at a block's corner wanders a little).
         const magenta = (r: number, g: number, b: number) => r > 180 && g < 80 && b > 180;
@@ -422,6 +427,88 @@ export async function checkFrames(
       });
     }
     passes.push({ pass: "markup", checked: n * probes.length, misses: wrongMarks, covered: 0 });
+
+    // Spotlights: one run of darkness, 40% (light enough for the barcode to read), frames 80 to
+    // 110, fading in and out over 4; a hole from its start to 100, closing over its last 4 as the
+    // second goes on; the second from 90 to its end, opening over its first 4.
+    progress("Checking frames: exporting the edit with spotlights…");
+    const DIM = 40;
+    const hole = (id: number, x: number, start: number, end: number, fadeIn: number) => ({
+      id,
+      x,
+      y: even(height / 3),
+      ...size,
+      start,
+      end,
+      fadeIn,
+      fadeOut: 4 - fadeIn,
+      layer: { kind: "hole" } as const,
+    });
+    const holes = [hole(6, even(width / 4), 80, 100, 0), hole(7, even(width * 0.6), 90, 110, 4)];
+    const run = { start: 80, end: 110, fadeIn: 4, fadeOut: 4 };
+    const spotlit: ExportMark[] = [
+      ...holes,
+      {
+        id: 0,
+        x: 0,
+        y: 0,
+        ...outputSize(useDoc.getState().doc.frame),
+        ...run,
+        layer: { kind: "dark", dim: DIM },
+      },
+    ];
+    // Each hole's corners, and a pixel in the dark outside them.
+    const spots = [
+      ...holes.flatMap((m) => [
+        { x: m.x, y: m.y },
+        { x: m.x + m.width - 1, y: m.y + m.height - 1 },
+      ]),
+      { x: even(width * 0.4), y: even(height / 6) },
+    ];
+    const plain = await exportPass("export unspotlit", BITS, want, [], spots);
+    for (const m of holes) {
+      const pixels = new Uint8ClampedArray(m.width * m.height * 4);
+      for (let i = 0; i < pixels.length; i += 4) pixels.set([0, 0, 0, 255], i);
+      await uploadPixels(`http://media.localhost/markup/${m.id}`, pixels);
+    }
+    const shaded = await exportPass("export spotlit", BITS, want, spotlit, spots);
+    let wrongSpots = 0;
+    for (let k = 0; k < n; k++) {
+      spots.forEach((at, p) => {
+        const got = shaded[k]?.slice(p * 3, p * 3 + 3) ?? [];
+        const under = plain[k]?.slice(p * 3, p * 3 + 3) ?? [];
+        // What's left of the darkness here: none in an open hole.
+        let left = (DIM / 100) * fadedAt(run, k);
+        for (const m of holes) {
+          const inside =
+            m.x <= at.x && at.x < m.x + m.width && m.y <= at.y && at.y < m.y + m.height;
+          if (inside) left *= 1 - fadedAt(m, k);
+        }
+        const want3 = [...under].map((c) => c * (1 - left));
+        // Off the run: not darkened (two encodes of the same picture can differ a lot in a
+        // saturated corner, but not all its channels by the darkness at once). On it: as worked
+        // out, within the encodes' noise.
+        const darkened =
+          [...under].some((c) => c >= 64) &&
+          [...under].every((c, i) => c < 64 || got[i] <= c * (1 - DIM / 100) + FADE_NOISE / 4);
+        const right =
+          k < run.start || k >= run.end
+            ? !darkened
+            : want3.every((c, i) => Math.abs(got[i] - c) <= FADE_NOISE);
+        if (right) return;
+        wrongSpots++;
+        const rgb = (c: number[]) =>
+          (Math.round(c[0]) << 16) | (Math.round(c[1]) << 8) | Math.round(c[2]);
+        misses.push({
+          pass:
+            p < 4 ? `spotlight ${holes[p >> 1].id} ${p % 2 ? "end" : "start"} corner` : "the dark",
+          frame: k,
+          expected: rgb(want3),
+          shown: rgb([...got]),
+        });
+      });
+    }
+    passes.push({ pass: "spotlights", checked: n * spots.length, misses: wrongSpots, covered: 0 });
   }
 
   const wrongs = misses.length;

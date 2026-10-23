@@ -4,7 +4,8 @@
 //! timeline frames it shows. They're kept as raw RGBA files, which ffmpeg reads as `rawvideo`
 //! (no image encoder needed), in a folder of the export's own, removed when it's done. A
 //! highlight (PLAN 4.5c) is kept as RGB, laid over white: what the frame under it is multiplied
-//! by.
+//! by; so is a spotlight's hole (PLAN 4.5g). The spotlights' darkness has no pixels: ffmpeg makes
+//! it.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -15,6 +16,21 @@ use specta::Type;
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::state::AppState;
+
+/// What an item of markup is to the export, as the page names it.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum MarkLayer {
+    /// Laid over the frame.
+    Item,
+    /// A highlighter's: multiplied into the frame, beneath the other markup (PLAN 4.5c).
+    Highlight,
+    /// A spotlight's hole, cut out of the darkness (PLAN 4.5g).
+    Hole,
+    /// The spotlights' darkness, over the whole frame on a stretch with any showing, `dim`
+    /// percent dark (PLAN 4.5g). No pixels are sent for it.
+    Dark { dim: f64 },
+}
 
 /// An item of markup, as the page names it for an export.
 #[derive(Debug, Clone, Deserialize, Type)]
@@ -32,11 +48,10 @@ pub struct ExportMark {
     /// How many of its frames it fades in over, and out over (fitted to its length).
     pub fade_in: u32,
     pub fade_out: u32,
-    /// A highlighter's: multiplied into the frame, beneath the other markup (PLAN 4.5c).
-    pub highlight: bool,
+    pub layer: MarkLayer,
 }
 
-/// An item ready for ffmpeg: its pixels' file, and where and when it goes.
+/// An item ready for ffmpeg: its pixels' file (none for the darkness), and where and when it goes.
 #[derive(Debug)]
 pub struct MarkFile {
     pub path: PathBuf,
@@ -88,10 +103,18 @@ pub fn take(app: &AppHandle, marks: Vec<ExportMark>) -> Result<Markup, String> {
     std::fs::create_dir_all(&dir).map_err(|e| format!("The markup couldn't be kept ({e})."))?;
     let pixels = pair(marks, sent)?;
     for (mark, rgba) in pixels {
-        let (path, bytes) = if mark.highlight {
-            (dir.join(format!("{}.rgb", mark.id)), over_white(&rgba))
-        } else {
-            (dir.join(format!("{}.rgba", mark.id)), rgba)
+        let (path, bytes) = match mark.layer {
+            MarkLayer::Dark { .. } => {
+                markup.items.push(MarkFile {
+                    path: PathBuf::new(),
+                    mark,
+                });
+                continue;
+            }
+            MarkLayer::Highlight | MarkLayer::Hole => {
+                (dir.join(format!("{}.rgb", mark.id)), over_white(&rgba))
+            }
+            MarkLayer::Item => (dir.join(format!("{}.rgba", mark.id)), rgba),
         };
         std::fs::write(&path, bytes).map_err(|e| format!("The markup couldn't be kept ({e})."))?;
         markup.items.push(MarkFile { path, mark });
@@ -112,7 +135,8 @@ fn over_white(rgba: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-/// Each of `marks` with the pixels `sent` for it, checked: all there, of its size.
+/// Each of `marks` with the pixels `sent` for it, checked: all there, of its size (the darkness
+/// has none).
 fn pair(
     marks: Vec<ExportMark>,
     mut sent: HashMap<u32, Vec<u8>>,
@@ -120,6 +144,12 @@ fn pair(
     marks
         .into_iter()
         .map(|m| {
+            if let MarkLayer::Dark { .. } = m.layer {
+                if m.start >= m.end || m.width == 0 || m.height == 0 {
+                    return Err("The markup sent doesn't fit: try again.".to_string());
+                }
+                return Ok((m, Vec::new()));
+            }
             let rgba = sent
                 .remove(&m.id)
                 .ok_or("The markup wasn't all sent: try again.")?;
@@ -147,7 +177,7 @@ mod tests {
             end: 10,
             fade_in: 0,
             fade_out: 0,
-            highlight: false,
+            layer: MarkLayer::Item,
         }
     }
 
@@ -172,6 +202,19 @@ mod tests {
                 .collect::<Vec<_>>(),
             [(2, 4), (1, 24)]
         );
+    }
+
+    #[test]
+    fn the_darkness_needs_no_pixels() {
+        let mut dark = mark(5, 64, 48);
+        dark.layer = MarkLayer::Dark { dim: 60.0 };
+        let paired = pair(
+            vec![dark.clone(), mark(1, 1, 1)],
+            HashMap::from([(1, vec![0; 4])]),
+        );
+        assert_eq!(paired.unwrap()[0].1.len(), 0);
+        dark.start = 10;
+        assert!(pair(vec![dark], HashMap::new()).is_err());
     }
 
     #[test]

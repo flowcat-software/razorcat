@@ -19,11 +19,21 @@ export type Tool =
   | "ellipse"
   | "step"
   | "callout"
-  | "highlighter";
+  | "highlighter"
+  | "spotlight";
 
 /** A markup tool, as Vandal's markup code names it. */
 type MarkupTool =
-  "text" | "arrow" | "line" | "rect" | "ellipse" | "step" | "callout" | "highlighter" | "pen";
+  | "text"
+  | "arrow"
+  | "line"
+  | "rect"
+  | "ellipse"
+  | "step"
+  | "callout"
+  | "highlighter"
+  | "pen"
+  | "spotlight";
 
 /** The tools that are Vandal's markup tools (the markup layer runs them). */
 export const MARKUP_TOOLS: readonly Tool[] = [
@@ -36,6 +46,7 @@ export const MARKUP_TOOLS: readonly Tool[] = [
   "callout",
   "highlighter",
   "pen",
+  "spotlight",
 ] satisfies MarkupTool[];
 const isMarkupTool = (tool: Tool): tool is MarkupTool => MARKUP_TOOLS.includes(tool);
 

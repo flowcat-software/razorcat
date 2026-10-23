@@ -27,6 +27,7 @@ import {
   underlineLayout,
 } from "./callout";
 import { drawnBox } from "./drawMarks";
+import { fillSpotlight } from "./spotlightHole";
 import { layerOf, registerAnnotationGroup } from "./export";
 import {
   annotationBounds,
@@ -243,6 +244,7 @@ export function MarkupLayer({
   const doc = useDoc((s) => s.doc);
   const selection = useDoc((s) => s.selection);
   const opacity = useDoc((s) => s.opacity);
+  const dark = useDoc((s) => s.dark);
   const tool = useToolStore((s) => s.tool);
   const editing = useToolStore((s) => s.editing);
   const labelEditing = useToolStore((s) => s.labelEditing);
@@ -1108,7 +1110,9 @@ export function MarkupLayer({
         <Layer>
           <Group ref={groupRef} {...groupProps}>
             {/* First in this layer: it punches its holes into nothing else. */}
-            {spotlights.length > 0 && <SpotlightDim spots={spotlights} source={doc.source} />}
+            {spotlights.length > 0 && dark && (
+              <SpotlightDim spots={spotlights} source={doc.source} dark={dark} opacity={opacity} />
+            )}
             {doc.annotations
               .filter((a) => layerOf(a) === "annotations")
               .map((a) => (
@@ -1641,18 +1645,23 @@ function CalloutShape({
 }
 
 /**
- * The shared dark layer (PLAN 3D.7): the whole image darkened by the last
- * spotlight's amount (they're kept equal), with every spotlight cut out, so
- * overlaps don't darken twice. Exported with the annotation layer.
+ * The shared dark layer (PLAN 3D.7): the whole image darkened by the
+ * spotlights' amount (they're kept equal), with every spotlight cut out, so
+ * overlaps don't darken twice. Razorcat: as far as the darkness has faded in
+ * (`dark`), and each hole as open as its fades make it (`opacity`, PLAN 4.5g).
  */
 function SpotlightDim({
   spots,
   source,
+  dark,
+  opacity,
 }: {
   spots: SpotlightAnnotation[];
   source: { width: number; height: number };
+  dark: { dim: number; level: number };
+  opacity: Readonly<Record<AnnotationId, number>>;
 }) {
-  const dim = Math.min(100, Math.max(0, spots[spots.length - 1].dim)) / 100;
+  const dim = (Math.min(100, Math.max(0, dark.dim)) / 100) * dark.level;
   return (
     <Shape
       listening={false}
@@ -1665,28 +1674,8 @@ function SpotlightDim({
         c.globalCompositeOperation = "destination-out";
         c.fillStyle = "#000";
         for (const spot of spots) {
-          const { rect: r, shape } = spot;
-          c.beginPath();
-          if (shape === "ellipse") {
-            c.ellipse(
-              r.x + r.width / 2,
-              r.y + r.height / 2,
-              r.width / 2,
-              r.height / 2,
-              0,
-              0,
-              2 * Math.PI,
-            );
-          } else {
-            c.roundRect(
-              r.x,
-              r.y,
-              r.width,
-              r.height,
-              drawnCornerRadius(spot.cornerRadius, r.width, r.height),
-            );
-          }
-          c.fill();
+          c.globalAlpha = opacity[spot.id] ?? 1;
+          fillSpotlight(c, spot);
         }
         c.restore();
       }}

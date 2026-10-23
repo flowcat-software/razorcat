@@ -3,7 +3,7 @@
 // active tool's next object. Restyling objects is one undo step and also
 // becomes the tools' current style.
 
-import { docStore, stepsDoc } from "./model/store";
+import { allSpotlights, docStore, stepsDoc } from "./model/store";
 import type {
   Annotation,
   AnnotationId,
@@ -578,9 +578,9 @@ export function applyStyle(patch: StylePatch, target = styleTarget()): void {
 
   const store = docStore.getState();
   // The darkness is shared by every spotlight, and the labels' format and
-  // start by every step marker, selected or not.
+  // start by every step marker, selected or not (Razorcat: on the whole timeline).
   const shared = [
-    ...(patch.dim === undefined ? [] : store.doc.annotations.filter((a) => a.kind === "spotlight")),
+    ...(patch.dim === undefined ? [] : allSpotlights()),
     ...(patch.stepFormat === undefined && patch.stepStart === undefined ? [] : stepsOf(stepsDoc())),
   ];
   const ids = [...new Set([...target.ids, ...shared.map((a) => a.id)])];

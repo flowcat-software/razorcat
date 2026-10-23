@@ -23,8 +23,14 @@ export async function checkMarkup(drawn: readonly DrawnMark[], at: number, size:
     await commands.frameCheckReport(`markup: not checked at frame ${at} (fading)`, "{}");
     return;
   }
+  // The spotlights' darkness is in the preview's layer, but Rust makes it for the export (the
+  // export check reads it): nothing to compare.
+  if (markupDoc.getState().dark) {
+    await commands.frameCheckReport(`markup: not checked at frame ${at} (spotlit)`, "{}");
+    return;
+  }
   // Highlights are the preview's highlight layer, multiplied (the export check reads them).
-  const on = drawn.filter((m) => m.start <= at && at < m.end && !m.highlight);
+  const on = drawn.filter((m) => m.start <= at && at < m.end && m.layer === "item");
   const live = renderLayer(markupDoc.getState().doc, "annotations");
   if (!on.length && !live) return;
   const canvas = document.createElement("canvas");
