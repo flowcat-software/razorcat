@@ -399,7 +399,8 @@ function refit<T extends Extract<Annotation, { kind: "text" | "callout" }>>(t: T
   return (t.kind === "callout" ? growCallout(t, width) : { ...t, width }) as T;
 }
 
-function patchAnnotation(a: Annotation, p: StylePatch): Annotation {
+/** `a` with `p` applied, as far as its kind has a place for it (Razorcat's Paste Style uses it). */
+export function patchAnnotation(a: Annotation, p: StylePatch): Annotation {
   if (p.cornerRadius !== undefined && (a.kind === "rect" || a.kind === "spotlight"))
     a = { ...a, cornerRadius: p.cornerRadius };
   if (a.kind === "callout") {

@@ -1,14 +1,23 @@
 // The timeline's edits, as the keys and buttons invoke them: on the document (docStore.ts) at the
 // player's playhead.
+import { annotationId, docStore as markupDoc } from "../markup/model/store";
+import { stylePatchFor } from "../markup/pasteStyle";
+import { patchAnnotation } from "../markup/restyle";
+import type { Annotation } from "../markup/model/types";
 import {
   clipStarts,
   copyClip,
   editPoints,
+  freeLane,
+  markFades,
   pasteSlot,
+  shownMarks,
   shownRanges,
   total,
   type ClipCopy,
   type ClipId,
+  type MarkId,
+  type MarkObject,
 } from "./doc";
 import { useDoc } from "./docStore";
 import type { Player } from "./player";
@@ -109,25 +118,107 @@ export function duplicateSelectedClip(player: Player): boolean {
   return true;
 }
 
-/** The clip Ctrl+C copied (the app's own clipboard: clips don't go to Windows'). */
-let copied: ClipCopy | null = null;
+/** A piece of markup as copied: what it shows, and where and how it fades on the timeline. */
+export interface MarkCopy {
+  object: MarkObject;
+  start: number;
+  end: number;
+  fadeIn: number;
+  fadeOut: number;
+}
+
+/**
+ * What Ctrl+C copied last, a clip or markup (the app's own clipboard: neither goes to
+ * Windows'). Markup is kept top lane first; its first is what Paste Style takes.
+ */
+let copied: { clip: ClipCopy } | { marks: MarkCopy[] } | null = null;
 
 /** Ctrl+C: copies the selected clip and its markup. False with no clip selected. */
 export function copySelectedClip(): boolean {
   const { doc, selected } = useDoc.getState();
   const copy = selected === null ? null : copyClip(doc, selected);
   if (!copy) return false;
-  copied = copy;
+  copied = { clip: copy };
   return true;
 }
 
-/** Ctrl+V: the copied clip at the cut nearest the playhead, selected. False with none copied. */
+/** Ctrl+C: copies the selected markup (PLAN 4.5d3). False with none selected. */
+export function copySelectedMarks(): boolean {
+  const { doc, selectedMarks } = useDoc.getState();
+  const marks = shownMarks(doc)
+    .filter((m) => selectedMarks.includes(m.id))
+    .sort((a, b) => a.lane - b.lane || a.start - b.start)
+    .map((m): MarkCopy => {
+      const kept = doc.marks.find((k) => k.id === m.id)!;
+      return {
+        object: kept.object,
+        start: m.start,
+        end: m.end,
+        ...markFades(kept, m.end - m.start),
+      };
+    });
+  if (!marks.length) return false;
+  copied = { marks };
+  return true;
+}
+
+/** The markup copied last, if markup was. */
+export function copiedMarks(): readonly MarkCopy[] | null {
+  return copied && "marks" in copied ? copied.marks : null;
+}
+
+/**
+ * Ctrl+V: the copied clip at the cut nearest the playhead, or the copied markup from the
+ * playhead on (as far apart as it was, in front of what's there), selected. False with nothing
+ * copied.
+ */
 export function pasteClip(player: Player): boolean {
   if (!copied) return false;
+  if ("marks" in copied) return pasteMarks(copied.marks, player.getState().frame);
   const { doc, paste } = useDoc.getState();
-  const id = paste(copied, pasteSlot(doc, player.getState().frame));
+  const id = paste(copied.clip, pasteSlot(doc, player.getState().frame));
   if (id === null) return false;
   showNewClip(player, id);
+  return true;
+}
+
+/** `marks` added from frame `at` on, one undo step: the lowest first, so each ends up in front. */
+function pasteMarks(marks: readonly MarkCopy[], at: number): boolean {
+  const store = useDoc.getState();
+  const from = Math.min(...marks.map((m) => m.start));
+  const ids: MarkId[] = [];
+  store.beginGesture();
+  for (const m of [...marks].reverse()) {
+    const start = at + m.start - from;
+    const length = m.end - m.start;
+    const lane = freeLane(useDoc.getState().doc, start, start + length);
+    const id = store.addMark(m.object, start, length, lane);
+    if (id === null) continue;
+    store.setMarkFades(id, { fadeIn: m.fadeIn });
+    store.setMarkFades(id, { fadeOut: m.fadeOut });
+    ids.push(id);
+  }
+  store.endGesture();
+  store.selectMarks(ids);
+  return ids.length > 0;
+}
+
+/**
+ * Ctrl+Shift+V: the copied markup's style (its first item's) onto the selected markup, one undo
+ * step (`stylePatchFor`). False with no markup copied or none selected.
+ */
+export function pasteStyle(): boolean {
+  const marks = copiedMarks();
+  const { selectedMarks, beginGesture, endGesture } = useDoc.getState();
+  if (!marks || !selectedMarks.length) return false;
+  const source = { ...marks[0].object, id: "copied" } as Annotation;
+  beginGesture();
+  for (const id of selectedMarks) {
+    markupDoc
+      .getState()
+      .update(annotationId(id), (a) => patchAnnotation(a, stylePatchFor(source, a)));
+  }
+  endGesture();
   return true;
 }
 

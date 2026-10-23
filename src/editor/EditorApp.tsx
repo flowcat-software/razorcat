@@ -12,6 +12,8 @@ import { useDoc } from "./docStore";
 import {
   addRangeAtPlayhead,
   copySelectedClip,
+  copySelectedMarks,
+  pasteStyle,
   deleteSelected,
   duplicateSelectedClip,
   moveSelected,
@@ -371,15 +373,21 @@ export function EditorApp() {
         } else moveSelected(player, e.shiftKey ? (earlier ? "first" : "last") : earlier ? -1 : 1);
         return;
       }
+      // Ctrl+Shift+V: the copied markup's style onto the selected markup.
+      if (e.shiftKey && e.code === "KeyV" && !isTyping(e.target)) {
+        if (pasteStyle()) e.preventDefault();
+        return;
+      }
       if (e.shiftKey) return;
       // Ctrl+D duplicates the selected clip, Ctrl+C / Ctrl+V copy it and paste it at the cut
-      // nearest the playhead (the markup's own keys take Ctrl+D for selected markup).
+      // nearest the playhead, or copy the selected markup and paste it at the playhead (the
+      // markup's own keys take Ctrl+D for selected markup).
       if (player && !isTyping(e.target)) {
         const done =
           e.code === "KeyD"
             ? duplicateSelectedClip(player)
             : e.code === "KeyC"
-              ? copySelectedClip()
+              ? copySelectedClip() || copySelectedMarks()
               : e.code === "KeyV" && pasteClip(player);
         if (done) {
           e.preventDefault();

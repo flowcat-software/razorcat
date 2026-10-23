@@ -29,7 +29,15 @@ import {
   type ShownRange,
 } from "./doc";
 import { useDoc } from "./docStore";
-import { copySelectedClip, deleteSelected, duplicateSelectedClip, splitAtPlayhead } from "./edits";
+import {
+  copiedMarks,
+  copySelectedClip,
+  copySelectedMarks,
+  deleteSelected,
+  duplicateSelectedClip,
+  pasteStyle,
+  splitAtPlayhead,
+} from "./edits";
 import { exportClip } from "./exports";
 import { Menu, type MenuItems } from "./Menu";
 import { markTargets, rangeTargets, scrubTargets, snap, trimTargets } from "./snap";
@@ -1649,6 +1657,13 @@ ${d.group.length} items`,
               items: [
                 ...fadeItems(hit.kind),
                 "-",
+                { label: "Copy", hint: "Ctrl+C", run: () => void copySelectedMarks() },
+                {
+                  label: "Paste Style",
+                  hint: "Ctrl+Shift+V",
+                  disabled: !copiedMarks(),
+                  run: () => void pasteStyle(),
+                },
                 { label: "Duplicate", hint: "Ctrl+D", run: () => void duplicateSelection() },
                 "-",
                 ...arrangeItems(useDoc.getState().doc, useDoc.getState().selectedMarks),
