@@ -152,7 +152,7 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }:
   const saveToFolder = settings?.export.saveToFolder ?? false;
   // The Export button's menu (the mockup's).
   const items: MenuItems = [
-    { label: "Timeline as MP4", hint: "Ctrl+E", run: () => exportTimeline("mp4") },
+    { label: "Timeline as MP4 (default)", hint: "Ctrl+E", run: () => exportTimeline("mp4") },
     { label: "Timeline as GIF", run: () => exportTimeline("gif") },
     ...(["mp4", "gif"] as const).flatMap((format): MenuItems => {
       const as = format.toUpperCase();
@@ -299,8 +299,8 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }:
         <button
           type="button"
           className={styles.splitMain}
-          aria-label="Export the timeline (Ctrl+E)"
-          title={exporting ? "An export is under way" : "Export the timeline (Ctrl+E)"}
+          aria-label="Export the timeline as MP4 (Ctrl+E)"
+          title={exporting ? "An export is under way" : "Export the timeline as MP4 (Ctrl+E)"}
           {...hint("export")}
           disabled={noExport}
           onMouseDown={(e) => e.preventDefault()}
@@ -309,7 +309,7 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }:
           <svg viewBox="0 0 24 24" aria-hidden>
             <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
           </svg>
-          <span className={styles.label}>Export MP4</span>
+          <span className={styles.label}>Export</span>
         </button>
         <button
           type="button"
