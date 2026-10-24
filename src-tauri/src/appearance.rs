@@ -8,7 +8,7 @@ use specta::Type;
 use tauri::{AppHandle, Manager, Theme, WebviewWindowBuilder, Wry};
 use tauri_specta::Event;
 use windows::Foundation::TypedEventHandler;
-use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+use windows::Win32::System::Com::{CoIncrementMTAUsage, CoInitializeEx, COINIT_MULTITHREADED};
 use windows::UI::ViewManagement::{UIColorType, UISettings};
 
 use crate::settings::ThemeMode;
@@ -75,6 +75,21 @@ pub struct WindowsAccent {
 /// Rust → pages: the Windows accent changed (None: not available).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct WindowsAccentChanged(pub Option<WindowsAccent>);
+
+/// CRASH WORKAROUND (2026-10-24; decisions.md, "the start-up crash's hunt"). Keeps COM's
+/// multithreaded apartment alive for the app's lifetime, so the WinRT DLLs it loaded stay
+/// loaded. A first launch after installing crashed (0xc0000005) calling `UISettings::new()`
+/// through windows-rs's cached factory into `Windows.UI.dll` after COM had torn the apartment
+/// down and unloaded it. What tore it down was never found (66 traced runs saw no unload).
+/// To remove: delete this function and its call in `lib.rs`, if the crash turns out to have
+/// another cause, or the accent stops using WinRT.
+pub fn keep_com_alive() {
+    // The cookie would only undo it: never released.
+    match unsafe { CoIncrementMTAUsage() } {
+        Ok(_) => logln!("[appearance] COM's apartment kept alive (crash workaround)"),
+        Err(e) => logln!("[appearance] couldn't keep COM's apartment alive: {e}"),
+    }
+}
 
 /// The current Windows accent, if Windows provides one.
 pub fn windows_accent() -> Option<WindowsAccent> {

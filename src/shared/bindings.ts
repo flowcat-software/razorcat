@@ -25,9 +25,9 @@ export const commands = {
 	 */
 	answerOffer: (add: boolean | null, at: number | null) => __TAURI_INVOKE<void>("answer_offer", { add, at }),
 	/**
-	 *  The Windows accent color, if Windows has one. Async, so it's read on a worker thread: as a
-	 *  plain command it ran on the main thread, WinRT and a COM init amid the window's start-up, the
-	 *  suspect in a rare start-up crash (0xc0000005, always right where this ran).
+	 *  The Windows accent color, if Windows has one, read on a worker thread (WinRT and a COM init,
+	 *  kept off the main thread amid the window's start-up). The rare start-up crash here was
+	 *  WinRT's DLL unloaded under it: see `appearance::keep_com_alive`.
 	 */
 	windowsAccent: () => __TAURI_INVOKE<{
 	light: string,

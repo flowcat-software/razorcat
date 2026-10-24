@@ -146,6 +146,8 @@ pub fn run() {
     let context = tauri::generate_context!();
     log::init(&context.config().identifier);
     unloads::trace_from_env();
+    // CRASH WORKAROUND: before anything uses WinRT (appearance::keep_com_alive says why).
+    appearance::keep_com_alive();
 
     #[cfg(debug_assertions)]
     export_bindings();

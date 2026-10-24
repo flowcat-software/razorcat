@@ -36,9 +36,9 @@ pub fn answer_offer(app: AppHandle, add: Option<bool>, at: Option<u32>) {
     editor::answer_offer(&app, add, at);
 }
 
-/// The Windows accent color, if Windows has one. Async, so it's read on a worker thread: as a
-/// plain command it ran on the main thread, WinRT and a COM init amid the window's start-up, the
-/// suspect in a rare start-up crash (0xc0000005, always right where this ran).
+/// The Windows accent color, if Windows has one, read on a worker thread (WinRT and a COM init,
+/// kept off the main thread amid the window's start-up). The rare start-up crash here was
+/// WinRT's DLL unloaded under it: see `appearance::keep_com_alive`.
 #[tauri::command]
 #[specta::specta]
 pub async fn windows_accent() -> Option<WindowsAccent> {
