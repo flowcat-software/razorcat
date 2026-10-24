@@ -39,6 +39,14 @@ export function startLog(name: string) {
     flushLog();
   });
   window.addEventListener("pagehide", flushLog);
+  // What the page reports itself (the player's failed play), in the log as well as DevTools.
+  for (const level of ["error", "warn"] as const) {
+    const original = console[level].bind(console);
+    console[level] = (...args: unknown[]) => {
+      original(...args);
+      logLine(`console.${level}: ${args.map(describe).join(" ")}`);
+    };
+  }
 }
 
 /** An error and its stack, the page's own address taken out of it (the bundle's file stays). */
