@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { commands, type Settings } from "../shared/ipc";
 import { canRedo, canUndo, useDoc } from "./docStore";
 import { muteSound } from "./edits";
@@ -6,6 +6,7 @@ import { exportClip, exportClipsJoined, exportEach, exportEachOf, exportTimeline
 import { hint } from "../markup/HintLine";
 import type { ControlHint } from "../markup/hints";
 import { Menu, type MenuItems } from "./Menu";
+import { useSqueeze } from "./squeeze";
 import { useTool, type Tool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
@@ -138,6 +139,9 @@ const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
 /** The editor's top row: the picture's tools on the left, file actions on the right. */
 export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }: Props) {
   const tool = useTool((s) => s.tool);
+  /** Narrow windows: the buttons drop their labels, then the tools close up (two steps). */
+  const bar = useRef<HTMLDivElement>(null);
+  useSqueeze(bar, 3);
   const undoable = useDoc(canUndo);
   const redoable = useDoc(canRedo);
   const selected = useDoc((s) => s.selected);
@@ -210,7 +214,7 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }:
     { label: "Export settings…", run: () => void commands.openSettings("export") },
   ];
   return (
-    <div className={styles.commandBar}>
+    <div ref={bar} className={styles.commandBar}>
       <div className={styles.tools}>
         {TOOLS.map((t) => (
           <button

@@ -36,7 +36,6 @@
   height: 48px;
   flex-shrink: 0;
   padding: 0 8px;
-  container-type: inline-size;
 }
 
 .commandBar svg {
@@ -44,11 +43,35 @@
   height: 20px;
 }
 
-/* Narrow windows: the action buttons drop their labels (tooltips remain). */
-@container (max-width: 720px) {
-  .label {
-    display: none;
-  }
+/* Narrow windows (squeeze.ts): every button keeps its width, so what doesn't fit shows... */
+.commandBar > * {
+  flex-shrink: 0;
+}
+
+/* ...and the bar squeezes instead: first the action buttons drop their labels (tooltips
+   remain) and go square, then the tools close up a little, then more, so Export always shows. */
+.commandBar:not([data-fit="0"]) .label {
+  display: none;
+}
+
+.commandBar:not([data-fit="0"]) :is(.button, .splitMain) {
+  padding: 0 7px;
+}
+
+.commandBar:is([data-fit="2"], [data-fit="3"]) .tools {
+  gap: 0;
+}
+
+.commandBar[data-fit="2"] .tool {
+  width: 34px;
+}
+
+.commandBar[data-fit="3"] .tool {
+  width: 32px;
+}
+
+.commandBar:is([data-fit="2"], [data-fit="3"]) .toolbarDivider {
+  margin: 0 4px;
 }
 
 .tools {
@@ -84,7 +107,7 @@
 .tool[aria-pressed="true"]::after {
   content: "";
   position: absolute;
-  left: 11px;
+  left: calc(50% - 7px);
   bottom: 2px;
   width: 14px;
   height: 3px;
