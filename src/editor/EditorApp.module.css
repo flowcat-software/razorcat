@@ -900,6 +900,52 @@
   height: 18px;
 }
 
+/* Narrow windows (squeeze.ts): every item keeps its width, so what doesn't fit shows, and the
+   bar squeezes instead: the volume slider moves into the speaker's popup, then the edit
+   buttons drop their labels (tooltips remain) and then close up, then the readout drops the
+   length. */
+.timelineBar > * {
+  flex-shrink: 0;
+}
+
+.timelineBar:not([data-fit="0"]) .volumeInBar {
+  display: none;
+}
+
+.timelineBar:not([data-fit="0"], [data-fit="1"]) .barLabel {
+  display: none;
+}
+
+/* Without their labels, the edit buttons keep some room between them while it fits... */
+.timelineBar[data-fit="2"] .withText {
+  margin: 0 2px;
+}
+
+/* ...then close up. */
+.timelineBar:is([data-fit="3"], [data-fit="4"]) .withText {
+  padding: 0 6px;
+}
+
+.timelineBar[data-fit="4"] {
+  gap: 2px;
+}
+
+.timelineBar[data-fit="4"] .timecode {
+  min-width: 0;
+}
+
+.timelineBar[data-fit="4"] .timecode small {
+  display: none;
+}
+
+.timecode {
+  min-width: 0;
+}
+
+.timelineBar[data-fit="3"] .timecode small {
+  display: none;
+}
+
 .timecode {
   min-width: 128px;
   padding: 4px 8px;
@@ -910,6 +956,7 @@
   font: 600 15px/1 var(--mono);
   font-variant-numeric: tabular-nums;
   text-align: left;
+  white-space: nowrap;
 }
 
 .timecode:hover:not(:disabled) {
@@ -949,6 +996,38 @@
 
 .volumeSlider[data-muted] {
   opacity: 0.4;
+}
+
+/* The volume in a narrow window, under the speaker. */
+.volumePopup {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow:
+    0 8px 24px rgb(0 0 0 / 0.25),
+    inset 0 0 0 1px var(--border);
+}
+
+.volumePopup svg {
+  width: 18px;
+  height: 18px;
+}
+
+.volumePopup .volumeSlider {
+  width: 120px;
+}
+
+.volumeValue {
+  min-width: 44px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .barButton {

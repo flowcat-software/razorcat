@@ -608,7 +608,7 @@ export const sections: Section[] = [
             path: "export.clipName",
             label: "Clip file names",
             description:
-              "Each clip's own file, with Export clips. See Tag reference for the tags, such as {name} and {cc}.",
+              "Each clip's own file, when clips are exported one by one. See Tag reference for the tags, such as {name} and {cc}.",
             placeholder: "{name}-clip-{cc}",
             tags: true,
             preview: (template) => commands.previewExportName(template, true),
