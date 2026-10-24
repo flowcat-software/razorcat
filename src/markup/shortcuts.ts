@@ -36,7 +36,7 @@ export const RAZORCAT_SHORTCUTS: ShortcutKeys = {
   ellipse: "E",
   text: "T",
   callout: "Q",
-  redact: null,
+  redact: "U",
   spotlight: "F",
   step: "N",
   crop: "C",

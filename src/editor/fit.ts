@@ -61,3 +61,17 @@ export function videoTransform(
     css: `translate(${dx}px, ${-dx}px) rotate(${source.rotation}deg)`,
   };
 }
+
+/**
+ * Where file `s` shows in the picture (`picture`, the first file's, at its size on screen): the
+ * first fills it; another shape is fitted in, centred (PLAN 4.5e).
+ */
+export function fitIn(s: Size, first: Size, picture: Size) {
+  if (s === first || s.width <= 0 || s.height <= 0) {
+    return { left: 0, top: 0, width: picture.width, height: picture.height };
+  }
+  const k = Math.min(picture.width / s.width, picture.height / s.height);
+  const width = s.width * k;
+  const height = s.height * k;
+  return { left: (picture.width - width) / 2, top: (picture.height - height) / 2, width, height };
+}

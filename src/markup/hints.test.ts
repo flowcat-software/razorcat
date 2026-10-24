@@ -68,9 +68,10 @@ describe("chooseHint", () => {
   it("names Razorcat's tool keys", () => {
     const idle = withShortcuts(chooseHint(base), RAZORCAT_SHORTCUTS);
     expect(idle).toMatch(
-      /^\[V\] \[P\] \[H\] \[\/\] \[A\] \[B\] \[E\] \[T\] \[Q\] \[F\] \[N\] tools/,
+      /^\[V\] \[P\] \[H\] \[\/\] \[A\] \[B\] \[E\] \[T\] \[Q\] \[U\] \[F\] \[N\] tools/,
     );
     expect(withShortcuts(CONTROL_HINTS["tool.spotlight"], RAZORCAT_SHORTCUTS)).toMatch(/^\[F\]/);
+    expect(withShortcuts(CONTROL_HINTS["tool.redact"], RAZORCAT_SHORTCUTS)).toMatch(/^\[U\]/);
   });
 
   it("shows the general shortcuts with Select and nothing selected", () => {

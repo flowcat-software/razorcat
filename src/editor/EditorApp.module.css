@@ -514,6 +514,14 @@
   pointer-events: none;
 }
 
+/* The redactions (PLAN 4.8), over the picture and under the clip fades; sized by RedactLayer.tsx. */
+.redactLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+
 /* The clips' fades (PLAN 4.7a): black over the whole frame, its opacity set as the playhead moves. */
 .clipFade {
   position: absolute;

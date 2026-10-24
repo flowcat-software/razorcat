@@ -120,6 +120,13 @@ class Seeker {
   }
 }
 
+/** A crossfade's incoming clip over the picture: its file's video, and how opaque. */
+export interface MixShown {
+  source: SourceId;
+  video: HTMLVideoElement;
+  opacity: number;
+}
+
 export class Player {
   private state: PlayerState = { frame: 0, speed: 0, source: null };
   private readonly listeners = new Set<() => void>();
@@ -139,6 +146,10 @@ export class Player {
   private peeked: { source: SourceId; frame: number } | null = null;
   /** The edit's mutes (the track's, then each clip's), to tell a mute alone from an edit. */
   private mutes = "";
+  /** Told whenever the picture on screen may have changed (`onPicture`). */
+  private readonly pictureListeners = new Set<() => void>();
+  /** A crossfade's incoming clip over the picture (Preview.tsx's `CrossfadeMix`), if showing. */
+  private mixing: MixShown | null = null;
 
   constructor(
     /** Frames per second: the timeline's. */
@@ -332,7 +343,12 @@ export class Player {
       deck.original.video.removeEventListener("ended", this.onEnded);
       deck.original.detach();
     }
-    deck.original = video && new Seeker(video, (meta) => this.onOriginal(deck, meta));
+    deck.original =
+      video &&
+      new Seeker(video, (meta) => {
+        this.onOriginal(deck, meta);
+        this.pictured();
+      });
     video?.addEventListener("ended", this.onEnded);
     this.show(this.state.frame);
   }
@@ -342,7 +358,12 @@ export class Player {
     const deck = this.decks.get(id);
     if (!deck || video === (deck.proxy?.video ?? null)) return;
     deck.proxy?.detach();
-    deck.proxy = video && new Seeker(video, this.paint);
+    deck.proxy =
+      video &&
+      new Seeker(video, () => {
+        this.paint();
+        this.pictured();
+      });
     if (video) video.style.visibility = "hidden";
     this.showProxy(this.state.frame);
   }
@@ -532,8 +553,51 @@ export class Player {
     else if (proxyShowsFrame && (!this.proxyHeld || this.originalMissed())) on = true;
     else if (this.proxyHeld) on = false;
     else return;
-    p.video.style.visibility = on ? "visible" : "hidden";
+    const visibility = on ? "visible" : "hidden";
+    if (p.video.style.visibility === visibility) return;
+    p.video.style.visibility = visibility;
+    this.pictured();
   };
+
+  // --- the picture on screen, for what's drawn from it (RedactLayer.tsx) ---
+
+  /** Calls `fn` whenever the picture on screen may have changed; returns the unsubscribe. */
+  onPicture(fn: () => void) {
+    this.pictureListeners.add(fn);
+    return () => void this.pictureListeners.delete(fn);
+  }
+
+  /** Something on screen changed: a picture presented or a seek settled, the proxy on or off. */
+  pictured = () => {
+    for (const fn of this.pictureListeners) fn();
+  };
+
+  /**
+   * The video showing the picture: the playhead's file's proxy while it's on top (upright, the
+   * file's shape), else its original; null before either is attached.
+   */
+  shownPicture(): { source: SourceId; video: HTMLVideoElement; proxy: boolean } | null {
+    const deck = this.onScreenDeck();
+    if (!deck) return null;
+    if (deck.proxy?.video.style.visibility === "visible") {
+      return { source: deck.id, video: deck.proxy.video, proxy: true };
+    }
+    return deck.original ? { source: deck.id, video: deck.original.video, proxy: false } : null;
+  }
+
+  /** A crossfade's incoming clip over the picture, as `CrossfadeMix` shows it. */
+  get mix(): MixShown | null {
+    return this.mixing;
+  }
+
+  setMix(mix: MixShown | null) {
+    const was = this.mixing;
+    if (was === mix || (was && mix && was.video === mix.video && was.opacity === mix.opacity)) {
+      return;
+    }
+    this.mixing = mix;
+    this.pictured();
+  }
 
   private onOriginal(deck: Deck, meta?: VideoFrameCallbackMetadata) {
     const playing = this.state.speed > 0 && this.deckOf(this.spans[this.playing]) === deck;

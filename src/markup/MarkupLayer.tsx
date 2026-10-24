@@ -71,6 +71,7 @@ import {
   toolCornerRadius,
   toolFill,
   toolFont,
+  toolRedact,
   toolSpotlight,
   toolStepStyle,
   toolStroke,
@@ -491,8 +492,6 @@ export function MarkupLayer({
       (a): a is CalloutAnnotation => a.id === hit && a.kind === "callout",
     );
     let drag: Drag;
-    // Vandal's redact isn't in Razorcat.
-    if (tool === "redact") return;
 
     if (tool === "pen" || tool === "highlighter") {
       // Freehand tools always draw, even over other annotations.
@@ -598,6 +597,16 @@ export function MarkupLayer({
       // Press on what it points at, release where the text goes (PLAN 3E).
       store.select([]);
       drag = { mode: "callout", start: p, client: { x: ev.clientX, y: ev.clientY } };
+    } else if (tool === "redact") {
+      // Blur or pixelate only (PLAN 4.8): no Detect text here.
+      store.select([]);
+      store.beginGesture();
+      const id = store.add({
+        kind: "redact",
+        rect: { x: p.x, y: p.y, width: 0, height: 0 },
+        ...toolRedact(),
+      });
+      drag = { mode: "draw", start: p, id };
     } else if (tool === "spotlight") {
       store.select([]);
       store.beginGesture();
@@ -1113,6 +1122,12 @@ export function MarkupLayer({
             {spotlights.length > 0 && dark && (
               <SpotlightDim spots={spotlights} source={doc.source} dark={dark} opacity={opacity} />
             )}
+            {/* Redactions' boxes beneath the rest: the redaction layer draws them. */}
+            {doc.annotations
+              .filter((a) => a.kind === "redact")
+              .map((a) => (
+                <AnnotationShape key={a.id} a={a} hitSlop={HIT_SLOP / scale} />
+              ))}
             {doc.annotations
               .filter((a) => layerOf(a) === "annotations")
               .map((a) => (
@@ -1425,6 +1440,7 @@ export function AnnotationShape({
   }
   if (hasEndpoints(a)) return <SegmentShape a={a} hitSlop={hitSlop} />;
   if (a.kind === "spotlight") return <SpotlightEdge a={a} hitSlop={hitSlop} />;
+  if (a.kind === "redact") return <RedactBox a={a} />;
   if (isStroke(a)) {
     const { color, width, opacity } = a.style;
     // Within the highlight layer, overlapping highlights darken like ink.
@@ -1710,6 +1726,29 @@ function SpotlightEdge({ a, hitSlop }: { a: SpotlightAnnotation; hitSlop: number
       offsetX={rect.width / 2}
       offsetY={rect.height / 2}
       cornerRadius={drawnCornerRadius(a.cornerRadius, rect.width, rect.height)}
+    />
+  );
+}
+
+/**
+ * A redaction's box (PLAN 4.8), to select, move and resize it: clear, since the preview's
+ * redaction layer (editor/RedactLayer.tsx) blurs or pixelates the video under it, beneath the
+ * clip fades, where this layer can't reach.
+ */
+function RedactBox({ a }: { a: RedactAnnotation }) {
+  const { rect } = a;
+  return (
+    <KRect
+      id={a.id}
+      name="annotation"
+      x={rect.x + rect.width / 2}
+      y={rect.y + rect.height / 2}
+      width={rect.width}
+      height={rect.height}
+      offsetX={rect.width / 2}
+      offsetY={rect.height / 2}
+      fill="rgba(0, 0, 0, 0)"
+      perfectDrawEnabled={false}
     />
   );
 }

@@ -245,11 +245,15 @@ impl Default for Styles {
             font_size: NumberPicker::Dropdown {
                 values: vec![8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 36.0, 48.0, 72.0],
             },
-            pixelate: NumberPicker::Buttons {
-                values: vec![6.0, 10.0, 16.0, 24.0],
+            // Sliders from 6 to 30 px (Richard, 2026-10-23): on video a redaction wants to be
+            // strong, and a slider finds the amount by eye.
+            pixelate: NumberPicker::Slider {
+                min: 6.0,
+                max: 30.0,
             },
-            blur: NumberPicker::Buttons {
-                values: vec![3.0, 6.0, 10.0, 16.0],
+            blur: NumberPicker::Slider {
+                min: 6.0,
+                max: 30.0,
             },
             spotlight: NumberPicker::Buttons {
                 values: vec![30.0, 50.0, 70.0, 85.0],

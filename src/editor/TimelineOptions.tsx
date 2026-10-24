@@ -2,6 +2,7 @@ import type { SourceInfo } from "../shared/ipc";
 import { ColorSwatch } from "../markup/ColorSwatch";
 import { hint } from "../markup/HintLine";
 import {
+  canFade,
   clipFades,
   clipLength,
   clipStarts,
@@ -279,20 +280,25 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
             onChange={(v) => markLength(mark.id, v)}
             {...time}
           />
-          <span className={styles.optionsSep} />
-          <NumberField
-            label="Fade in"
-            value={fades?.fadeIn ?? 0}
-            onChange={(v) => markFade(mark.id, "fadeIn", v)}
-            {...fade}
-          />
-          <NumberField
-            label="out"
-            name="Fade out"
-            value={fades?.fadeOut ?? 0}
-            onChange={(v) => markFade(mark.id, "fadeOut", v)}
-            {...fade}
-          />
+          {/* A redaction doesn't fade (PLAN 4.8). */}
+          {(!object || canFade(object)) && (
+            <>
+              <span className={styles.optionsSep} />
+              <NumberField
+                label="Fade in"
+                value={fades?.fadeIn ?? 0}
+                onChange={(v) => markFade(mark.id, "fadeIn", v)}
+                {...fade}
+              />
+              <NumberField
+                label="out"
+                name="Fade out"
+                value={fades?.fadeOut ?? 0}
+                onChange={(v) => markFade(mark.id, "fadeOut", v)}
+                {...fade}
+              />
+            </>
+          )}
         </>
       ) : range ? (
         <>

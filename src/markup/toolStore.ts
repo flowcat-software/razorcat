@@ -142,8 +142,8 @@ export const useToolStore = create<ToolState>((set) => ({
   textItalic: false,
   textBackground: false,
   textBackgroundColor: null,
-  // Solid: pixelate and blur can be partly undone on text (PLAN 3I.2).
-  redactMode: "solid",
+  // Razorcat: blur or pixelate only (PLAN 4.8; a filled rectangle covers solidly).
+  redactMode: "blur",
   redactStrengths: {},
   redactText: false,
   cornerRadii: {},

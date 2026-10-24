@@ -131,6 +131,9 @@ export function markOpacity(
   return Math.max(0, Math.min(1, a));
 }
 
+/** Whether markup of this kind fades: all but redactions (PLAN 4.8, for now). */
+export const canFade = (o: MarkObject) => o.kind !== "redact";
+
 /** A piece of markup's fades, fitted to `length` frames: the fade-in first, the fade-out in what's left. */
 export function markFades(
   m: { fadeIn?: number; fadeOut?: number },
@@ -1240,7 +1243,7 @@ export function setMarkFades(
   set: { fadeIn: number } | { fadeOut: number },
 ): Doc {
   const index = doc.marks.findIndex((m) => m.id === id);
-  if (index < 0) return doc;
+  if (index < 0 || !canFade(doc.marks[index].object)) return doc;
   const old = doc.marks[index];
   const place = markPlace(doc, old);
   const length = place ? place.end - place.start : old.length;

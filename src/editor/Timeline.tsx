@@ -15,6 +15,7 @@ import {
   clipLength,
   crossfades,
   fadesOf,
+  canFade,
   fadeColours,
   FADE_BLACK,
   FADE_WHITE,
@@ -446,9 +447,10 @@ function hitAt(
       const x1 = xOf(view, mark.end);
       if (x < x0 - EDGE_HIT || x > x1 + EDGE_HIT) continue;
       // Its top corners: the fades' handles (the fade-out's first, so a bar all fade-in can
-      // still get a fade-out).
-      if (y <= y0 + FADE_HIT) {
-        const f = markFades(doc.marks.find((k) => k.id === mark.id) ?? {}, mark.end - mark.start);
+      // still get a fade-out). A redaction has none (PLAN 4.8).
+      const kept = doc.marks.find((k) => k.id === mark.id);
+      if (y <= y0 + FADE_HIT && kept && canFade(kept.object)) {
+        const f = markFades(kept, mark.end - mark.start);
         if (Math.abs(x - xOf(view, mark.end - f.fadeOut)) <= EDGE_HIT) {
           return { kind: "fadeOut", mark };
         }
@@ -1273,12 +1275,13 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
         );
         g.restore();
         // Its fades' handles: triangles on the top corners, while it's selected, hovered or
-        // dragged.
+        // dragged (none on a redaction, which doesn't fade).
         const h = hover.current;
         if (
-          selectedMarks.includes(m.id) ||
-          (h && "mark" in h && h.mark.id === m.id) ||
-          marking.current?.id === m.id
+          (!mark || canFade(mark.object)) &&
+          (selectedMarks.includes(m.id) ||
+            (h && "mark" in h && h.mark.id === m.id) ||
+            marking.current?.id === m.id)
         ) {
           g.fillStyle = "#fff";
           for (const fx of [fx0, fx1]) {

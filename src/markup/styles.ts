@@ -287,7 +287,9 @@ const PREFERRED_STRENGTH: Record<RedactMode, number> = { solid: 0, pixelate: 10,
 /** Redact's mode and that mode's strength now. */
 export function toolRedact(mode?: RedactMode): { mode: RedactMode; strength: number } {
   const t = useToolStore.getState();
-  const m = mode ?? t.redactMode;
+  // Razorcat has no Solid (PLAN 4.8).
+  const asked = mode ?? t.redactMode;
+  const m = asked === "solid" ? "blur" : asked;
   const picker = strengthPickerFor(m);
   return {
     mode: m,

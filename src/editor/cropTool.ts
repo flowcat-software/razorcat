@@ -87,12 +87,14 @@ const TOOL_KEYS: Record<string, Tool> = {
   KeyP: "pen",
   // F: focus (S is the timeline's split; Richard, 2026-10-23).
   KeyF: "spotlight",
+  // U: blur (Vandal's B is the rectangle here, X swaps colours).
+  KeyU: "redact",
 };
 
 /**
  * The picture's tool keys: C picks crop up (or puts it down), G grow, T text, A arrow, / or \
- * line, B rectangle (box), E ellipse, N step, Q callout, H highlighter, P pen, F spotlight (focus), V the
- * select tool.
+ * line, B rectangle (box), E ellipse, N step, Q callout, H highlighter, P pen, F spotlight (focus),
+ * U redact (blur), V the select tool.
  * While cropping, arrows nudge the box (Shift 10 px) and Ctrl+arrows resize it from the
  * bottom-right, as in Vandal, one undo step for as long as the key is held. Enter or Esc put the
  * crop or grow tool down; with a markup tool, Esc first drops the markup selected (Vandal's Esc

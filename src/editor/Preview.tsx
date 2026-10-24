@@ -14,9 +14,10 @@ import {
   type Doc,
 } from "./doc";
 import { useDoc } from "./docStore";
-import { fitRect, videoTransform } from "./fit";
+import { fitIn, fitRect, videoTransform } from "./fit";
 import { growColour, growMode, NO_GROW, outputSize, SIDES } from "./frame";
 import { GrowOverlay } from "./GrowOverlay";
+import { RedactLayer } from "./RedactLayer";
 import type { Player } from "./player";
 import { useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
@@ -44,7 +45,8 @@ const MARGIN = 16;
  * picture, ungrown, with the crop box over it; the grow tool, the frame with its handles.
  * Markup sits over the whole frame (Vandal's markup layer, over the whole preview so its handles
  * reach past the frame): what's at the playhead, which the select and markup tools edit. Under
- * it, the clips' fades: black over the whole frame (`ClipFade`).
+ * it, the clips' fades: black over the whole frame (`ClipFade`); under those, the redactions
+ * (RedactLayer.tsx), which work on the picture.
  */
 export function Preview({ sources, player, proxyUrls, onError, onUnplayable }: Props) {
   const source = sources[0];
@@ -148,6 +150,16 @@ export function Preview({ sources, player, proxyUrls, onError, onUnplayable }: P
             <CrossfadeMix sources={sources} first={source} picture={picture} player={player} />
           </div>
         </div>
+        {!cropping && (
+          <RedactLayer
+            player={player}
+            sources={sources}
+            frame={frame}
+            scale={scale}
+            width={stage.width}
+            height={stage.height}
+          />
+        )}
         {!cropping && <ClipFade player={player} />}
       </div>
       {/* Every item, out of sight, for the export to draw from. */}
@@ -258,6 +270,9 @@ function CrossfadeMix({
     let handing: { source: string } | null = null;
     const show = (source: string | null, opacity: number) => {
       if (wrap.current) wrap.current.style.opacity = String(opacity);
+      // For what's drawn from the picture (RedactLayer.tsx).
+      const video = source && videos.current.get(source);
+      player.setMix(video && opacity > 0 ? { source, video, opacity } : null);
       if (source === on) return;
       on = source;
       for (const [id, v] of videos.current) {
@@ -329,6 +344,7 @@ function CrossfadeMix({
       stopPlayer();
       stopDoc();
       for (const v of all.values()) v.pause();
+      player.setMix(null);
     };
   }, [player]);
   return (
@@ -339,14 +355,33 @@ function CrossfadeMix({
           source={s}
           box={fitIn(s, first, picture)}
           onVideo={(v) => {
-            if (v) videos.current.set(s.id, v);
-            else videos.current.delete(s.id);
+            if (!v) {
+              videos.current.delete(s.id);
+              return;
+            }
+            videos.current.set(s.id, v);
+            // Its pictures, while it's mixed in, change what's drawn from the picture (once per
+            // video: the ref is called again on every render).
+            if (presenting.has(v)) return;
+            presenting.add(v);
+            const presented = () => {
+              if (!v.isConnected) {
+                presenting.delete(v);
+                return;
+              }
+              if (player.mix?.video === v) player.pictured();
+              v.requestVideoFrameCallback(presented);
+            };
+            v.requestVideoFrameCallback(presented);
           }}
         />
       ))}
     </div>
   );
 }
+
+/** The crossfade videos whose pictures are being watched (`CrossfadeMix`). */
+const presenting = new WeakSet<HTMLVideoElement>();
 
 /** The incoming clip of the next crossfade within a second after timeline frame `f`, if any. */
 function upcoming(doc: Doc, f: number, fps: number) {
@@ -394,17 +429,6 @@ function MixVideo({
       />
     </div>
   );
-}
-
-/** Where `s` shows in the picture (`picture`, the first file's): fitted in, centred. */
-function fitIn(s: SourceInfo, first: SourceInfo, picture: { width: number; height: number }) {
-  if (s === first || s.width <= 0 || s.height <= 0) {
-    return { left: 0, top: 0, width: picture.width, height: picture.height };
-  }
-  const k = Math.min(picture.width / s.width, picture.height / s.height);
-  const width = s.width * k;
-  const height = s.height * k;
-  return { left: (picture.width - width) / 2, top: (picture.height - height) / 2, width, height };
 }
 
 interface DeckProps {

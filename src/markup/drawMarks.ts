@@ -84,8 +84,10 @@ export async function drawMarks(doc: Doc): Promise<DrawnMark[]> {
   const frame = outputSize(doc.frame);
   const drawn: DrawnMark[] = [];
   for (const m of shown.sort((a, b) => b.lane - a.lane || a.start - b.start || a.id - b.id)) {
-    const node = group.findOne((n: Konva.Node) => n.id() === annotationId(m.id));
     const kept = doc.marks.find((k) => k.id === m.id);
+    // Redactions work on the video: Rust makes them (PLAN 4.8b).
+    if (kept?.object.kind === "redact") continue;
+    const node = group.findOne((n: Konva.Node) => n.id() === annotationId(m.id));
     if (!node || !kept) throw new Error("The markup isn't ready to export yet.");
     if (kept.object.kind === "spotlight") {
       const hole = drawHole(kept.object, frame);

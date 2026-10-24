@@ -85,12 +85,8 @@ const FILLS: { id: ShapeFill; label: string; icon: ReactNode }[] = [
   },
 ];
 
+// Razorcat: no Solid (PLAN 4.8; a filled rectangle covers solidly).
 const REDACT_MODES: { id: RedactMode; label: string; icon: ReactNode }[] = [
-  {
-    id: "solid",
-    label: "Solid",
-    icon: <rect x="4" y="4" width="16" height="16" className={styles.solid} />,
-  },
   {
     id: "pixelate",
     label: "Pixelate",
