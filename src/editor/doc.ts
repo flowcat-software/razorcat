@@ -38,7 +38,8 @@
 //
 // The frame (crop, and the space grown round it; frame.ts) is one for the whole project.
 
-import type { NewAnnotation } from "../markup/model/types";
+import { translateAnnotation } from "../markup/geometry";
+import type { Annotation, NewAnnotation } from "../markup/model/types";
 import type { Rect, Size } from "./fit";
 import { fullFrame, keepCrop, sameGrow, type Frame, type Grow } from "./frame";
 
@@ -94,6 +95,8 @@ export type MarkId = number;
 /**
  * What a piece of markup shows: Vandal's markup object (text, an arrow...), without its id. Its
  * geometry is in output pixels, from the top-left of the whole frame (the grown space included).
+ * A crop or grow that moves the picture in the frame moves the markup with it (`withFrame`), so
+ * it stays over what it marked (Richard, 2026-10-23).
  */
 export type MarkObject = NewAnnotation;
 
@@ -426,7 +429,31 @@ export function sourceLength(doc: Doc, clip: Clip): number {
 /** Grows the frame by `grow`. The same document if nothing changes. */
 export function setGrow(doc: Doc, grow: Grow): Doc {
   if (sameGrow(grow, doc.frame.grow)) return doc;
-  return { ...doc, frame: { ...doc.frame, grow } };
+  return withFrame(doc, { ...doc.frame, grow });
+}
+
+/** Where the source picture's top-left is in the frame (off it, up and left, if cropped). */
+const pictureOrigin = (f: Frame) => ({ x: f.grow.left - f.crop.x, y: f.grow.top - f.crop.y });
+
+/**
+ * `doc` in `frame`, its markup moved as far as the picture moves in the frame: cropping 280 px
+ * off the top moves it 280 px up, growing the left 100 px moves it 100 px right.
+ */
+function withFrame(doc: Doc, frame: Frame): Doc {
+  const was = pictureOrigin(doc.frame);
+  const now = pictureOrigin(frame);
+  const dx = now.x - was.x;
+  const dy = now.y - was.y;
+  if (!dx && !dy) return { ...doc, frame };
+  const marks = doc.marks.map((m) => ({ ...m, object: movedObject(m.object, dx, dy) }));
+  return { ...doc, frame, marks };
+}
+
+/** Markup's object moved by (dx, dy), a callout's tip with it. */
+function movedObject(o: MarkObject, dx: number, dy: number): MarkObject {
+  const moved: Partial<Annotation> = translateAnnotation({ ...o, id: "" } as Annotation, dx, dy);
+  delete moved.id;
+  return moved as MarkObject;
 }
 
 /** Crops to `crop` (kept to the source). The same document if nothing changes. */
@@ -441,7 +468,7 @@ export function setCrop(doc: Doc, crop: Rect): Doc {
   ) {
     return doc;
   }
-  return { ...doc, frame: { ...doc.frame, crop: kept } };
+  return withFrame(doc, { ...doc.frame, crop: kept });
 }
 
 export const clipLength = (c: Clip) => c.out - c.in;

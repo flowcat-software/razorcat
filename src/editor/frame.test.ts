@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { setCrop, setGrow, split, wholeSource } from "./doc";
+import { addMark, setCrop, setGrow, split, wholeSource } from "./doc";
 import {
   colourGrow,
   cropToRatio,
@@ -166,5 +166,29 @@ describe("dragging a number", () => {
   it("scales with the setting", () => {
     expect(dragGain(0.4, "verySlow")).toBeLessThan(dragGain(0.4));
     expect(dragGain(0.4, "veryFast")).toBeGreaterThan(dragGain(0.4));
+  });
+});
+
+describe("markup through a crop or grow", () => {
+  it("moves with the picture, staying over what it marked", () => {
+    // A 720 × 1280 portrait video, a redaction over a face at y 300.
+    const redact = {
+      kind: "redact" as const,
+      rect: { x: 200, y: 300, width: 100, height: 80 },
+      mode: "blur" as const,
+      strength: 6,
+    };
+    const doc = addMark(wholeSource(100, { width: 720, height: 1280 }), redact, 0, 30, 0);
+    const at = (d: typeof doc) => (d.marks[0].object as typeof redact).rect;
+    // Cropped square from the middle: 280 px off the top, so 280 px up.
+    const square = setCrop(doc, { x: 0, y: 280, width: 720, height: 720 });
+    expect(at(square)).toMatchObject({ x: 200, y: 20 });
+    // Grown 50 px on the left: 50 px right; and back again.
+    const grown = setGrow(square, { ...square.frame.grow, left: 50 });
+    expect(at(grown)).toMatchObject({ x: 250, y: 20 });
+    expect(at(setCrop(grown, { x: 0, y: 0, width: 720, height: 1280 }))).toMatchObject({
+      x: 250,
+      y: 300,
+    });
   });
 });
