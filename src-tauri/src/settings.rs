@@ -111,6 +111,8 @@ pub struct Export {
     pub save_to_folder: bool,
     /// Where, `%VARS%` allowed; empty: the Videos folder's Razorcat folder.
     pub folder: String,
+    /// The first export has asked whether to save to a default folder (it asks once, ever).
+    pub asked_folder: bool,
     /// The whole timeline's file name, without the extension: `{name}` is the video's name.
     pub timeline_name: String,
     /// A clip's file name: `{name}` as above, `{n}` the clip's number (`{nn}` at least two
@@ -131,6 +133,7 @@ impl Default for Export {
         Self {
             save_to_folder: false,
             folder: String::new(),
+            asked_folder: false,
             timeline_name: TIMELINE_NAME.into(),
             clip_name: CLIP_NAME.into(),
             gif_fps: 20,

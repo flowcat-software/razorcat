@@ -31,7 +31,14 @@ import {
   seekEdit,
   splitAtPlayhead,
 } from "./edits";
-import { LARGE_GIF, exportTimeline, fileSize, onExportFailed } from "./exports";
+import {
+  LARGE_GIF,
+  exportTimeline,
+  fileSize,
+  folderLabel,
+  onBeforeExport,
+  onExportFailed,
+} from "./exports";
 import { checkFrames } from "./frameCheck";
 import { FrameOptions } from "./FrameOptions";
 import { playbackGain, usePlayback } from "./playback";
@@ -178,7 +185,29 @@ export function EditorApp() {
    * A question before the timeline is replaced (PLAN 4.5e3): Open with edits on it, or a file
    * dropped on it (add or replace).
    */
-  const [asking, setAsking] = useState<{ open: true } | { offered: string[] } | null>(null);
+  const [asking, setAsking] = useState<
+    | { open: true }
+    | { offered: string[] }
+    /** The first export: save to a default folder? `folder` as the setting holds it. */
+    | { folder: string; go: () => void }
+    | null
+  >(null);
+  /**
+   * The default-folder question's answer: `folder` to save there from now on, or null for the
+   * Save dialog. Either way it's never asked again; the export goes on once it's stored.
+   */
+  const answerFolder = (question: { go: () => void }, folder: string | null) => {
+    setAsking(null);
+    const s = settingsNow.current;
+    if (!s) return question.go();
+    const exported = folder
+      ? { ...s.export, askedFolder: true, saveToFolder: true, folder }
+      : { ...s.export, askedFolder: true };
+    void commands
+      .updateSettings({ ...s, export: exported })
+      .catch((e: unknown) => console.error("[export] default folder:", e))
+      .finally(question.go);
+  };
   /** Open (the button, Ctrl+O): with edits, asks first. */
   const replace = () => (edited() ? setAsking({ open: true }) : openVideo());
   /** Time as frame numbers, not timecode: the readout and the ruler (a click on the readout). */
@@ -301,6 +330,18 @@ export function EditorApp() {
         action: { label: "Show report", run: () => void commands.openLogsFolder() },
       });
     });
+  }, []);
+
+  // The first export, ever, asks whether to save to a default folder; whatever the answer, it
+  // doesn't ask again (Settings › Export has it from then on).
+  useEffect(() => {
+    onBeforeExport(async () => {
+      const s = settingsNow.current;
+      if (!s || s.export.askedFolder || s.export.saveToFolder) return;
+      const folder = s.export.folder || (await commands.defaultExportFolder());
+      await new Promise<void>((go) => setAsking({ folder, go }));
+    });
+    return () => onBeforeExport(() => Promise.resolve());
   }, []);
 
   // An export that couldn't start, before Rust had it (its markup couldn't be drawn or sent).
@@ -706,6 +747,31 @@ export function EditorApp() {
         >
           <p>Opening a video replaces the timeline, and its edits are lost.</p>
           <p>To put another video after these, use Add Video (Ctrl+Shift+O).</p>
+        </ConfirmDialog>
+      )}
+      {asking && "folder" in asking && (
+        <ConfirmDialog
+          title="Save exports to a folder?"
+          confirm="Use this folder"
+          cancel="Not now"
+          onConfirm={() => answerFolder(asking, asking.folder)}
+          onCancel={() => answerFolder(asking, null)}
+          other={{
+            label: "Change…",
+            onClick: () =>
+              void commands.pickFolder(asking.folder).then((picked) => {
+                if (picked) answerFolder(asking, picked);
+              }),
+          }}
+        >
+          <p>
+            Exports can go straight to a folder, named from your file-name templates, without asking
+            where each time:
+          </p>
+          <p>
+            <strong>{folderLabel(asking.folder)}</strong>
+          </p>
+          <p>Settings › Export changes this later. Not now keeps the Save dialog.</p>
         </ConfirmDialog>
       )}
       {asking && "offered" in asking && (

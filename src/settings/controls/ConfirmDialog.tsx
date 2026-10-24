@@ -5,6 +5,8 @@ interface Props {
   title: string;
   children: ReactNode;
   confirm: string;
+  /** The cancel button's label: "Cancel" unless said. */
+  cancel?: string;
   onConfirm: () => void;
   onCancel: () => void;
   /** A second answer, between Cancel and the confirm button. */
@@ -16,7 +18,15 @@ interface Props {
  * behind is dimmed and inert, Esc cancels). The confirm button has the focus,
  * so Enter answers yes.
  */
-export function ConfirmDialog({ title, children, confirm, onConfirm, onCancel, other }: Props) {
+export function ConfirmDialog({
+  title,
+  children,
+  confirm,
+  cancel = "Cancel",
+  onConfirm,
+  onCancel,
+  other,
+}: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -39,7 +49,7 @@ export function ConfirmDialog({ title, children, confirm, onConfirm, onCancel, o
       <div className={styles.dialogBody}>{children}</div>
       <div className={styles.dialogButtons}>
         <button type="button" className={styles.button} onClick={onCancel}>
-          Cancel
+          {cancel}
         </button>
         {other && (
           <button type="button" className={styles.button} onClick={other.onClick}>

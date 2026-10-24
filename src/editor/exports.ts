@@ -125,9 +125,26 @@ export function onExportFailed(report: (message: string) => void) {
   failed = report;
 }
 
+/** Run before every export: the first one asks about a default folder (the editor's). */
+let beforeExport: () => Promise<void> = () => Promise.resolve();
+
+export function onBeforeExport(ask: () => Promise<void>) {
+  beforeExport = ask;
+}
+
+/**
+ * A folder setting as a person reads it: under the profile, from there (`Videos\Razorcat`);
+ * elsewhere, as it is.
+ */
+export function folderLabel(setting: string): string {
+  const profile = /^%USERPROFILE%\\/i;
+  return profile.test(setting) ? setting.replace(profile, "") : setting;
+}
+
 /** Runs `start` with the markup sent; if it can't be, says why. */
 function withMarkup(doc: Doc, start: (marks: ExportMark[]) => Promise<unknown>) {
-  sendMarkup(doc)
+  beforeExport()
+    .then(() => sendMarkup(doc))
     .then(start)
     .catch((e: unknown) => {
       console.error("[export] markup:", e);
@@ -201,9 +218,4 @@ export function clipsExportItems(ids: readonly ClipId[], prefix = "Export clips"
 /** A GIF this big (bytes) gets a word about its size. */
 export const LARGE_GIF = 10 * 1024 * 1024;
 
-/** A file size for people: "840 KB", "12.4 MB". */
-export function fileSize(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  const mb = bytes / (1024 * 1024);
-  return `${mb < 100 ? mb.toFixed(1) : Math.round(mb)} MB`;
-}
+export { fileSize } from "../shared/fileSize";

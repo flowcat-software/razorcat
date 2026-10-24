@@ -266,6 +266,21 @@ pub fn set_enabled(product: &str, on: bool) {
     log.early.clear();
 }
 
+/// The logs folder's size in bytes: its logs and crash dumps (Settings › About › Debugging).
+pub fn folder_bytes() -> u64 {
+    let Some(dir) = dir() else { return 0 };
+    fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|e| e.metadata().ok())
+                .filter(|m| m.is_file())
+                .map(|m| m.len())
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
 /// Deletes the older logs and every crash dump, and empties this run's log (it's open), which
 /// says it was cleared.
 pub fn clear() -> Result<(), String> {

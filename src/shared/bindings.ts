@@ -44,6 +44,8 @@ export const commands = {
 	openLogsFolder: () => typedError<null, string>(__TAURI_INVOKE("open_logs_folder")),
 	/**  Deletes the logs and crash reports, the current log emptied (Settings › About › Debugging). */
 	clearLogs: () => typedError<null, string>(__TAURI_INVOKE("clear_logs")),
+	/**  The logs folder's size in bytes (Settings › About › Debugging). */
+	logsSize: () => __TAURI_INVOKE<number | null>("logs_size"),
 	/**  Flowcat Software's website, the maker (Settings › About). A fixed address. */
 	openFlowcatSite: () => __TAURI_INVOKE<void>("open_flowcat_site"),
 	/**  The current settings. */
@@ -248,6 +250,8 @@ export type Export = {
 	saveToFolder?: boolean,
 	/**  Where, `%VARS%` allowed; empty: the Videos folder's Razorcat folder. */
 	folder?: string,
+	/**  The first export has asked whether to save to a default folder (it asks once, ever). */
+	askedFolder?: boolean,
 	/**  The whole timeline's file name, without the extension: `{name}` is the video's name. */
 	timelineName?: string,
 	/**

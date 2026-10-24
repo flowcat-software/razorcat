@@ -82,6 +82,13 @@ pub fn clear_logs() -> Result<(), String> {
     crate::log::clear()
 }
 
+/// The logs folder's size in bytes (Settings › About › Debugging).
+#[tauri::command]
+#[specta::specta]
+pub fn logs_size() -> f64 {
+    crate::log::folder_bytes() as f64
+}
+
 /// Flowcat Software's website, the maker (Settings › About). A fixed address.
 #[tauri::command]
 #[specta::specta]

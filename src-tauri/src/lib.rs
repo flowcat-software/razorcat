@@ -50,6 +50,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::crash_notice,
             commands::open_logs_folder,
             commands::clear_logs,
+            commands::logs_size,
             commands::open_flowcat_site,
             commands::get_settings,
             commands::update_settings,
