@@ -146,6 +146,9 @@ export class Player {
   private peeked: { source: SourceId; frame: number } | null = null;
   /** The edit's mutes (the track's, then each clip's), to tell a mute alone from an edit. */
   private mutes = "";
+  /** How loud: the clip's fade (`setLevel`), and the playback volume (`setGain`). */
+  private level = 1;
+  private playbackGain = 1;
   /** Told whenever the picture on screen may have changed (`onPicture`). */
   private readonly pictureListeners = new Set<() => void>();
   /** A crossfade's incoming clip over the picture (Preview.tsx's `CrossfadeMix`), if showing. */
@@ -224,11 +227,28 @@ export class Player {
   }
 
   /**
-   * How loud the sound plays, 0 to 1 (a clip's fades, PLAN 4.7a, ramp it with the picture). A
-   * muted clip stays silent.
+   * How loud the sound plays, 0 to 1 (a clip's fades, PLAN 4.7a, ramp it with the picture), at
+   * the playback volume (`setGain`). A muted clip stays silent.
    */
   setLevel(level: number) {
-    for (const d of this.decks.values()) if (d.original) d.original.video.volume = level;
+    this.level = level;
+    this.applyVolume();
+  }
+
+  /** The playback volume (PLAN 5a, playback.ts): what every sound the preview plays is scaled by. */
+  setGain(gain: number) {
+    this.playbackGain = gain;
+    this.applyVolume();
+  }
+
+  /** The playback volume, for the other videos that play sound (a crossfade's). */
+  get gain() {
+    return this.playbackGain;
+  }
+
+  private applyVolume() {
+    const volume = this.level * this.playbackGain;
+    for (const d of this.decks.values()) if (d.original) d.original.video.volume = volume;
   }
 
   /** The clip under timeline frame `t` (clamped to the timeline). */
@@ -350,6 +370,7 @@ export class Player {
         this.pictured();
       });
     video?.addEventListener("ended", this.onEnded);
+    this.applyVolume();
     this.show(this.state.frame);
   }
 

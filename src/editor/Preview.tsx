@@ -301,7 +301,7 @@ function CrossfadeMix({
           if (v.paused ? off > 1.5 / fps : off > 0.25) v.currentTime = time;
           v.playbackRate = speed;
           v.muted = doc.muted || !!at.clip.muted;
-          v.volume = mix;
+          v.volume = mix * player.gain;
           if (v.paused) void v.play().catch(() => {});
           ready = { source: at.clip.source, time };
         } else {
@@ -318,7 +318,7 @@ function CrossfadeMix({
         const h = videos.current.get(on);
         if (h && !h.paused) {
           handing = { source: on };
-          h.volume = 1;
+          h.volume = player.gain;
           show(on, 1);
           return;
         }

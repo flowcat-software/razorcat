@@ -457,6 +457,17 @@ export type OpenOffered = {
 };
 
 /**
+ *  How loud the preview plays (PLAN 5a), not the export: set in the timeline bar, kept here so
+ *  it's as it was next time; not in the Settings window.
+ */
+export type Playback = {
+	/**  The slider, 0 to 1 (full by default). */
+	volume?: number | null,
+	/**  Muted by the speaker (off by default). */
+	muted?: boolean,
+};
+
+/**
  *  Exports `clips` of the open source in `frame` (export.rs, as a real export) to a temporary
  *  file, then reads each of its frames' barcodes: what the edit's export shows, frame by frame.
  *  A pixel of the exported picture to read on every frame.
@@ -520,6 +531,8 @@ export type Settings = {
 	styles?: Styles,
 	/**  How exports come out (export.rs). */
 	export?: Export,
+	/**  The preview's sound (PLAN 5a), as the timeline bar's speaker and slider left it. */
+	playback?: Playback,
 };
 
 /**  Rust → all windows: settings changed (from any source), here's the new state. */

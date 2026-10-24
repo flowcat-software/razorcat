@@ -110,6 +110,8 @@ export const CONTROL_HINTS = {
   "grow.presets": "Grows kept for one click · keep the one shown, or set them up in Settings",
   readout: "The playhead and the timeline's length · Click: timecode or frame numbers",
   start: "[Home] To the start",
+  volume:
+    "How loud the preview plays · click the speaker to mute · drag or scroll to change · the export isn't changed",
   end: "[End] To the end",
   prevEdit: "[↑] To the cut, range or markup edge before the playhead",
   nextEdit: "[↓] To the cut, range or markup edge after the playhead",

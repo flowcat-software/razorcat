@@ -13,6 +13,7 @@ import {
 } from "./edits";
 import { clipsExportItems, exportClip } from "./exports";
 import { Menu } from "./Menu";
+import { usePlayback } from "./playback";
 import type { Player, PlayerState } from "./player";
 import { needsHours, timecode } from "./timecode";
 import styles from "./EditorApp.module.css";
@@ -107,6 +108,69 @@ function Readout({
  * The bar under the preview: the time readout, the transport and the timeline's edits (the
  * mockup's).
  */
+/**
+ * The preview's sound (PLAN 5a): the speaker mutes it, the slider sets how loud (dragged while
+ * muted, it unmutes), a scroll over either 5% a notch. The export isn't changed.
+ */
+function Volume({ disabled }: { disabled: boolean }) {
+  const volume = usePlayback((s) => s.volume);
+  const muted = usePlayback((s) => s.muted);
+  const silent = muted || volume === 0;
+  const set = (v: number) => {
+    const playback = usePlayback.getState();
+    playback.setVolume(v);
+    if (playback.muted) playback.setMuted(false);
+  };
+  return (
+    <span
+      className={styles.volume}
+      {...hint("volume")}
+      onWheel={(e) => {
+        if (disabled || e.deltaY === 0) return;
+        set(Math.round(usePlayback.getState().volume * 20 - Math.sign(e.deltaY)) / 20);
+      }}
+    >
+      <button
+        type="button"
+        className={styles.barButton}
+        aria-label={muted ? "Unmute playback" : "Mute playback"}
+        aria-pressed={muted}
+        title={`${muted ? "Unmute" : "Mute"} playback (the export isn't changed)`}
+        disabled={disabled}
+        onMouseDown={keepFocus}
+        onClick={() => usePlayback.getState().setMuted(!muted)}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden>
+          <path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" />
+          {silent ? (
+            <path d="M15.5 9.5l5 5M20.5 9.5l-5 5" />
+          ) : (
+            <>
+              <path d="M15 9.5a3.5 3.5 0 0 1 0 5" />
+              {volume > 0.5 && <path d="M17.5 7a7 7 0 0 1 0 10" />}
+            </>
+          )}
+        </svg>
+      </button>
+      <input
+        type="range"
+        className={styles.volumeSlider}
+        data-muted={muted || undefined}
+        aria-label="Playback volume"
+        title={`Playback volume: ${Math.round(volume * 100)}% (the export isn't changed)`}
+        min={0}
+        max={100}
+        value={Math.round(volume * 100)}
+        disabled={disabled}
+        tabIndex={-1}
+        onChange={(e) => set(Number(e.currentTarget.value) / 100)}
+        // Let go, the keys are the player's again (Space, the arrows).
+        onPointerUp={(e) => e.currentTarget.blur()}
+      />
+    </span>
+  );
+}
+
 export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props) {
   const { frame, speed } = useSyncExternalStore(
     player?.subscribe ?? nothing,
@@ -194,6 +258,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
       {speed !== 0 && speed !== 1 ? (
         <span className={styles.speed}>{speed < 0 ? `◀ ${-speed}×` : `${speed}×`}</span>
       ) : null}
+      <Volume disabled={off} />
       <span className={styles.barDivider} />
       <button
         type="button"

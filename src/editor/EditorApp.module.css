@@ -902,6 +902,23 @@
   font: 600 12px/1 var(--mono);
 }
 
+/* The preview's sound (PLAN 5a): the speaker, and a short slider. */
+.volume {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.volumeSlider {
+  width: 72px;
+  margin: 0 4px 0 0;
+  accent-color: var(--accent);
+}
+
+.volumeSlider[data-muted] {
+  opacity: 0.4;
+}
+
 .barButton {
   height: 28px;
   min-width: 30px;

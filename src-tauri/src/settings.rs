@@ -40,6 +40,8 @@ pub struct Settings {
     pub styles: Styles,
     /// How exports come out (export.rs).
     pub export: Export,
+    /// The preview's sound (PLAN 5a), as the timeline bar's speaker and slider left it.
+    pub playback: Playback,
 }
 
 impl Default for Settings {
@@ -53,6 +55,27 @@ impl Default for Settings {
             markup: Markup::default(),
             styles: Styles::default(),
             export: Export::default(),
+            playback: Playback::default(),
+        }
+    }
+}
+
+/// How loud the preview plays (PLAN 5a), not the export: set in the timeline bar, kept here so
+/// it's as it was next time; not in the Settings window.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Playback {
+    /// The slider, 0 to 1 (full by default).
+    pub volume: f64,
+    /// Muted by the speaker (off by default).
+    pub muted: bool,
+}
+
+impl Default for Playback {
+    fn default() -> Self {
+        Self {
+            volume: 1.0,
+            muted: false,
         }
     }
 }
@@ -438,6 +461,11 @@ pub fn validate(mut s: Settings) -> Result<Settings, String> {
         .default_clip_fade
         .clamp(*DEFAULT_FADE_RANGE.start(), *DEFAULT_FADE_RANGE.end());
     s.editing.grow_presets = grow_presets(s.editing.grow_presets)?;
+    s.playback.volume = if s.playback.volume.is_finite() {
+        s.playback.volume.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
     s.styles = s.styles.normalized();
     if !GIF_RATES.contains(&s.export.gif_fps) {
         s.export.gif_fps = Export::default().gif_fps;
@@ -637,6 +665,18 @@ mod tests {
         let (loaded, changed) = migrate(Some(serde_json::to_value(&s).unwrap()));
         assert_eq!(loaded, s);
         assert!(!changed);
+    }
+
+    #[test]
+    fn playback_volume_is_kept_from_nothing_to_full() {
+        let mut s = Settings::default();
+        assert_eq!((s.playback.volume, s.playback.muted), (1.0, false));
+        s.playback.volume = 1.7;
+        assert_eq!(validate(s.clone()).unwrap().playback.volume, 1.0);
+        s.playback.volume = -0.2;
+        assert_eq!(validate(s.clone()).unwrap().playback.volume, 0.0);
+        s.playback.volume = f64::NAN;
+        assert_eq!(validate(s).unwrap().playback.volume, 1.0);
     }
 
     #[test]

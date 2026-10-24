@@ -34,6 +34,7 @@ import {
 import { LARGE_GIF, exportTimeline, fileSize, onExportFailed } from "./exports";
 import { checkFrames } from "./frameCheck";
 import { FrameOptions } from "./FrameOptions";
+import { playbackGain, usePlayback } from "./playback";
 import { Player } from "./player";
 import { Preview } from "./Preview";
 import { StatusBar, type Notice } from "./StatusBar";
@@ -68,6 +69,9 @@ const rangeOptions = (s: Settings) =>
     defaultClipFade: s.timeline.defaultClipFade,
     fadeClipCuts: s.timeline.fadeSplitClips,
   });
+
+/** How long the playback volume rests before it's kept in the settings (ms). */
+const PLAYBACK_SAVE_MS = 600;
 
 /** The settings the editor's stores keep (ranges, number fields, the markup's styles). */
 const applySettings = (s: Settings) => {
@@ -211,6 +215,37 @@ export function EditorApp() {
     player.open();
     return () => player.close();
   }, [player]);
+
+  // The playback volume (PLAN 5a): the player plays at it.
+  useEffect(() => {
+    if (!player) return;
+    const apply = ({ volume, muted }: { volume: number; muted: boolean }) =>
+      player.setGain(playbackGain(volume, muted));
+    apply(usePlayback.getState());
+    return usePlayback.subscribe(apply);
+  }, [player]);
+
+  // ...and is kept in the settings, a moment after it stops changing (not on every step of a
+  // drag: each save writes the file and tells every window).
+  const settingsNow = useRef(settings);
+  useEffect(() => {
+    settingsNow.current = settings;
+  }, [settings]);
+  useEffect(() => {
+    let timer = 0;
+    const stop = usePlayback.subscribe(({ volume, muted }) => {
+      clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const s = settingsNow.current;
+        if (!s || (s.playback?.volume === volume && s.playback?.muted === muted)) return;
+        void commands.updateSettings({ ...s, playback: { volume, muted } });
+      }, PLAYBACK_SAVE_MS);
+    });
+    return () => {
+      clearTimeout(timer);
+      stop();
+    };
+  }, []);
 
   // Each file is a deck of the player's.
   useEffect(() => {
@@ -390,6 +425,9 @@ export function EditorApp() {
         stops.push(...unlisten);
         void commands.getSettings().then((s) => {
           if (gone) return;
+          // The playback volume as it was left, once (later changes are the bar's own).
+          const { playback } = s as Settings;
+          if (playback) usePlayback.setState({ volume: playback.volume, muted: playback.muted });
           setShowThumbs(thumbsOn(s as Settings));
           setShowWave((s as Settings).timeline.waveform);
           applySettings(s as Settings);
