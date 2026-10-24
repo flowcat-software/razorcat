@@ -9,13 +9,17 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::sidecar::{self, Tool};
 
 /// Progress callbacks at most this often.
 const PROGRESS_EVERY_MS: u128 = 250;
+/// How often a stop is looked for while ffmpeg is quiet (a slow graph can go long without a
+/// progress line: a cancel waited for one, Richard 2026-10-23).
+const STOP_POLL: Duration = Duration::from_millis(100);
 
 pub enum Outcome {
     Finished,
@@ -100,18 +104,33 @@ fn run_with(
         })
     };
 
+    // Progress lines on their own thread too, so a stop is seen while none come.
     let stdout = child.stdout.take().ok_or("no output from ffmpeg")?;
+    let (lines, progressed) = mpsc::channel();
+    let progress_reader = std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if lines.send(line).is_err() {
+                break;
+            }
+        }
+    });
     let mut last = Instant::now();
     let mut out_us: Option<u64> = None;
-    for line in BufReader::new(stdout).lines() {
-        let Ok(line) = line else { break };
+    loop {
+        let line = match progressed.recv_timeout(STOP_POLL) {
+            Ok(line) => Some(line),
+            Err(RecvTimeoutError::Timeout) => None,
+            Err(RecvTimeoutError::Disconnected) => break,
+        };
         if stop() {
             let _ = child.kill();
             let _ = child.wait();
             let _ = reader.join();
+            let _ = progress_reader.join();
             let _ = fs::remove_file(&part);
             return Ok(Outcome::Stopped);
         }
+        let Some(line) = line else { continue };
         let done = match (frames, field(&line, "frame=")) {
             (Some(total), Some(n)) => Some(n as f64 / total.max(1) as f64),
             (None, _) => field(&line, "out_time_us=").and_then(|us| {
@@ -130,6 +149,7 @@ fn run_with(
     }
     let status = child.wait().map_err(|e| e.to_string())?;
     let _ = reader.join();
+    let _ = progress_reader.join();
     if !status.success() {
         let _ = fs::remove_file(&part);
         let log = log.lock().unwrap();
