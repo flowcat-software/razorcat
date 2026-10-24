@@ -6,7 +6,15 @@ import { useDoc } from "./docStore";
 import { fitIn, type Rect, type Size } from "./fit";
 import { growColour, growMode, outputSize, SIDES, type Frame } from "./frame";
 import type { Player } from "./player";
-import { blurReach, blurSigma, grownBox, pixelate, redactBox, redactStrength } from "./redactions";
+import {
+  blurRadius,
+  blurReach,
+  boxBlur,
+  grownBox,
+  pixelate,
+  redactBox,
+  redactStrength,
+} from "./redactions";
 import styles from "./EditorApp.module.css";
 
 interface Props {
@@ -27,7 +35,8 @@ type Latest = Omit<Props, "player">;
 /**
  * The redactions at the playhead (PLAN 4.8), over the picture and under the clip fades: each box
  * of the framed picture (the video on screen, a crossfade's incoming clip mixed in, the grown
- * space) drawn again at output size, pixelated or blurred, and laid back over it. Drawn when a
+ * space) drawn again at output size, pixelated or blurred as ffmpeg will (redactions.ts), and
+ * laid back over it. Drawn when a
  * picture is presented, so it keeps up with the video, and when the edit or the markup changes.
  * The markup layer has only the boxes, clear, to select and move.
  */
@@ -71,15 +80,9 @@ export function RedactLayer(props: Props) {
   return <canvas ref={ref} className={styles.redactLayer} />;
 }
 
-/** Canvases reused from draw to draw: read back on the CPU (pixelate), or kept on the GPU (blur). */
+/** The canvas each box is drawn, read back and redacted in, reused from draw to draw. */
 const read = document.createElement("canvas");
 const readG = read.getContext("2d", { willReadFrequently: true })!;
-const work = document.createElement("canvas");
-const workG = work.getContext("2d")!;
-const padded = document.createElement("canvas");
-const paddedG = padded.getContext("2d")!;
-const blurred = document.createElement("canvas");
-const blurredG = blurred.getContext("2d")!;
 
 function sized(c: HTMLCanvasElement, width: number, height: number) {
   if (c.width !== width || c.height !== height) {
@@ -108,32 +111,19 @@ function drawRedactions(canvas: HTMLCanvasElement, p: Latest, player: Player) {
     if (!box) continue;
     const mode = a.mode === "pixelate" ? "pixelate" : "blur";
     const strength = redactStrength(mode, a.strength);
-    if (mode === "pixelate") {
-      sized(read, box.width, box.height);
-      drawFramed(readG, box, p, player);
-      const pixels = readG.getImageData(0, 0, box.width, box.height);
-      pixelate(pixels.data, box.width, box.height, strength);
-      readG.putImageData(pixels, 0, 0);
-      g.imageSmoothingEnabled = false;
-      g.drawImage(read, box.x * s, box.y * s, box.width * s, box.height * s);
-      continue;
-    }
-    // Blur reads past the box as far as it reaches; at the frame's edge, its edge pixels go on.
-    const reach = blurReach(strength);
-    const region = grownBox(box, reach, out);
-    sized(work, region.width, region.height);
-    drawFramed(workG, region, p, player);
-    sized(padded, region.width + 2 * reach, region.height + 2 * reach);
-    extendEdges(paddedG, work, reach);
-    sized(blurred, padded.width, padded.height);
-    blurredG.filter = `blur(${blurSigma(strength)}px)`;
-    blurredG.drawImage(padded, 0, 0);
-    blurredG.filter = "none";
-    g.imageSmoothingEnabled = true;
+    // Blur reads past the box as far as it reaches (reflected at the frame's edge).
+    const region = mode === "blur" ? grownBox(box, blurReach(strength), out) : box;
+    sized(read, region.width, region.height);
+    drawFramed(readG, region, p, player);
+    const pixels = readG.getImageData(0, 0, region.width, region.height);
+    if (mode === "pixelate") pixelate(pixels.data, region.width, region.height, strength);
+    else boxBlur(pixels.data, region.width, region.height, blurRadius(strength, region));
+    readG.putImageData(pixels, 0, 0);
+    g.imageSmoothingEnabled = mode === "blur";
     g.drawImage(
-      blurred,
-      reach + box.x - region.x,
-      reach + box.y - region.y,
+      read,
+      box.x - region.x,
+      box.y - region.y,
       box.width,
       box.height,
       box.x * s,
@@ -141,27 +131,6 @@ function drawRedactions(canvas: HTMLCanvasElement, p: Latest, player: Player) {
       box.width * s,
       box.height * s,
     );
-  }
-}
-
-/** `src` drawn `by` px in from `g`'s edges, its edge rows and columns stretched out to them. */
-function extendEdges(g: CanvasRenderingContext2D, src: HTMLCanvasElement, by: number) {
-  const { width: w, height: h } = src;
-  g.imageSmoothingEnabled = false;
-  g.drawImage(src, by, by);
-  // Sides, then corners: [source x, y, w, h] stretched to [x, y, w, h].
-  const strips: [number, number, number, number, number, number, number, number][] = [
-    [0, 0, w, 1, by, 0, w, by],
-    [0, h - 1, w, 1, by, by + h, w, by],
-    [0, 0, 1, h, 0, by, by, h],
-    [w - 1, 0, 1, h, by + w, by, by, h],
-    [0, 0, 1, 1, 0, 0, by, by],
-    [w - 1, 0, 1, 1, by + w, 0, by, by],
-    [0, h - 1, 1, 1, 0, by + h, by, by],
-    [w - 1, h - 1, 1, 1, by + w, by + h, by, by],
-  ];
-  for (const [sx, sy, sw, sh, dx, dy, dw, dh] of strips) {
-    if (dw > 0 && dh > 0) g.drawImage(src, sx, sy, sw, sh, dx, dy, dw, dh);
   }
 }
 

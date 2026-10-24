@@ -5,7 +5,7 @@
 //! (no image encoder needed), in a folder of the export's own, removed when it's done. A
 //! highlight (PLAN 4.5c) is kept as RGB, laid over white: what the frame under it is multiplied
 //! by; so is a spotlight's hole (PLAN 4.5g). The spotlights' darkness has no pixels: ffmpeg makes
-//! it.
+//! it; nor has a redaction (PLAN 4.8b), which ffmpeg makes from the frame under it.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -30,6 +30,24 @@ pub enum MarkLayer {
     /// The spotlights' darkness, over the whole frame on a stretch with any showing, `dim`
     /// percent dark (PLAN 4.5g). No pixels are sent for it.
     Dark { dim: f64 },
+    /// A redaction (PLAN 4.8b): the frame under it pixelated in blocks of `strength` px, or
+    /// blurred by a radius of `strength` px, beneath all the markup. No pixels are sent for it.
+    Redact { mode: RedactMode, strength: u32 },
+}
+
+/// How a redaction hides what's under it (Razorcat has no Solid: a filled rectangle does that).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum RedactMode {
+    Pixelate,
+    Blur,
+}
+
+impl MarkLayer {
+    /// Made by ffmpeg, from nothing sent: the darkness, a redaction.
+    fn pixelless(self) -> bool {
+        matches!(self, Self::Dark { .. } | Self::Redact { .. })
+    }
 }
 
 /// An item of markup, as the page names it for an export.
@@ -104,7 +122,7 @@ pub fn take(app: &AppHandle, marks: Vec<ExportMark>) -> Result<Markup, String> {
     let pixels = pair(marks, sent)?;
     for (mark, rgba) in pixels {
         let (path, bytes) = match mark.layer {
-            MarkLayer::Dark { .. } => {
+            MarkLayer::Dark { .. } | MarkLayer::Redact { .. } => {
                 markup.items.push(MarkFile {
                     path: PathBuf::new(),
                     mark,
@@ -144,7 +162,7 @@ fn pair(
     marks
         .into_iter()
         .map(|m| {
-            if let MarkLayer::Dark { .. } = m.layer {
+            if m.layer.pixelless() {
                 if m.start >= m.end || m.width == 0 || m.height == 0 {
                     return Err("The markup sent doesn't fit: try again.".to_string());
                 }
@@ -215,6 +233,19 @@ mod tests {
         assert_eq!(paired.unwrap()[0].1.len(), 0);
         dark.start = 10;
         assert!(pair(vec![dark], HashMap::new()).is_err());
+    }
+
+    #[test]
+    fn a_redaction_needs_no_pixels() {
+        let mut redact = mark(3, 20, 10);
+        redact.layer = MarkLayer::Redact {
+            mode: RedactMode::Blur,
+            strength: 6,
+        };
+        let paired = pair(vec![redact.clone()], HashMap::new());
+        assert_eq!(paired.unwrap()[0].1.len(), 0);
+        redact.width = 0;
+        assert!(pair(vec![redact], HashMap::new()).is_err());
     }
 
     #[test]

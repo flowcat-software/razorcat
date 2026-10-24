@@ -399,7 +399,12 @@ export type MarkLayer =
  *  The spotlights' darkness, over the whole frame on a stretch with any showing, `dim`
  *  percent dark (PLAN 4.5g). No pixels are sent for it.
  */
-{ kind: "dark"; dim: number | null };
+{ kind: "dark"; dim: number | null } | 
+/**
+ *  A redaction (PLAN 4.8b): the frame under it pixelated in blocks of `strength` px, or
+ *  blurred by a radius of `strength` px, beneath all the markup. No pixels are sent for it.
+ */
+{ kind: "redact"; mode: RedactMode; strength: number };
 
 /**  How the markup tools behave (Vandal's editor settings, the markup's part). */
 export type Markup = {
@@ -496,6 +501,9 @@ export type ProxyReady = {
 export type ProxyStopped = {
 	source: string,
 };
+
+/**  How a redaction hides what's under it (Razorcat has no Solid: a filled rectangle does that). */
+export type RedactMode = "pixelate" | "blur";
 
 export type Settings = {
 	version?: number,

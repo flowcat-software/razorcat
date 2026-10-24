@@ -32,7 +32,7 @@ use tauri_specta::Event;
 
 use crate::editor::LABEL;
 use crate::ffmpeg::{self, Outcome};
-use crate::markup::{self, ExportMark, MarkLayer, Markup};
+use crate::markup::{self, ExportMark, MarkLayer, Markup, RedactMode};
 use crate::media::grid::{self, Rate};
 use crate::sidecar::{self, Tool};
 use crate::source::file_name;
@@ -338,15 +338,16 @@ struct Show {
 /// The markup over `clips` (in the export's order), with the export's frames each item shows
 /// on: what of its timeline frames the clips cover, wherever they are in the export. Items over
 /// none of them are left out. As the preview draws them (Vandal's rule, Richard 2026-10-23): the
-/// highlights first, then the spotlights' holes and darkness, then the rest, back to front as
-/// sent.
+/// redactions first (PLAN 4.8b, on the video), then the highlights, then the spotlights' holes and
+/// darkness, then the rest, back to front as sent.
 fn overlays(clips: &[ExportClip], markup: &Markup) -> Vec<Overlay> {
     let mut items: Vec<_> = markup.items.iter().collect();
     items.sort_by_key(|item| match item.mark.layer {
-        MarkLayer::Highlight => 0,
-        MarkLayer::Hole => 1,
-        MarkLayer::Dark { .. } => 2,
-        MarkLayer::Item => 3,
+        MarkLayer::Redact { .. } => 0,
+        MarkLayer::Highlight => 1,
+        MarkLayer::Hole => 2,
+        MarkLayer::Dark { .. } => 3,
+        MarkLayer::Item => 4,
     });
     items
         .into_iter()
@@ -552,7 +553,7 @@ fn graph(
     let mut next = cuts.len();
     for o in overlays {
         let pixels = match o.layer {
-            MarkLayer::Dark { .. } => {
+            MarkLayer::Dark { .. } | MarkLayer::Redact { .. } => {
                 inputs.push(0);
                 continue;
             }
@@ -676,12 +677,13 @@ fn graph(
     // The frame, then the markup over it, back to front: in full colour (4:4:4), as the frame is
     // made, so each item lands on the pixels the preview shows it on. Each item is made YUV
     // once, not on every frame (spike 0.3), and is on only between its frames (`n` counts the
-    // joined frames from 0).
+    // joined frames from 0). The redactions work on the frame itself, under the clip fades.
     let mut at = "vc".to_string();
     if let Some(frame) = frame {
         f.push(format!("[vc]{frame}[vf]"));
         at = "vf".into();
     }
+    at = redactions(&mut f, &at, overlays, black);
     at = clip_fades(&mut f, &at, cuts, black, rate);
     let mut darkened = false;
     for (k, o) in overlays.iter().enumerate() {
@@ -701,6 +703,7 @@ fn graph(
                 }
                 continue;
             }
+            MarkLayer::Redact { .. } => continue,
             MarkLayer::Item => {}
         }
         f.push(format!("[{input}:v:0]format=yuva444p[m{k}]"));
@@ -755,6 +758,82 @@ fn graph(
         a.extend(["-map", "[ac]"].map(OsString::from));
     }
     a
+}
+
+/// The redactions (PLAN 4.8b) made in the picture `at` (`frame` in size), as the preview makes
+/// them (redactions.ts), on their frames: each box cut out, pixelated (`pixelize`, its blocks
+/// averaged on a grid from its corner) or blurred (`boxblur`, three passes each way, with as much
+/// round it as they read, reflected at the frame's edge), and laid back. In full colour, so the
+/// box's pixels are its own. Every box is cut from the one picture, as the preview's are, split
+/// once: each cut from the last one's result made the graph slower by half again per redaction
+/// (24 never finished; Richard, 2026-10-23). The picture's label after it.
+fn redactions(f: &mut Vec<String>, at: &str, overlays: &[Overlay], frame: (u32, u32)) -> String {
+    // Each one's index, kind and box, kept to the frame (the page sends it so).
+    let boxes: Vec<_> = overlays
+        .iter()
+        .enumerate()
+        .filter_map(|(k, o)| {
+            let MarkLayer::Redact { mode, strength } = o.layer else {
+                return None;
+            };
+            let (x, y) = (o.x, o.y);
+            if x >= frame.0 || y >= frame.1 {
+                return None;
+            }
+            let (w, h) = (o.width.min(frame.0 - x), o.height.min(frame.1 - y));
+            Some((k, o, mode, strength, (x, y, w, h)))
+        })
+        .collect();
+    if boxes.is_empty() {
+        return at.to_string();
+    }
+    let cuts: String = boxes.iter().map(|(k, ..)| format!("[rc{k}]")).collect();
+    f.push(format!(
+        "[{at}]format=yuv444p,split={}[rb]{cuts}",
+        boxes.len() + 1
+    ));
+    let mut at = "rb".to_string();
+    for &(k, o, mode, strength, (x, y, w, h)) in &boxes {
+        let on: Vec<String> = o
+            .shows
+            .iter()
+            .map(|s| format!("between(n,{},{})", s.from, s.to - 1))
+            .collect();
+        let on = on.join("+");
+        // Off its frames, the work's skipped (`enable`) and the box not laid back.
+        let made = match mode {
+            RedactMode::Pixelate => {
+                let b = strength.max(2);
+                format!("crop={w}:{h}:{x}:{y},pixelize=width={b}:height={b}:mode=avg:enable='{on}'")
+            }
+            RedactMode::Blur => {
+                let r = strength.max(1);
+                let (rx, ry, rw, rh) = grown_box((x, y, w, h), 3 * r, frame);
+                let r = r.min(rw.min(rh) / 2);
+                format!(
+                    "crop={rw}:{rh}:{rx}:{ry},boxblur=luma_radius={r}:luma_power=3:chroma_radius={r}:chroma_power=3:enable='{on}',crop={w}:{h}:{}:{}",
+                    x - rx,
+                    y - ry
+                )
+            }
+        };
+        f.push(format!("[rc{k}]{made}[rm{k}]"));
+        f.push(format!(
+            "[{at}][rm{k}]overlay=x={x}:y={y}:format=yuv444:enable='{on}'[r{k}]"
+        ));
+        at = format!("r{k}");
+    }
+    at
+}
+
+/// Box `(x, y, width, height)` grown by `by` on every side, kept to the frame (redactions.ts's
+/// `grownBox`).
+fn grown_box(b: (u32, u32, u32, u32), by: u32, frame: (u32, u32)) -> (u32, u32, u32, u32) {
+    let x0 = b.0.saturating_sub(by);
+    let y0 = b.1.saturating_sub(by);
+    let x1 = (b.0 + b.2 + by).min(frame.0);
+    let y1 = (b.1 + b.3 + by).min(frame.1);
+    (x0, y0, x1 - x0, y1 - y0)
 }
 
 /// The fades of an item `length` frames long (`fade_in` and `fade_out` frames), for a stream of
@@ -2629,6 +2708,67 @@ mod tests {
             .map(|o| o.layer)
             .collect();
         assert_eq!(order, [MarkLayer::Highlight, MarkLayer::Item]);
+    }
+
+    #[test]
+    fn redactions_blur_or_pixelate_the_frame_under_the_clip_fades() {
+        let rate = Rate { num: 30, den: 1 };
+        let c = [Cut {
+            out: 90,
+            fade_in: 6,
+            ..Default::default()
+        }];
+        let redact = |mode, strength, (x, y, width, height), shows: Vec<Show>| Overlay {
+            layer: MarkLayer::Redact { mode, strength },
+            path: PathBuf::new(),
+            x,
+            y,
+            width,
+            height,
+            shows,
+            length: 20,
+            fade_in: 0,
+            fade_out: 0,
+        };
+        let at = |from, to| Show { from, to, at: 0 };
+        let marks = [
+            redact(
+                RedactMode::Pixelate,
+                10,
+                (100, 50, 64, 40),
+                vec![at(0, 20), at(40, 50)],
+            ),
+            // At the frame's corner: what it reads round it stops at the frame.
+            redact(RedactMode::Blur, 6, (0, 0, 30, 20), vec![at(10, 30)]),
+        ];
+        let a = joined(&one_file(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            0,
+            None,
+            &marks,
+            Encoder::X264,
+            6_000_000,
+        ));
+        // No pictures sent for them.
+        assert!(!a.contains("rawvideo"));
+        // Both cut from the one picture.
+        assert!(a.contains("[vc]format=yuv444p,split=3[rb][rc0][rc1]"));
+        assert!(a.contains(
+            "[rc0]crop=64:40:100:50,pixelize=width=10:height=10:mode=avg:enable='between(n,0,19)+between(n,40,49)'[rm0]"
+        ));
+        assert!(a.contains(
+            "[rb][rm0]overlay=x=100:y=50:format=yuv444:enable='between(n,0,19)+between(n,40,49)'[r0]"
+        ));
+        // Three radii round it, kept to the frame; the box cut back out of that.
+        assert!(a.contains(
+            "[rc1]crop=48:38:0:0,boxblur=luma_radius=6:luma_power=3:chroma_radius=6:chroma_power=3:enable='between(n,10,29)',crop=30:20:0:0[rm1]"
+        ));
+        // Then the clip fades, over them.
+        assert!(a.contains("[r1][cf0in]overlay="));
+        assert_eq!(grown_box((5, 5, 10, 10), 8, (100, 50)), (0, 0, 23, 23));
     }
 
     #[test]

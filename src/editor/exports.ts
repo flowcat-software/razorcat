@@ -1,7 +1,8 @@
 // Export, as the buttons, menus and Ctrl+E invoke it: the document's clips to Rust (export.rs),
 // which asks where to save, renders, and reports progress (`ExportProgress`, `ExportEnded`).
 // The markup goes first, each item drawn and its pixels sent (drawMarks.ts, markup.rs), and the
-// spotlights' darkness on each run of them (spotlights.ts), which Rust makes.
+// spotlights' darkness on each run of them (spotlights.ts) and the redactions (PLAN 4.8b), which
+// Rust makes.
 import { drawMarks } from "../markup/drawMarks";
 import { playheadFrame } from "../markup/model/store";
 import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
@@ -11,11 +12,13 @@ import {
   fadeColours,
   fadesOf,
   markFades,
+  shownMarks,
   type ClipId,
   type Doc,
 } from "./doc";
 import { useDoc } from "./docStore";
 import { darkLayer } from "./spotlights";
+import { redactBox, redactStrength } from "./redactions";
 import { growColour, outputSize, type Side } from "./frame";
 import { checkMarkup } from "./markupCheck";
 import type { MenuItems } from "./Menu";
@@ -95,7 +98,24 @@ async function sendMarkup(doc: Doc): Promise<ExportMark[]> {
     ...r,
     layer: { kind: "dark", dim: dark?.dim ?? 0 },
   }));
-  return [...items, ...runs];
+  return [...redactions(doc), ...items, ...runs];
+}
+
+/** The redactions (PLAN 4.8b): each box, as the preview cuts it, and how it hides what's under. */
+function redactions(doc: Doc): ExportMark[] {
+  const frame = outputSize(doc.frame);
+  return shownMarks(doc).flatMap((m): ExportMark[] => {
+    const o = doc.marks.find((k) => k.id === m.id)?.object;
+    if (o?.kind !== "redact") return [];
+    const box = redactBox(o.rect, frame);
+    if (!box) return [];
+    const mode = o.mode === "pixelate" ? "pixelate" : "blur";
+    const { id, start, end } = m;
+    const strength = redactStrength(mode, o.strength);
+    return [
+      { id, ...box, start, end, fadeIn: 0, fadeOut: 0, layer: { kind: "redact", mode, strength } },
+    ];
+  });
 }
 
 /** Told when an export can't start here, before Rust has it (the editor's status bar). */

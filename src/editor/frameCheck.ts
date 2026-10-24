@@ -22,7 +22,11 @@
 // Two highlights (PLAN 4.5c), yellow: each pixel under one must be the export without markup
 // multiplied by it (towards white as it fades), and one under item 2 must leave it on top.
 // Then spotlights (PLAN 4.5g), on their own: two holes in one run of darkness, overlapping, each
-// pixel the export without markup darkened by as much as is left of it there. Last, clip fades
+// pixel the export without markup darkened by as much as is left of it there. Redactions (PLAN
+// 4.8b): a pixelated box and a blurred one over barcode cells' edges at the frame's foot, each
+// read pixel by pixel (with what the blur reads round it) from the export without them; on their
+// frames, the preview's arithmetic on that (redactions.ts) must be what the export shows, and
+// off them, the frame untouched. Last, clip fades
 // (PLAN 4.7a): the second clip fading in from black and out to white (4.7c), each pixel the
 // unfaded export's at the preview's ramp (`clipOpacityAt`) over the fade's colour, its barcode
 // not read on those frames. And a crossfade
@@ -43,6 +47,7 @@ import { useDoc } from "./docStore";
 import { exportClips, exportFrame } from "./exports";
 import { outputSize } from "./frame";
 import type { Player } from "./player";
+import { blurRadius, blurReach, boxBlur, grownBox, pixelate } from "./redactions";
 import { fadedAt } from "./spotlights";
 
 /** The barcode: cells along the bottom sixteenth of the picture, least significant on the left. */
@@ -57,6 +62,8 @@ const PATIENCE = 5000;
 const DROPS = 12;
 /** How far (0–255) a faded item's pixel may be from its blend: two lossy encodes differ. */
 const FADE_NOISE = 32;
+/** How far (0–255) a redaction's pixels may be from the preview's, on average over its box. */
+const REDACT_NOISE = 6;
 
 /** The number in a row of RGBA pixels across the barcode: each cell's middle, white = 1. */
 export function readBarcode(row: Uint8ClampedArray, width: number): number {
@@ -527,6 +534,93 @@ export async function checkFrames(
       });
     }
     passes.push({ pass: "spotlights", checked: n * spots.length, misses: wrongSpots, covered: 0 });
+
+    // Redactions: a pixelated box over the edge of cells 4 and 5, and a blurred one over cells
+    // 0 and 1's (one changes every frame, the other every two) at the frame's foot (what it
+    // reads below stops there), on frames 20 to 60 and 40 to 80.
+    progress("Checking frames: exporting the edit with redactions…");
+    const cellEdge = (j: number) => Math.round((j * width) / BITS);
+    const redacts = [
+      { id: 8, mode: "pixelate" as const, strength: 6, start: 20, end: 60 },
+      { id: 9, mode: "blur" as const, strength: 2, start: 40, end: 80 },
+    ].map((r, i) => {
+      const box =
+        i === 0
+          ? { x: cellEdge(5) - 9, y: height - 12, width: 18, height: 12 }
+          : { x: cellEdge(1) - 6, y: height - 8, width: 12, height: 8 };
+      const reads =
+        r.mode === "blur" ? grownBox(box, blurReach(r.strength), { width, height }) : box;
+      return { ...r, box, reads };
+    });
+    const redactMarks: ExportMark[] = redacts.map((r) => ({
+      id: r.id,
+      ...r.box,
+      start: r.start,
+      end: r.end,
+      fadeIn: 0,
+      fadeOut: 0,
+      layer: { kind: "redact", mode: r.mode, strength: r.strength },
+    }));
+    const pixelsOf = (b: { x: number; y: number; width: number; height: number }) =>
+      Array.from({ length: b.width * b.height }, (_, i) => ({
+        x: b.x + (i % b.width),
+        y: b.y + Math.floor(i / b.width),
+      }));
+    const readsAt = redacts.map((r) => pixelsOf(r.reads));
+    const probesAt = readsAt.flat();
+    const unredacted = await exportPass("export unredacted", BITS, want, [], probesAt);
+    const redacted = await exportPass("export redacted", BITS, want, redactMarks, probesAt);
+    let wrongRedacts = 0;
+    for (let k = 0; k < n; k++) {
+      let first = 0;
+      redacts.forEach((r, i) => {
+        const count = readsAt[i].length;
+        const from = first;
+        first += count;
+        const rgba = (frame: number[] | undefined) => {
+          const px = new Uint8ClampedArray(count * 4);
+          for (let p = 0; p < count; p++) {
+            px.set(
+              [...(frame?.slice((from + p) * 3, (from + p) * 3 + 3) ?? [0, 0, 0]), 255],
+              p * 4,
+            );
+          }
+          return px;
+        };
+        const want4 = rgba(unredacted[k]);
+        if (k >= r.start && k < r.end) {
+          const { width: w, height: h } = r.reads;
+          if (r.mode === "pixelate") pixelate(want4, w, h, r.strength);
+          else boxBlur(want4, w, h, blurRadius(r.strength, r.reads));
+        }
+        const got4 = rgba(redacted[k]);
+        // Over the box: two lossy encodes differ a little, pixel by pixel, so on average.
+        const ox = r.box.x - r.reads.x;
+        const oy = r.box.y - r.reads.y;
+        let off = 0;
+        for (let y = 0; y < r.box.height; y++) {
+          for (let x = 0; x < r.box.width; x++) {
+            const p = ((oy + y) * r.reads.width + ox + x) * 4;
+            for (let c = 0; c < 3; c++) off += Math.abs(got4[p + c] - want4[p + c]);
+          }
+        }
+        const mean = off / (r.box.width * r.box.height * 3);
+        if (mean <= REDACT_NOISE) return;
+        wrongRedacts++;
+        misses.push({
+          pass: `redaction ${r.id} (${r.mode}), mean ${mean.toFixed(1)} off`,
+          frame: k,
+          expected: 0,
+          shown: Math.round(mean),
+        });
+      });
+    }
+    passes.push({
+      pass: "redactions",
+      checked: n * redacts.length,
+      misses: wrongRedacts,
+      covered: 0,
+    });
 
     // Clip fades: the second clip fading in from black over 6 frames and out to white over 8.
     progress("Checking frames: exporting the edit with a clip faded…");
