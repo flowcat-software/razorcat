@@ -10,6 +10,7 @@ import type { ControlProps } from "./index";
 import { Segmented } from "./Segmented";
 import { useDraft } from "./useDraft";
 import styles from "./controls.module.css";
+import { Alert } from "./Alert";
 
 /** The most presets (settings.rs's `MAX_GROW_PRESETS`). */
 const MAX_PRESETS = 12;
@@ -70,11 +71,7 @@ export function GrowPresetsEditor({ item, disabled }: ControlProps<GrowPresetsIt
           />
         ))}
       </div>
-      {error && (
-        <p className={styles.fieldError} role="alert">
-          {error}
-        </p>
-      )}
+      {error && <Alert tone="error">{error}</Alert>}
       <div className={styles.presetFooter}>
         <span className={styles.help}>
           {presets.length} of {MAX_PRESETS}

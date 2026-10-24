@@ -4,6 +4,7 @@ import { useSetting, useSettingsStore } from "../store";
 import type { ControlProps } from "./index";
 import { useDraft } from "./useDraft";
 import styles from "./controls.module.css";
+import { Alert } from "./Alert";
 
 /** A line of text, kept when you leave the field or press Enter; Escape puts it back. */
 export function TextInput({ item, id, disabled }: ControlProps<TextItem>) {
@@ -39,11 +40,7 @@ export function TextInput({ item, id, disabled }: ControlProps<TextItem>) {
           }
         }}
       />
-      {error && (
-        <p className={styles.fieldError} role="alert">
-          {error}
-        </p>
-      )}
+      {error && <Alert tone="error">{error}</Alert>}
     </div>
   );
 }

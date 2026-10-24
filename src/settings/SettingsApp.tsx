@@ -14,6 +14,7 @@ import { matchesQuery, type Group, type Item, type Section } from "./schema";
 import { sections } from "./sections";
 import { useSettingsStore } from "./store";
 import styles from "./SettingsApp.module.css";
+import { Alert } from "./controls/Alert";
 
 export function SettingsApp() {
   const settings = useSettingsStore((s) => s.settings);
@@ -277,9 +278,9 @@ function Row({ item, settings }: { item: Item; settings: Settings }) {
         <Control item={item} id={id} disabled={disabled} />
       </div>
       {note && (
-        <p className={styles.note} role="status">
+        <Alert tone="warning" className={styles.note}>
           {note}
-        </p>
+        </Alert>
       )}
     </div>
   );

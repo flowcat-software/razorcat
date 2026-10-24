@@ -714,6 +714,7 @@ export const sections: Section[] = [
             id: "logs",
             kind: "logs",
             label: "Logs and crash reports",
+            visible: (s) => s.debugging.logging,
             keywords: ["log", "logs", "folder", "clear", "delete", "crash", "report", "debug"],
           },
         ],

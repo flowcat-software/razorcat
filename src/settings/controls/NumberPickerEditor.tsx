@@ -20,6 +20,7 @@ import { useDraft } from "./useDraft";
 import markup from "../../markup/options.module.css";
 import { PlusIcon, RemoveIcon } from "../icons";
 import styles from "./controls.module.css";
+import { Alert } from "./Alert";
 
 const CONTROLS: ChoiceOption<PickerControl>[] = [
   { value: "buttons", label: "Buttons" },
@@ -144,11 +145,7 @@ export function NumberPickerEditor({
           onDragEnd={() => {}}
         />
       </div>
-      {warning && (
-        <p className={styles.fieldWarning} role="status">
-          {warning}
-        </p>
-      )}
+      {warning && <Alert tone="warning">{warning}</Alert>}
     </div>
   );
 }
@@ -348,7 +345,7 @@ function RangeFields({
         <span className={styles.help}>to</span>
         {field(maxText, setMaxText, "largest")}
       </div>
-      {error && <p className={styles.fieldError}>{error}</p>}
+      {error && <Alert tone="error">{error}</Alert>}
     </div>
   );
 }

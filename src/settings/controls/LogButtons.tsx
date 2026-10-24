@@ -1,17 +1,27 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { fileSize } from "../../shared/fileSize";
 import { commands } from "../../shared/ipc";
 import type { LogsItem } from "../schema";
 import { ConfirmDialog } from "./ConfirmDialog";
 import type { ControlProps } from "./index";
 import styles from "./controls.module.css";
+import { Alert } from "./Alert";
+
+/** How long "cleared" shows before it fades. */
+const SHOWN_MS = 3000;
 
 /**
- * Settings › About › Debugging: opens the folder of logs and crash reports (to send one), or
- * clears it, after asking.
+ * Settings › About › Debugging: the folder's size, and buttons to open it (to send a report)
+ * or clear it, after asking. Cleared, a success alert says so and fades; a failure stays, as an error.
  */
 export function LogButtons({ id, disabled }: ControlProps<LogsItem>) {
+  const [bytes, setBytes] = useState<number | null>(null);
   const [asking, setAsking] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+
+  const measure = () => void commands.logsSize().then(setBytes);
+  useEffect(measure, []);
+
   const clear = () => {
     setAsking(false);
     commands
@@ -23,8 +33,10 @@ export function LogButtons({ id, disabled }: ControlProps<LogsItem>) {
             : { text: r.error, error: true },
         ),
       )
-      .catch((e: unknown) => setMessage({ text: String(e), error: true }));
+      .catch((e: unknown) => setMessage({ text: String(e), error: true }))
+      .finally(measure);
   };
+
   return (
     <div id={id} className={styles.stack}>
       <div className={styles.buttonRow}>
@@ -48,11 +60,15 @@ export function LogButtons({ id, disabled }: ControlProps<LogsItem>) {
           Clear logs
         </button>
       </div>
-      {message && (
-        <p className={message.error ? styles.fieldError : styles.aboutMeta} role="status">
-          {message.text}
-        </p>
-      )}
+      {bytes !== null && <p className={styles.aboutMeta}>The folder holds {fileSize(bytes)}.</p>}
+      {message &&
+        (message.error ? (
+          <Alert tone="error">{message.text}</Alert>
+        ) : (
+          <Alert tone="success" fadeAfter={SHOWN_MS} onGone={() => setMessage(null)}>
+            {message.text}
+          </Alert>
+        ))}
       {asking && (
         <ConfirmDialog
           title="Clear logs?"

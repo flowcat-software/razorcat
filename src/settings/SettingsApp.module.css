@@ -253,15 +253,9 @@
 }
 
 /* A warning bar across the row (as a field's error, in Windows' caution colours). */
+/* A row's note: a warning alert (Alert.tsx) across the row, under its label and control. */
 .note {
   flex-basis: 100%;
-  margin: 0;
-  padding: 6px 10px;
-  border-radius: 4px;
-  background: var(--warning-bg);
-  box-shadow: 0 0 0 1px var(--warning-border);
-  font-size: 12px;
-  line-height: 16px;
 }
 
 .control {

@@ -5,6 +5,7 @@ import { useSetting, useSettingsStore } from "../store";
 import type { ControlProps } from "./index";
 import { useDraft } from "./useDraft";
 import styles from "./controls.module.css";
+import { Alert } from "./Alert";
 
 /** A path you can type (env vars like %USERPROFILE% allowed), browse or open (Vandal's). */
 export function FolderInput({ item, id, disabled }: ControlProps<FolderItem>) {
@@ -72,11 +73,7 @@ export function FolderInput({ item, id, disabled }: ControlProps<FolderItem>) {
           Open
         </button>
       </div>
-      {error && (
-        <p className={styles.fieldError} role="alert">
-          {error}
-        </p>
-      )}
+      {error && <Alert tone="error">{error}</Alert>}
     </div>
   );
 }

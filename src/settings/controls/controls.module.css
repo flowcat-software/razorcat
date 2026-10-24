@@ -173,6 +173,53 @@
   gap: 8px;
 }
 
+/* ---- alerts (Alert.tsx): every message in Settings, Vandal's bars in four tones ---- */
+
+.alert {
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.success {
+  background: var(--success-bg);
+  box-shadow: 0 0 0 1px var(--success-border);
+}
+
+.info {
+  background: var(--info-bg);
+  box-shadow: 0 0 0 1px var(--info-border);
+}
+
+.warning {
+  background: var(--warning-bg);
+  box-shadow: 0 0 0 1px var(--warning-border);
+}
+
+.error {
+  background: var(--error-bg);
+  box-shadow: 0 0 0 1px var(--error-border);
+}
+
+/* A confirmation that goes by itself: shown, then faded (Alert's `fadeAfter` sets the delay). */
+.fadeOut {
+  animation: alertFade 0.4s ease forwards;
+}
+
+@keyframes alertFade {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fadeOut {
+    animation-duration: 1ms;
+  }
+}
+
 /* ---- text inputs and buttons (Vandal's) ---- */
 
 .input {
@@ -216,15 +263,6 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-
-.fieldError {
-  margin: 0;
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: var(--error-bg);
-  box-shadow: 0 0 0 1px var(--error-border);
-  font-size: 12px;
 }
 
 .button {
@@ -622,15 +660,6 @@
 .paletteAdd:hover:not(:disabled):not([aria-pressed="true"]) {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   box-shadow: inset 0 0 0 1px var(--accent);
-}
-
-.fieldWarning {
-  margin: 0;
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: var(--warning-bg);
-  box-shadow: 0 0 0 1px var(--warning-border);
-  font-size: 12px;
 }
 
 .pickerPreview {
