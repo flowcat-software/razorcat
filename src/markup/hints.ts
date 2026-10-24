@@ -99,7 +99,8 @@ export const CONTROL_HINTS = {
   time: "Drag left or right to change it · [Shift] faster · Click to type a time or a frame number",
   "time.clipsFade":
     "Drag left or right to change the selected clips' fades together · [Shift] all as long · Click to type one length for them all",
-  source: "The video the timeline started from · the others conform to its size and rate",
+  source:
+    "The selected clips' files, or with nothing selected the project's · the first file sets the size and rate, and the others are fitted and timed to it",
   "crop.ratio": "Keep the crop to this shape · [Shift] while dragging keeps the shape it has",
   "crop.portrait": "Taller than wide: 9:16 instead of 16:9",
   "crop.reset": "Back to the whole picture · [Ctrl+Z] undoes it",

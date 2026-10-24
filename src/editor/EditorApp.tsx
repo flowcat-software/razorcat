@@ -643,7 +643,7 @@ export function EditorApp() {
         onOpen={replace}
         onAdd={addVideo}
       />
-      <FrameOptions source={source} settings={settings} />
+      <FrameOptions source={source} sources={sources} settings={settings} />
       <div className={styles.preview}>
         {source ? (
           <Preview

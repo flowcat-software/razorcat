@@ -446,6 +446,15 @@
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The files' facts, or several files' names: cut short with an ellipsis (all on hover). */
+.sourceFacts {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---- preview ---- */

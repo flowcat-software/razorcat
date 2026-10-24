@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SourceInfo } from "../shared/ipc";
-import { formatBytes, formatDuration, formatRate, sourceFacts } from "./format";
+import { fileInfo, formatBytes, formatDuration, formatRate, sourceFacts } from "./format";
 
 describe("formatRate", () => {
   it("drops trailing zeros and rounds NTSC rates", () => {
@@ -69,5 +69,54 @@ describe("sourceFacts", () => {
   it("mentions audio only when it's unusual", () => {
     expect(sourceFacts({ ...base, audioTracks: 0 })).toContain("No audio");
     expect(sourceFacts({ ...base, audioTracks: 2 })).toContain("2 audio tracks");
+  });
+});
+
+describe("fileInfo", () => {
+  const file = (name: string, width: number, height: number, rateNum = 30): SourceInfo =>
+    ({
+      id: name,
+      name,
+      path: `C:\\v\\${name}`,
+      url: "",
+      framesUrl: "",
+      bytes: 6e6,
+      codec: "H.264",
+      width,
+      height,
+      rotation: 0,
+      rateNum,
+      rateDen: 1,
+      frames: 300,
+      duration: 10,
+      audioTracks: 1,
+      variable: false,
+      converted: false,
+      thumbs: null,
+      waveUrl: null,
+    }) as SourceInfo;
+  const a = file("a.mp4", 1920, 1080);
+  const b = file("b.mp4", 720, 1280, 24);
+
+  it("with nothing selected, gives the one file, or the project of several", () => {
+    expect(fileInfo([a], [])).toMatchObject({ name: "a.mp4", facts: sourceFacts(a) });
+    expect(fileInfo([a, b], [])).toEqual({
+      name: "Project",
+      title: "a.mp4\nb.mp4",
+      facts: ["1920 × 1080", "30 fps", "2 files"],
+    });
+  });
+
+  it("follows the selected clips' files, saying how another file is fitted and timed", () => {
+    expect(fileInfo([a, b], [a]).name).toBe("a.mp4");
+    expect(fileInfo([a, b], [a, a]).facts[0]).toBe("2 clips");
+    const other = fileInfo([a, b], [b]).facts;
+    expect(other).toContain("fitted into 1920 × 1080");
+    expect(other).toContain("played at 30 fps");
+    expect(fileInfo([a, b], [a, b, a])).toEqual({
+      name: "3 clips from 2 files",
+      title: "a.mp4\nb.mp4",
+      facts: ["a.mp4, b.mp4"],
+    });
   });
 });

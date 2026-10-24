@@ -18,7 +18,7 @@ import {
   type CropField,
   type Side,
 } from "./frame";
-import { sourceFacts } from "./format";
+import { fileInfo } from "./format";
 import { GrowPresets } from "./GrowPresets";
 import { NumberField } from "./NumberField";
 import { CROP_RATIOS, lockedRatio, MARKUP_TOOLS, ratioLabel, useTool } from "./toolStore";
@@ -27,18 +27,24 @@ import styles from "./EditorApp.module.css";
 /**
  * The options bar above the preview (the mockup's): the picked-up tool's options (a markup
  * tool's, Vandal's, also for the markup selected on the preview), or, with nothing being edited,
- * the video's facts and its frame (output size, crop, grow).
+ * the files' facts (the selected clips' files, or the project's: `fileInfo`) and the frame
+ * (output size, crop, grow).
  */
 export function FrameOptions({
   source,
+  sources,
   settings,
 }: {
   source: SourceInfo | null;
   /** For the grow presets. */
   settings: Settings | null;
+  /** The timeline's files, the first first. */
+  sources: readonly SourceInfo[];
 }) {
   const tool = useTool((s) => s.tool);
   const frame = useDoc((s) => s.doc.frame);
+  const clips = useDoc((s) => s.doc.clips);
+  const selectedClips = useDoc((s) => s.selectedClips);
   const markupSelected = useMarkup((s) => s.selection.length > 0);
   if (!source) return <div className={styles.optionsBar}>No video open</div>;
   if (tool === "crop") return <CropOptions />;
@@ -54,12 +60,19 @@ export function FrameOptions({
   const grow = SIDES.filter((s) => frame.grow[s] > 0)
     .map((s) => `${s} ${frame.grow[s]} px`)
     .join(", ");
+  const picked = clips.flatMap((c) => {
+    const file = selectedClips.includes(c.id) && sources.find((s) => s.id === c.source);
+    return file ? [file] : [];
+  });
+  const info = fileInfo(sources.length ? sources : [source], picked);
   return (
     <div className={styles.optionsBar}>
-      <b className={styles.sourceName} title={source.path} {...hint("source")}>
-        {source.name}
+      <b className={styles.sourceName} title={info.title} {...hint("source")}>
+        {info.name}
       </b>
-      <span {...hint("source")}>{sourceFacts(source).join(" · ")}</span>
+      <span className={styles.sourceFacts} title={info.title} {...hint("source")}>
+        {info.facts.join(" · ")}
+      </span>
       <span className={styles.spacer} />
       <span className={styles.frameSummary}>
         Output {out.width} × {out.height} · Crop:{" "}
