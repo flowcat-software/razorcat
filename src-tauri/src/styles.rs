@@ -236,14 +236,16 @@ impl Default for Styles {
                 "#e53935", "#fb8c00", "#fdd835", "#43a047", "#1e88e5", "#8e24aa", "#000000",
                 "#ffffff",
             ]),
-            color_control: ColorControl::Swatches,
+            // Defaults from Richard's list (2026-10-24): a dropdown takes less room, wider
+            // lines for video, the large sizes captions on video want.
+            color_control: ColorControl::Dropdown,
             width: NumberPicker::Slider {
                 min: 1.0,
-                max: 20.0,
+                max: 30.0,
             },
             font: FontPicker::default(),
             font_size: NumberPicker::Dropdown {
-                values: vec![8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 36.0, 48.0, 72.0],
+                values: vec![12.0, 16.0, 18.0, 20.0, 36.0, 48.0, 72.0, 96.0, 117.0, 144.0],
             },
             // Sliders from 6 to 30 px (Richard, 2026-10-23): on video a redaction wants to be
             // strong, and a slider finds the amount by eye.
@@ -255,11 +257,12 @@ impl Default for Styles {
                 min: 6.0,
                 max: 30.0,
             },
-            spotlight: NumberPicker::Buttons {
-                values: vec![30.0, 50.0, 70.0, 85.0],
+            spotlight: NumberPicker::Slider {
+                min: 30.0,
+                max: 85.0,
             },
             step_size: NumberPicker::Dropdown {
-                values: vec![24.0, 32.0, 44.0, 60.0],
+                values: vec![24.0, 32.0, 44.0, 60.0, 72.0],
             },
             corner_radius: NumberPicker::Dropdown {
                 values: vec![0.0, 5.0, 10.0, 15.0, 20.0],
@@ -289,13 +292,14 @@ impl Default for Styles {
 }
 
 impl ToolStyles {
-    /// The callout's default override (PLAN 3E.3): its thicknesses as a
-    /// dropdown, which keeps its busy options bar compact beside the icon.
+    /// The callout's default override: its own thickness range, 1 to 20 px
+    /// (Richard, 2026-10-24; Vandal's was a compact dropdown, PLAN 3E.3).
     pub fn callout_default() -> Self {
         Self {
             palette: None,
-            width: Some(NumberPicker::Dropdown {
-                values: vec![2.0, 4.0, 6.0, 10.0],
+            width: Some(NumberPicker::Slider {
+                min: 1.0,
+                max: 20.0,
             }),
             color_control: None,
         }
@@ -514,10 +518,10 @@ mod tests {
         );
         let s = s.normalized();
         assert_eq!(s.tools["step"].color_control, Some(ColorControl::Dropdown));
-        assert_eq!(s.color_control, ColorControl::Swatches);
-        // Files from before 3D.16.
+        assert_eq!(s.color_control, ColorControl::Dropdown);
+        // Files without one take the default.
         let old: Styles = serde_json::from_value(json!({ "palette": ["#000000"] })).unwrap();
-        assert_eq!(old.color_control, ColorControl::Swatches);
+        assert_eq!(old.color_control, ColorControl::Dropdown);
     }
 
     #[test]
@@ -583,14 +587,31 @@ mod tests {
     fn default_shape_matches_plan() {
         let v = serde_json::to_value(Styles::default()).unwrap();
         assert_eq!(v["palette"][0], "#e53935");
+        // Richard's list, 2026-10-24.
+        assert_eq!(v["colorControl"], "dropdown");
         assert_eq!(
             v["width"],
-            json!({ "control": "slider", "min": 1.0, "max": 20.0 })
+            json!({ "control": "slider", "min": 1.0, "max": 30.0 })
         );
-        assert_eq!(v["stepSize"]["control"], "dropdown");
+        assert_eq!(
+            v["fontSize"],
+            json!({ "control": "dropdown", "values": [12.0, 16.0, 18.0, 20.0, 36.0, 48.0, 72.0, 96.0, 117.0, 144.0] })
+        );
+        assert_eq!(
+            v["spotlight"],
+            json!({ "control": "slider", "min": 30.0, "max": 85.0 })
+        );
+        assert_eq!(
+            v["stepSize"],
+            json!({ "control": "dropdown", "values": [24.0, 32.0, 44.0, 60.0, 72.0] })
+        );
         assert_eq!(
             v["tools"]["highlighter"]["width"],
             json!({ "control": "slider", "min": 8.0, "max": 40.0 })
+        );
+        assert_eq!(
+            v["tools"]["callout"]["width"],
+            json!({ "control": "slider", "min": 1.0, "max": 20.0 })
         );
         assert_eq!(Styles::default().normalized(), Styles::default());
     }
@@ -661,7 +682,7 @@ mod tests {
             v["font"],
             json!({ "source": "system", "fonts": [], "control": "dropdown" })
         );
-        assert_eq!(v["fontSize"]["values"][6], 20.0);
+        assert_eq!(v["fontSize"]["values"][3], 20.0);
     }
 
     #[test]
