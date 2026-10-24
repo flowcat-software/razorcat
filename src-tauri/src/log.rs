@@ -186,3 +186,18 @@ pub fn private_names() -> Vec<String> {
         .map(|log| log.names.clone())
         .unwrap_or_default()
 }
+
+/// Lines from a page (`editor`, `settings`): its edits by name, its tool, its errors. Never
+/// what the user typed or named; scrubbed anyway, as every line is.
+pub fn page(page: &str, lines: Vec<String>) {
+    let page: String = page
+        .chars()
+        .filter(char::is_ascii_lowercase)
+        .take(12)
+        .collect();
+    for text in lines {
+        // A runaway message (a huge stack) doesn't fill the file.
+        let text: String = text.chars().take(4000).collect();
+        logln!("[{page}-page] {text}");
+    }
+}

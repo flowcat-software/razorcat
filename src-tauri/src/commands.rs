@@ -47,6 +47,13 @@ pub async fn windows_accent() -> Option<WindowsAccent> {
         .unwrap_or_default()
 }
 
+/// Lines for the log from a page (PLAN C1): its edits, tool and errors, in small batches.
+#[tauri::command]
+#[specta::specta]
+pub fn log_page(page: String, lines: Vec<String>) {
+    crate::log::page(&page, lines);
+}
+
 /// The current settings.
 #[tauri::command]
 #[specta::specta]

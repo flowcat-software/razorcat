@@ -33,6 +33,8 @@ export const commands = {
 	light: string,
 	dark: string,
 } | null>("windows_accent"),
+	/**  Lines for the log from a page (PLAN C1): its edits, tool and errors, in small batches. */
+	logPage: (page: string, lines: string[]) => __TAURI_INVOKE<void>("log_page", { page, lines }),
 	/**  The current settings. */
 	getSettings: () => __TAURI_INVOKE<Settings>("get_settings"),
 	/**  Validate, save and apply new settings; returns them as stored (normalized). */
