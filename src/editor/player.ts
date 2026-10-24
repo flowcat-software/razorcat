@@ -131,6 +131,15 @@ export class Player {
   private state: PlayerState = { frame: 0, speed: 0, source: null };
   private readonly listeners = new Set<() => void>();
   private readonly decks = new Map<SourceId, Deck>();
+  /**
+   * Videos mounted before their deck was added: React runs the Preview's effects (which attach
+   * them) before the editor's (which adds the deck). `addSource` attaches them. Without this,
+   * only StrictMode's second run in dev ever attached the original, and release never played.
+   */
+  private readonly early = new Map<
+    SourceId,
+    { original?: HTMLVideoElement | null; proxy?: HTMLVideoElement | null }
+  >();
   private backward = 0;
   /** The last seek skipped the proxy: it stays hidden. */
   private proxyHeld = false;
@@ -169,6 +178,10 @@ export class Player {
     if (this.decks.has(id)) return;
     this.decks.set(id, { id, framesUrl, times: null, original: null, proxy: null });
     if (!this.gone) this.readTimes(id);
+    const early = this.early.get(id);
+    this.early.delete(id);
+    if (early?.original) this.attach(id, early.original);
+    if (early?.proxy) this.attachProxy(id, early.proxy);
   }
 
   /**
@@ -357,7 +370,11 @@ export class Player {
   /** Source `id`'s original `<video>`, as React mounts it (null as it unmounts). */
   attach(id: SourceId, video: HTMLVideoElement | null) {
     const deck = this.decks.get(id);
-    if (!deck || video === (deck.original?.video ?? null)) return;
+    if (!deck) {
+      this.early.set(id, { ...this.early.get(id), original: video });
+      return;
+    }
+    if (video === (deck.original?.video ?? null)) return;
     if (deck.original) {
       if (this.onScreenDeck() === deck) this.stop();
       deck.original.video.removeEventListener("ended", this.onEnded);
@@ -377,7 +394,11 @@ export class Player {
   /** Source `id`'s proxy `<video>`, once there is one. */
   attachProxy(id: SourceId, video: HTMLVideoElement | null) {
     const deck = this.decks.get(id);
-    if (!deck || video === (deck.proxy?.video ?? null)) return;
+    if (!deck) {
+      this.early.set(id, { ...this.early.get(id), proxy: video });
+      return;
+    }
+    if (video === (deck.proxy?.video ?? null)) return;
     deck.proxy?.detach();
     deck.proxy =
       video &&
