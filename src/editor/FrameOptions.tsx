@@ -21,6 +21,7 @@ import {
 import { fileInfo } from "./format";
 import { GrowPresets } from "./GrowPresets";
 import { NumberField } from "./NumberField";
+import { useSqueeze } from "./squeeze";
 import { CROP_RATIOS, lockedRatio, MARKUP_TOOLS, ratioLabel, useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
@@ -97,6 +98,24 @@ const SIDE_NAMES: Record<Side, string> = {
   right: "Right",
 };
 
+/** Each side's label: its edge, and an arrow out to it, the way it grows (Richard's sketch). */
+const SIDE_ICONS: Record<Side, string> = {
+  top: "M5 5h14M12 19V8M8 12l4-4 4 4",
+  bottom: "M5 19h14M12 5v11M8 12l4 4 4-4",
+  left: "M5 5v14M19 12H8M12 8l-4 4 4 4",
+  right: "M19 5v14M5 12h11M12 8l4 4-4 4",
+};
+
+function SideIcon({ side }: { side: Side }) {
+  return (
+    <span className={styles.sideIcon} title={SIDE_NAMES[side]}>
+      <svg viewBox="0 0 24 24" aria-hidden>
+        <path d={SIDE_ICONS[side]} />
+      </svg>
+    </span>
+  );
+}
+
 /**
  * The grow tool's options (the mockup's): each side in px, its colour while grown sides don't
  * meet (one colour once they do), Reset.
@@ -104,6 +123,8 @@ const SIDE_NAMES: Record<Side, string> = {
 function GrowOptions({ settings }: { settings: Settings | null }) {
   const grow = useDoc((s) => s.doc.frame.grow);
   const each = growMode(grow) === "each";
+  /** Narrow windows: the fields close up, then the title goes (the tool's button is lit). */
+  const bar = useSqueeze(3);
   // From the document as it is now: a drag sets several values between renders.
   const set = (side: Side, value: number) => {
     const doc = useDoc.getState();
@@ -115,27 +136,31 @@ function GrowOptions({ settings }: { settings: Settings | null }) {
     doc.grow(colourGrow(doc.doc.frame.grow, side, value));
   };
   return (
-    <div className={styles.optionsBar}>
-      <b className={styles.optionsTitle}>Grow</b>
+    <div ref={bar} className={styles.optionsBar}>
+      <b className={styles.optionsTitle}>
+        Grow <span className={styles.optionsUnit}>(px)</span>
+      </b>
       {SIDES.map((side) => (
-        <span key={side} className={styles.field}>
-          <NumberField
-            label={SIDE_NAMES[side]}
-            value={grow[side]}
-            onChange={(v) => set(side, v)}
-            unit="px"
-          />
-          {each && grow[side] > 0 && (
-            <span {...hint("grow.colour")}>
-              <ColorSwatch
-                name={`${SIDE_NAMES[side]} colour`}
-                value={growColour(grow, side)}
-                onPick={(v) => colour(side, v)}
-                {...ONE_STEP}
-              />
-            </span>
-          )}
-        </span>
+        <NumberField
+          key={side}
+          label={<SideIcon side={side} />}
+          name={SIDE_NAMES[side]}
+          value={grow[side]}
+          onChange={(v) => set(side, v)}
+          addon={
+            each &&
+            grow[side] > 0 && (
+              <span {...hint("grow.colour")}>
+                <ColorSwatch
+                  name={`${SIDE_NAMES[side]} colour`}
+                  value={growColour(grow, side)}
+                  onPick={(v) => colour(side, v)}
+                  {...ONE_STEP}
+                />
+              </span>
+            )
+          }
+        />
       ))}
       {!each && (
         <span className={styles.field} {...hint("grow.colour")}>
@@ -180,6 +205,11 @@ function CropOptions() {
   const frame = useDoc((s) => s.doc.frame);
   const ratioId = useTool((s) => s.cropRatio);
   const portrait = useTool((s) => s.portrait);
+  /**
+   * Narrow windows: the fields close up, then "Aspect" goes (its buttons say what they are),
+   * then the title (the tool's button is lit).
+   */
+  const bar = useSqueeze(3);
   // From the document as it is now: a drag sets several values between renders.
   const set = (field: CropField, value: number) => {
     const doc = useDoc.getState();
@@ -188,8 +218,10 @@ function CropOptions() {
     return useDoc.getState().doc.frame.crop[field];
   };
   return (
-    <div className={styles.optionsBar}>
-      <b className={styles.optionsTitle}>Crop</b>
+    <div ref={bar} className={styles.optionsBar}>
+      <b className={styles.optionsTitle}>
+        Crop <span className={styles.optionsUnit}>(px)</span>
+      </b>
       {FIELDS.map(({ field, label, name }) => (
         <NumberField
           key={field}
@@ -197,12 +229,11 @@ function CropOptions() {
           name={name}
           value={frame.crop[field]}
           onChange={(v) => set(field, v)}
-          unit={field === "height" ? "px" : undefined}
         />
       ))}
       <span className={styles.optionsSep} />
       <span className={styles.field}>
-        Aspect
+        <span className={styles.optionsWord}>Aspect</span>
         <span className={styles.chips} role="radiogroup" aria-label="Aspect ratio">
           {CROP_RATIOS.map((r) => (
             <button

@@ -236,6 +236,65 @@
     inset 0 -1px 0 var(--border);
 }
 
+/* The unit of every field in the bar, once, after its title ("Grow (px)"). */
+.optionsUnit {
+  color: var(--text-2);
+  font-weight: 400;
+}
+
+/* A field with an add-on joined to its right (NumberField's `addon`: a colour swatch), as one
+   control: no gap, the shared corners square, the add-on as tall as the field. */
+.addonGroup {
+  display: inline-flex;
+  align-items: center;
+}
+
+.addonGroup .numberField {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Each wrapper a flex box, so nothing sits on a text baseline. */
+.addon,
+.addon > *,
+.addon > * > * {
+  display: flex;
+}
+
+/* ColorSwatch's own button (before its menu). */
+.addon > * > * > button:first-child {
+  width: 28px;
+  height: 28px;
+  border-radius: 0 4px 4px 0;
+}
+
+/* A grown side's label: its edge and an arrow out to it. */
+.sideIcon {
+  display: flex;
+  color: var(--text-2);
+}
+
+.sideIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Crop's and grow's options in a narrow window (squeeze.ts): every item keeps its width, so
+   what doesn't fit shows, and the bar squeezes instead: the fields close up, then crop's
+   "Aspect" goes, then the bar's title (the tool's button is lit). */
+.optionsBar[data-fit] > * {
+  flex-shrink: 0;
+}
+
+.optionsBar[data-fit]:not([data-fit="0"]) {
+  gap: 6px;
+}
+
+.optionsBar:is([data-fit="2"], [data-fit="3"]) .optionsWord,
+.optionsBar[data-fit="3"] .optionsTitle {
+  display: none;
+}
+
 /* Vandal's markup options: their groups wrap to more rows in a narrow window. */
 .markupOptions {
   height: auto;
@@ -510,7 +569,9 @@
 .preview {
   position: relative;
   flex: 1;
-  min-height: 160px;
+  /* Room for everything else in the smallest window (720 x 480), with the markup options on
+     two rows. */
+  min-height: 120px;
   overflow: hidden;
   background: var(--canvas);
 }

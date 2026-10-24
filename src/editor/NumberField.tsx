@@ -1,5 +1,5 @@
 import { LogicalPosition, getCurrentWindow } from "@tauri-apps/api/window";
-import { useRef, useState, type PointerEvent } from "react";
+import { useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { hint as hintFor } from "../markup/HintLine";
 import type { ControlHint } from "../markup/hints";
 import { useDoc } from "./docStore";
@@ -8,9 +8,9 @@ import { useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
 interface Props {
-  /** Shown before it (X, W). */
-  label: string;
-  /** Its name for screen readers, if the label's too short to say (Width). */
+  /** Shown before it (X, W, or an icon). */
+  label: ReactNode;
+  /** Its name for screen readers, if the label's too short to say (Width) or an icon. */
   name?: string;
   value: number;
   /** A new value, typed or dragged to (`dragging`, Shift held: `shift`); returns the value as
@@ -37,6 +37,8 @@ interface Props {
   hint?: ControlHint;
   /** More about the value, in its tooltip (a clip's Length: the source's). */
   about?: string;
+  /** Joined to the field's right side (a colour swatch: what the value's colour is). */
+  addon?: ReactNode;
 }
 
 const readNumber = (text: string) => {
@@ -69,6 +71,7 @@ export function NumberField({
   gain = 1,
   hint = "number",
   about,
+  addon,
 }: Props) {
   /** What's typed, until Enter or leaving the field sets it (Esc drops it). */
   const [typed, setTyped] = useState<string | null>(null);
@@ -183,14 +186,14 @@ export function NumberField({
     }
   };
 
-  return (
+  const field = (
     <label className={styles.field} title={about} {...hintFor(hint)}>
       {label}
       <input
         className={styles.numberField}
         data-dragging={dragging || undefined}
         inputMode="numeric"
-        aria-label={name ?? label}
+        aria-label={name ?? (typeof label === "string" ? label : undefined)}
         title={`${
           about
             ? `${about}
@@ -214,5 +217,14 @@ export function NumberField({
       />
       {unit}
     </label>
+  );
+  // Outside the label: a press in the add-on's popup mustn't send focus to the field.
+  return addon ? (
+    <span className={styles.addonGroup}>
+      {field}
+      <span className={styles.addon}>{addon}</span>
+    </span>
+  ) : (
+    field
   );
 }

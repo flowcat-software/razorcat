@@ -362,34 +362,38 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
             value={clipFades(selected).fadeIn}
             onChange={(v, dragging, shift) => clipFade(selected.id, "fadeIn", v, dragging, shift)}
             {...clipFadeField}
+            addon={
+              clipFades(selected).fadeIn > 0 && (
+                <span {...hint("clip.fadeColour")}>
+                  <ColorSwatch
+                    name="Fade-in colour"
+                    value={fadeColours(selected).fadeIn}
+                    onPick={(v) => useDoc.getState().setClipFadeColours([selected.id], v, "in")}
+                    {...ONE_STEP}
+                  />
+                </span>
+              )
+            }
           />
-          {clipFades(selected).fadeIn > 0 && (
-            <span {...hint("clip.fadeColour")}>
-              <ColorSwatch
-                name="Fade-in colour"
-                value={fadeColours(selected).fadeIn}
-                onPick={(v) => useDoc.getState().setClipFadeColours([selected.id], v, "in")}
-                {...ONE_STEP}
-              />
-            </span>
-          )}
           <NumberField
             label="out"
             name="Fade out"
             value={clipFades(selected).fadeOut}
             onChange={(v, dragging, shift) => clipFade(selected.id, "fadeOut", v, dragging, shift)}
             {...clipFadeField}
+            addon={
+              clipFades(selected).fadeOut > 0 && (
+                <span {...hint("clip.fadeColour")}>
+                  <ColorSwatch
+                    name="Fade-out colour"
+                    value={fadeColours(selected).fadeOut}
+                    onPick={(v) => useDoc.getState().setClipFadeColours([selected.id], v, "out")}
+                    {...ONE_STEP}
+                  />
+                </span>
+              )
+            }
           />
-          {clipFades(selected).fadeOut > 0 && (
-            <span {...hint("clip.fadeColour")}>
-              <ColorSwatch
-                name="Fade-out colour"
-                value={fadeColours(selected).fadeOut}
-                onPick={(v) => useDoc.getState().setClipFadeColours([selected.id], v, "out")}
-                {...ONE_STEP}
-              />
-            </span>
-          )}
         </>
       ) : (
         <span className={styles.optionsText}>
