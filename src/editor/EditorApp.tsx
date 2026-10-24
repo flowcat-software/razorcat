@@ -734,7 +734,11 @@ export function EditorApp() {
           />
         )}
       </div>
-      <StatusBar notice={exportNotice ?? conversion ?? notice ?? making} empty={empty} />
+      <StatusBar
+        notice={exportNotice ?? conversion ?? notice ?? making}
+        empty={empty}
+        scrollHints={settings?.appearance.scrollHints ?? true}
+      />
       {asking && "open" in asking && (
         <ConfirmDialog
           title="Replace the timeline?"

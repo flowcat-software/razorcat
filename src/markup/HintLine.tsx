@@ -1,6 +1,7 @@
-import { Fragment, useEffect } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import { useDoc as useEdit } from "../editor/docStore";
 import { useDoc } from "./model/store";
+import { useHintScroll } from "./hintScroll";
 import { chooseHint, parseHint, useHintSources, withShortcuts, type ControlHint } from "./hints";
 import { colorSlots, styleTarget, targetSections, targetValues } from "./restyle";
 import { useStyleConfig } from "./styles";
@@ -14,9 +15,11 @@ export function hint(id: ControlHint): { "data-hint": ControlHint } {
 
 /**
  * The status bar's hint line (PLAN 2A.6e; Razorcat 4.6b): the keys that do something right
- * now. Off with `markup.showShortcutHints`, but for why a key did nothing.
+ * now. Off with `markup.showShortcutHints`, but for why a key did nothing. One too long to fit
+ * scrolls to show the rest when the pointer rests (`scroll`; Razorcat).
  */
-export function HintLine() {
+export function HintLine({ scroll = false }: { scroll?: boolean }) {
+  const line = useRef<HTMLSpanElement>(null);
   const { said, hover, drag, mode, overObject, overRedactedWord } = useHintSources();
   // What's selected on the timeline (Razorcat).
   const clips = useEdit((s) => s.selectedClips.length);
@@ -80,7 +83,6 @@ export function HintLine() {
     };
   }, []);
 
-  if (!config.showShortcutHints && !said) return null;
   const text = withShortcuts(
     chooseHint({
       said,
@@ -104,9 +106,11 @@ export function HintLine() {
     }),
     config.shortcuts,
   );
+  useHintScroll(line, text, scroll && !said);
 
+  if (!config.showShortcutHints && !said) return null;
   return (
-    <span className={styles.hintLine} data-said={said ? "" : undefined}>
+    <span ref={line} className={styles.hintLine} data-said={said ? "" : undefined}>
       {parseHint(text).map((part, i) =>
         "text" in part ? (
           <Fragment key={i}>{part.text}</Fragment>

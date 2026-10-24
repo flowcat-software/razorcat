@@ -427,6 +427,8 @@ pub struct Appearance {
     pub theme: ThemeMode,
     /// `"windows"` (the Windows accent color) or a `#rrggbb`.
     pub accent: String,
+    /// A status-bar hint too long to fit glides to show the rest when the pointer rests.
+    pub scroll_hints: bool,
 }
 
 /// Follow the Windows accent color.
@@ -437,6 +439,7 @@ impl Default for Appearance {
         Self {
             theme: ThemeMode::System,
             accent: WINDOWS_ACCENT.into(),
+            scroll_hints: true,
         }
     }
 }

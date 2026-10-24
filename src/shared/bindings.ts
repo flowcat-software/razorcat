@@ -166,6 +166,8 @@ export type Appearance = {
 	theme?: ThemeMode,
 	/**  `"windows"` (the Windows accent color) or a `#rrggbb`. */
 	accent?: string,
+	/**  A status-bar hint too long to fit glides to show the rest when the pointer rests. */
+	scrollHints?: boolean,
 };
 
 /**  The cache's size, and what a limit would drop (Settings asks before lowering it). */

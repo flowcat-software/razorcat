@@ -19,13 +19,15 @@ interface Props {
   notice: Notice | null;
   /** No video yet: the timeline's view controls don't apply. */
   empty: boolean;
+  /** A hint too long to fit scrolls when the pointer rests (`appearance.scrollHints`). */
+  scrollHints: boolean;
 }
 
 /**
  * The bottom row: messages, else the hint line (PLAN 4.6b; why a key did nothing even over a
  * message), snapping, the timeline's zoom, and Settings (Vandal's gear).
  */
-export function StatusBar({ notice, empty }: Props) {
+export function StatusBar({ notice, empty, scrollHints }: Props) {
   const timeline = useTimeline();
   const slider = Math.round(timeline.slider() * 1000);
   const said = useHintSources((s) => s.said !== null);
@@ -38,7 +40,7 @@ export function StatusBar({ notice, empty }: Props) {
           {message?.text ?? "Ready"}
         </span>
       ) : (
-        <HintLine />
+        <HintLine scroll={scrollHints} />
       )}
       {message?.action && (
         <button type="button" className={styles.textButton} onClick={message.action.run}>

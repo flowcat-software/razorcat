@@ -45,6 +45,20 @@ export const sections: Section[] = [
           },
         ],
       },
+      {
+        title: "Status bar",
+        items: [
+          {
+            id: "scrollHints",
+            kind: "toggle",
+            path: "appearance.scrollHints",
+            label: "Scroll long hints",
+            description:
+              "When a hint is too long for the status bar, rest the pointer for a moment and it glides along to show the rest.",
+            keywords: ["hint", "status bar", "scroll", "marquee", "motion", "animation", "cut off"],
+          },
+        ],
+      },
     ],
   },
   {

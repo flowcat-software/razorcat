@@ -112,6 +112,21 @@
 }
 
 /* Why a key did nothing (Razorcat): said, for a moment, in the text's own colour. */
+/* Gliding to show the rest of a long hint (hintScroll.ts): no ellipsis, the cut edges fade.
+   `span` outranks the status bar's ellipsis on its first item (`.status > :first-child`). */
+span.hintLine[data-scrolling] {
+  text-overflow: clip;
+  /* The end stops clear of the fade. */
+  padding-right: 20px;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 16px,
+    #000 calc(100% - 16px),
+    transparent
+  );
+}
+
 .hintLine[data-said] {
   color: var(--text);
 }
