@@ -75,6 +75,22 @@ pub fn open_logs_folder() -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Deletes the logs and crash reports, the current log emptied (Settings › About › Debugging).
+#[tauri::command]
+#[specta::specta]
+pub fn clear_logs() -> Result<(), String> {
+    crate::log::clear()
+}
+
+/// Flowcat Software's website, the maker (Settings › About). A fixed address.
+#[tauri::command]
+#[specta::specta]
+pub fn open_flowcat_site() {
+    let _ = std::process::Command::new("explorer.exe")
+        .arg("https://flowcat.studio")
+        .spawn();
+}
+
 /// The current settings.
 #[tauri::command]
 #[specta::specta]

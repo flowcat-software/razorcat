@@ -18,7 +18,7 @@ function versionLabel(): string {
   return details.length ? `${version} (${details.join(", ")})` : version;
 }
 
-/** Settings › About: the logo, name and version, what the app is and who made it. */
+/** Settings › About: the logo, name and version, what the app is and who made it (a link to their site). */
 export function AboutCard({ id }: ControlProps<AboutItem>) {
   // The product name from tauri.conf.json, so a rename is one edit there.
   const [name, setName] = useState("");
@@ -35,7 +35,14 @@ export function AboutCard({ id }: ControlProps<AboutItem>) {
         </p>
         <p className={styles.aboutDescription}>A small, fast, precise video editor.</p>
         <p className={styles.aboutMeta}>
-          Created by {pkg.author}
+          Made by{" "}
+          <button
+            type="button"
+            className={`${styles.aboutLink} ${styles.aboutInlineLink}`}
+            onClick={() => void commands.openFlowcatSite()}
+          >
+            {pkg.author}
+          </button>
           <br />
           Copyright © 2026 {pkg.author}
           <br />
@@ -47,16 +54,6 @@ export function AboutCard({ id }: ControlProps<AboutItem>) {
             {tools.gifski ?? "(missing)"} (AGPL)
           </p>
         )}
-        <p className={styles.aboutMeta}>
-          {/* Logs and crash reports, to send when something goes wrong (PLAN C3). */}
-          <button
-            type="button"
-            className={styles.button}
-            onClick={() => void commands.openLogsFolder()}
-          >
-            Open logs folder
-          </button>
-        </p>
       </div>
     </div>
   );

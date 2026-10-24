@@ -42,6 +42,8 @@ pub struct Settings {
     pub export: Export,
     /// The preview's sound (PLAN 5a), as the timeline bar's speaker and slider left it.
     pub playback: Playback,
+    /// Settings › About › Debugging.
+    pub debugging: Debugging,
 }
 
 impl Default for Settings {
@@ -56,6 +58,7 @@ impl Default for Settings {
             styles: Styles::default(),
             export: Export::default(),
             playback: Playback::default(),
+            debugging: Debugging::default(),
         }
     }
 }
@@ -69,6 +72,21 @@ pub struct Playback {
     pub volume: f64,
     /// Muted by the speaker (off by default).
     pub muted: bool,
+}
+
+/// Settings › About › Debugging.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Debugging {
+    /// The log file and crash reports (log.rs, crash.rs); off, nothing is written (on by
+    /// default).
+    pub logging: bool,
+}
+
+impl Default for Debugging {
+    fn default() -> Self {
+        Self { logging: true }
+    }
 }
 
 impl Default for Playback {
@@ -522,6 +540,9 @@ pub fn update(app: &AppHandle<Wry>, new: Settings) -> Result<Settings, String> {
     }
     if new.timeline.waveform && !old.timeline.waveform {
         crate::wave::turned_on(app);
+    }
+    if new.debugging.logging != old.debugging.logging {
+        crate::log::set_enabled(&crate::product_name(app), new.debugging.logging);
     }
 
     let _ = SettingsChanged(new.clone()).emit(app);

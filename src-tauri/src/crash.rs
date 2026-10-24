@@ -183,6 +183,9 @@ pub fn place(address: usize) -> String {
 /// Writes a minidump to the logs folder (`crash-20261024-001203.dmp`), with the exception
 /// when there is one; its file name.
 pub fn dump(info: Option<*const EXCEPTION_POINTERS>) -> Result<String, String> {
+    if !crate::log::enabled() {
+        return Err("logging is off".into());
+    }
     let dir = crate::log::dir().ok_or("no logs folder")?;
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let t = unsafe { GetLocalTime() };

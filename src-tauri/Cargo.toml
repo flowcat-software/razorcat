@@ -2,7 +2,7 @@
 name = "razorcat"
 version = "0.1.0"
 description = "A small, fast, precise video editor for Windows"
-authors = ["Richard Podsada"]
+authors = ["Flowcat Software"]
 license = "GPL-3.0-or-later"
 publish = false
 edition = "2021"

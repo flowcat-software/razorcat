@@ -42,6 +42,10 @@ export const commands = {
 	crashNotice: () => __TAURI_INVOKE<string | null>("crash_notice"),
 	/**  Opens the logs folder (logs and crash dumps) in Explorer. */
 	openLogsFolder: () => typedError<null, string>(__TAURI_INVOKE("open_logs_folder")),
+	/**  Deletes the logs and crash reports, the current log emptied (Settings › About › Debugging). */
+	clearLogs: () => typedError<null, string>(__TAURI_INVOKE("clear_logs")),
+	/**  Flowcat Software's website, the maker (Settings › About). A fixed address. */
+	openFlowcatSite: () => __TAURI_INVOKE<void>("open_flowcat_site"),
 	/**  The current settings. */
 	getSettings: () => __TAURI_INVOKE<Settings>("get_settings"),
 	/**  Validate, save and apply new settings; returns them as stored (normalized). */
@@ -205,6 +209,15 @@ export type Crop = {
 	y: number,
 	width: number,
 	height: number,
+};
+
+/**  Settings › About › Debugging. */
+export type Debugging = {
+	/**
+	 *  The log file and crash reports (log.rs, crash.rs); off, nothing is written (on by
+	 *  default).
+	 */
+	logging?: boolean,
 };
 
 /**  How fast a number field's value changes as it's dragged: scales the mouse's speed. */
@@ -542,6 +555,8 @@ export type Settings = {
 	export?: Export,
 	/**  The preview's sound (PLAN 5a), as the timeline bar's speaker and slider left it. */
 	playback?: Playback,
+	/**  Settings › About › Debugging. */
+	debugging?: Debugging,
 };
 
 /**  Rust → all windows: settings changed (from any source), here's the new state. */

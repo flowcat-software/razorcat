@@ -8,6 +8,7 @@ import { Choice, NumberChoice } from "./Choice";
 import { FolderInput } from "./FolderInput";
 import { FontPickerSetting } from "./FontPickerEditor";
 import { GrowPresetsEditor } from "./GrowPresetsEditor";
+import { LogButtons } from "./LogButtons";
 import { NumberInput } from "./NumberInput";
 import { NumberPickerSetting } from "./NumberPickerEditor";
 import { PaletteSetting } from "./PaletteEditor";
@@ -49,4 +50,5 @@ export const controls: Registry = {
   toolStyle: { component: ToolStyleSetting, layout: "stacked" },
   fontPicker: { component: FontPickerSetting, layout: "stacked" },
   about: { component: AboutCard, layout: "bare" },
+  logs: { component: LogButtons, layout: "stacked" },
 };

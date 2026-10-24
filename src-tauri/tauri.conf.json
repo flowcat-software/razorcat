@@ -26,8 +26,8 @@
       "binaries/gifski-LICENSE.txt": "licenses/gifski-LICENSE.txt"
     },
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
-    "publisher": "Richard Podsada",
-    "copyright": "Copyright © 2026 Richard Podsada",
+    "publisher": "Flowcat Software",
+    "copyright": "Copyright © 2026 Flowcat Software",
     "license": "GPL-3.0-or-later",
     "category": "Video",
     "shortDescription": "A small, fast, precise video editor",

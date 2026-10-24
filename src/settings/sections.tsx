@@ -694,7 +694,27 @@ export const sections: Section[] = [
             id: "about",
             kind: "about",
             label: "About",
-            keywords: ["version", "author", "copyright", "license"],
+            keywords: ["version", "author", "copyright", "license", "flowcat"],
+          },
+        ],
+      },
+      {
+        title: "Debugging",
+        items: [
+          {
+            id: "logging",
+            kind: "toggle",
+            path: "debugging.logging",
+            label: "Keep a log",
+            description:
+              "A log of what Razorcat does, and a report if it crashes, to send when something goes wrong. Never your file names, folders or text. Off, nothing is written.",
+            keywords: ["log", "logging", "debug", "crash", "report", "diagnostics"],
+          },
+          {
+            id: "logs",
+            kind: "logs",
+            label: "Logs and crash reports",
+            keywords: ["log", "logs", "folder", "clear", "delete", "crash", "report", "debug"],
           },
         ],
       },

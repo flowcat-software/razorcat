@@ -5,10 +5,14 @@
 //!
 //! Lines before the file opens (Tauri's setup) are held and written when it does: a second
 //! launch hands over to the first before then, so it never touches the first one's log.
+//!
+//! Settings › About › Debugging can turn it off: then nothing is written to disk, neither the
+//! log nor crash dumps (the terminal in dev still gets every line).
 
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{Seek, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Instant;
 
@@ -47,6 +51,8 @@ static LOG: Mutex<Log> = Mutex::new(Log {
     written: 0,
 });
 static START: OnceLock<Instant> = OnceLock::new();
+/// Settings › About › Debugging › Keep a log; on until the settings say otherwise.
+static ENABLED: AtomicBool = AtomicBool::new(true);
 /// What the editor says once it's up: the last run crashed (PLAN C3), or the page was reloaded
 /// after the webview's crash (C4).
 static NOTICE: Mutex<Option<String>> = Mutex::new(None);
@@ -110,7 +116,7 @@ pub fn init(identifier: &str) {
 /// naming the build, Windows and the time, then the lines held so far.
 pub fn open(product: &str) {
     let mut log = lock();
-    if log.file.is_some() {
+    if log.file.is_some() || !enabled() {
         return;
     }
     let Some(dir) = dir() else { return };
@@ -191,6 +197,9 @@ fn admit(written: u64, len: u64, urgent: bool) -> Admit {
 }
 
 fn write(log: &mut Log, text: &str, urgent: bool) {
+    if !enabled() {
+        return;
+    }
     let at = START.get_or_init(Instant::now).elapsed().as_secs_f64();
     let stamped = format!("[{at:9.3}] {text}");
     if log.file.is_none() {
@@ -223,6 +232,9 @@ fn write(log: &mut Log, text: &str, urgent: bool) {
 /// while holding it), and opens the file if it isn't yet.
 pub fn crash_line(text: &str, product: &str) {
     eprintln!("{text}");
+    if !enabled() {
+        return;
+    }
     let Ok(mut log) = LOG.try_lock() else { return };
     if log.file.is_none() {
         drop(log);
@@ -232,6 +244,66 @@ pub fn crash_line(text: &str, product: &str) {
     }
     // Past the cap: the crash is what the log is for.
     write(&mut log, text, true);
+}
+
+/// Whether the log and crash dumps are written (Settings › About › Debugging).
+pub fn enabled() -> bool {
+    ENABLED.load(Ordering::Relaxed)
+}
+
+/// Turns the log on (opening this run's file, or a new one mid-run) or off (closing it, and
+/// letting go of the lines held for it).
+pub fn set_enabled(product: &str, on: bool) {
+    if on {
+        ENABLED.store(true, Ordering::Relaxed);
+        open(product);
+        return;
+    }
+    line("[log] logging turned off");
+    ENABLED.store(false, Ordering::Relaxed);
+    let mut log = lock();
+    log.file = None;
+    log.early.clear();
+}
+
+/// Deletes the older logs and every crash dump, and empties this run's log (it's open), which
+/// says it was cleared.
+pub fn clear() -> Result<(), String> {
+    let Some(dir) = dir() else { return Ok(()) };
+    let mut log = lock();
+    let mut failed = Vec::new();
+    let entries = fs::read_dir(dir)
+        .map(|e| e.flatten().collect::<Vec<_>>())
+        .unwrap_or_default();
+    for entry in entries {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let older_log =
+            name.starts_with("razorcat.") && name.ends_with(".log") && name != "razorcat.log";
+        let dump = name.starts_with("crash-") && name.ends_with(".dmp");
+        let current = name == "razorcat.log" && log.file.is_none();
+        if older_log || dump || current {
+            if let Err(e) = fs::remove_file(entry.path()) {
+                failed.push(format!("{name}: {e}"));
+            }
+        }
+    }
+    if let Some(file) = log.file.as_mut() {
+        let emptied = file.set_len(0).and_then(|()| file.rewind());
+        if let Err(e) = emptied {
+            failed.push(format!("razorcat.log: {e}"));
+        }
+        log.written = 0;
+    }
+    drop(log);
+    line("[log] cleared");
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Some files couldn't be deleted ({}).",
+            failed.join("; ")
+        ))
+    }
 }
 
 /// A file's name, kept out of the log from now on (with its stem, if long enough).

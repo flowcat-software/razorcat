@@ -93,6 +93,11 @@ export interface AboutItem extends BaseItem {
   kind: "about";
 }
 
+/** Settings › About › Debugging: open or clear the logs folder. */
+export interface LogsItem extends BaseItem {
+  kind: "logs";
+}
+
 /** A number picker spec (Vandal's): its control type and values. */
 export interface NumberPickerItem extends BaseItem {
   kind: "numberPicker";
@@ -150,7 +155,8 @@ export type Item =
   | PaletteItem
   | ToolStyleItem
   | FontPickerItem
-  | AboutItem;
+  | AboutItem
+  | LogsItem;
 export type ItemKind = Item["kind"];
 
 export interface Group {

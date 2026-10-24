@@ -145,6 +145,34 @@
   line-height: 18px;
 }
 
+/* "Made by Flowcat Software": a link in the line's text (Vandal's). */
+.aboutLink {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.aboutLink:hover {
+  text-decoration-thickness: 2px;
+}
+
+.aboutInlineLink {
+  font-size: inherit;
+}
+
+/* Buttons side by side (Settings › About › Debugging). */
+.buttonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 /* ---- text inputs and buttons (Vandal's) ---- */
 
 .input {

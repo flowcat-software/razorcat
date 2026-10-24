@@ -49,6 +49,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::log_page,
             commands::crash_notice,
             commands::open_logs_folder,
+            commands::clear_logs,
+            commands::open_flowcat_site,
             commands::get_settings,
             commands::update_settings,
             commands::open_settings,
@@ -166,9 +168,11 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol(protocol::SCHEME, protocol::handle)
         .invoke_handler(specta.invoke_handler())
         .setup(move |app| {
-            log::open(&product_name(app.handle()));
             specta.mount_events(app);
-            app.manage(AppState::new(settings::load(app.handle())));
+            let settings = settings::load(app.handle());
+            // Settings › About › Debugging: the log opens, or what it held is let go.
+            log::set_enabled(&product_name(app.handle()), settings.debugging.logging);
+            app.manage(AppState::new(settings));
             appearance::watch_windows_accent(app.handle());
             proxy::sweep(app.handle());
             export::probe(app.handle());
