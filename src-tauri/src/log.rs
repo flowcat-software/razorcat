@@ -40,6 +40,11 @@ static LOG: Mutex<Log> = Mutex::new(Log {
     names: Vec::new(),
 });
 static START: OnceLock<Instant> = OnceLock::new();
+/// What the editor says once it's up: the last run crashed (PLAN C3), or the page was reloaded
+/// after the webview's crash (C4).
+static NOTICE: Mutex<Option<String>> = Mutex::new(None);
+
+const CRASHED: &str = "Razorcat closed unexpectedly last time. A report was saved.";
 static DIR: OnceLock<PathBuf> = OnceLock::new();
 
 fn lock() -> MutexGuard<'static, Log> {
@@ -107,6 +112,11 @@ pub fn open(product: &str) {
         return;
     }
     rotate(dir);
+    if fs::read(dir.join("razorcat.1.log"))
+        .is_ok_and(|text| crashed(&String::from_utf8_lossy(&text)))
+    {
+        set_notice(CRASHED);
+    }
     crate::crash::prune(dir);
     let mut file = match File::create(dir.join("razorcat.log")) {
         Ok(f) => f,
@@ -199,5 +209,55 @@ pub fn page(page: &str, lines: Vec<String>) {
         // A runaway message (a huge stack) doesn't fill the file.
         let text: String = text.chars().take(4000).collect();
         logln!("[{page}-page] {text}");
+    }
+}
+
+/// Whether a run's log ends in a crash: a native one, a panic, or the webview's.
+fn crashed(log: &str) -> bool {
+    log.lines().any(|line| {
+        [
+            "] [crash] exception ",
+            "] [panic] thread ",
+            "] [webview] failed: ",
+        ]
+        .iter()
+        .any(|mark| line.contains(mark))
+    })
+}
+
+/// Sets the notice the editor shows once it's up (the newest wins).
+pub fn set_notice(text: &str) {
+    *NOTICE.lock().unwrap_or_else(|p| p.into_inner()) = Some(text.to_string());
+}
+
+/// The notice, once.
+pub fn take_notice() -> Option<String> {
+    let notice = NOTICE.lock().unwrap_or_else(|p| p.into_inner()).take();
+    if let Some(text) = &notice {
+        logln!("[log] the editor says: {text}");
+    }
+    notice
+}
+
+#[cfg(test)]
+mod tests {
+    use super::crashed;
+
+    #[test]
+    fn a_crash_is_found_in_the_log() {
+        let calm =
+            "Razorcat 0.1.0\n[    0.4] [startup] ready\n[    9.1] [editor-page] [edit] split";
+        assert!(!crashed(calm));
+        for line in [
+            "[    3.3] [crash] exception 0xc0000005 at razorcat.exe+0x2a53d5",
+            "[    3.5] [panic] thread main: panicked at src/x.rs:1:1:",
+            "[   40.0] [webview] failed: render process exited (crashed)",
+        ] {
+            assert!(crashed(&format!("{calm}\n{line}")), "{line}");
+        }
+        // The page's own errors aren't crashes.
+        assert!(!crashed(
+            "[    5.0] [editor-page] error: TypeError: x is undefined"
+        ));
     }
 }

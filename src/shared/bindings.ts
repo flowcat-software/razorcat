@@ -35,6 +35,13 @@ export const commands = {
 } | null>("windows_accent"),
 	/**  Lines for the log from a page (PLAN C1): its edits, tool and errors, in small batches. */
 	logPage: (page: string, lines: string[]) => __TAURI_INVOKE<void>("log_page", { page, lines }),
+	/**
+	 *  What the editor says once it's up, once: the last run crashed, or the window was reloaded
+	 *  after the webview's crash (PLAN C3, C4).
+	 */
+	crashNotice: () => __TAURI_INVOKE<string | null>("crash_notice"),
+	/**  Opens the logs folder (logs and crash dumps) in Explorer. */
+	openLogsFolder: () => typedError<null, string>(__TAURI_INVOKE("open_logs_folder")),
 	/**  The current settings. */
 	getSettings: () => __TAURI_INVOKE<Settings>("get_settings"),
 	/**  Validate, save and apply new settings; returns them as stored (normalized). */

@@ -54,6 +54,27 @@ pub fn log_page(page: String, lines: Vec<String>) {
     crate::log::page(&page, lines);
 }
 
+/// What the editor says once it's up, once: the last run crashed, or the window was reloaded
+/// after the webview's crash (PLAN C3, C4).
+#[tauri::command]
+#[specta::specta]
+pub fn crash_notice() -> Option<String> {
+    crate::log::take_notice()
+}
+
+/// Opens the logs folder (logs and crash dumps) in Explorer.
+#[tauri::command]
+#[specta::specta]
+pub fn open_logs_folder() -> Result<(), String> {
+    let dir = crate::log::dir().ok_or("There's no logs folder.")?;
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    std::process::Command::new("explorer.exe")
+        .arg(dir)
+        .spawn()
+        .map(drop)
+        .map_err(|e| e.to_string())
+}
+
 /// The current settings.
 #[tauri::command]
 #[specta::specta]

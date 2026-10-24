@@ -47,6 +47,16 @@ export function AboutCard({ id }: ControlProps<AboutItem>) {
             {tools.gifski ?? "(missing)"} (AGPL)
           </p>
         )}
+        <p className={styles.aboutMeta}>
+          {/* Logs and crash reports, to send when something goes wrong (PLAN C3). */}
+          <button
+            type="button"
+            className={styles.button}
+            onClick={() => void commands.openLogsFolder()}
+          >
+            Open logs folder
+          </button>
+        </p>
       </div>
     </div>
   );

@@ -292,6 +292,17 @@ export function EditorApp() {
     return () => window.removeEventListener("keydown", onKey);
   }, [player, audio]);
 
+  // The last run crashed, or this page was reloaded after the webview's crash (PLAN C3, C4).
+  useEffect(() => {
+    void commands.crashNotice().then((text) => {
+      if (!text) return;
+      setNotice({
+        text,
+        action: { label: "Show report", run: () => void commands.openLogsFolder() },
+      });
+    });
+  }, []);
+
   // An export that couldn't start, before Rust had it (its markup couldn't be drawn or sent).
   useEffect(() => {
     onExportFailed((text) => setNotice({ text, error: true }));

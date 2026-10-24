@@ -45,6 +45,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::answer_offer,
             commands::windows_accent,
             commands::log_page,
+            commands::crash_notice,
+            commands::open_logs_folder,
             commands::get_settings,
             commands::update_settings,
             commands::open_settings,
