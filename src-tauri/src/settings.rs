@@ -19,7 +19,7 @@ use tauri_specta::Event;
 use crate::state::AppState;
 use crate::styles::Styles;
 
-pub const CURRENT_VERSION: u32 = 1;
+pub const CURRENT_VERSION: u32 = 2;
 const STORE_FILE: &str = "settings.json";
 const STORE_KEY: &str = "settings";
 
@@ -113,10 +113,12 @@ pub struct Export {
     pub folder: String,
     /// The first export has asked whether to save to a default folder (it asks once, ever).
     pub asked_folder: bool,
-    /// The whole timeline's file name, without the extension: `{name}` is the video's name.
+    /// The whole timeline's file name, without the extension (names.rs): `{name}` the video's
+    /// name, `{yyyy} {MM} {dd} {HH} {mm} {ss}` the date and time, `{n}` a number counting up in
+    /// the folder (`{nn}` 01...), as Vandal's.
     pub timeline_name: String,
-    /// A clip's file name: `{name}` as above, `{n}` the clip's number (`{nn}` at least two
-    /// digits, `{nnn}` three...).
+    /// A clip's file name: as the timeline's, and `{c}` the clip's number (`{cc}` at least two
+    /// digits, `{ccc}` three...).
     pub clip_name: String,
     /// Frames per second, one of [`GIF_RATES`].
     pub gif_fps: u32,
@@ -124,8 +126,8 @@ pub struct Export {
     pub gif_size: u32,
 }
 
-pub const TIMELINE_NAME: &str = "{name}-edit";
-pub const CLIP_NAME: &str = "{name}-clip{nn}";
+pub const TIMELINE_NAME: &str = "{name}-edit-{nn}";
+pub const CLIP_NAME: &str = "{name}-clip-{cc}";
 
 impl Default for Export {
     fn default() -> Self {
@@ -561,6 +563,15 @@ pub fn migrate(stored: Option<Value>) -> (Settings, bool) {
         return (Settings::default(), true);
     };
     let version = value.get("version").and_then(Value::as_u64).unwrap_or(0);
+    let mut value = value;
+    // 2: `{n}` is the auto number in every template (Vandal's); a clip's number is `{c}`.
+    if version < 2 {
+        if let Some(clip) = value.pointer_mut("/export/clipName") {
+            if let Some(t) = clip.as_str() {
+                *clip = Value::String(crate::names::clip_tags_from_v1(t));
+            }
+        }
+    }
     match serde_json::from_value::<Settings>(value) {
         Ok(settings) => {
             // Hand edits can leave values that can't work: repaired, or (a folder) reset.
@@ -676,6 +687,17 @@ mod tests {
     }
 
     #[test]
+    fn version_1_clip_names_take_c_for_the_clip() {
+        let stored = json!({ "version": 1, "export": { "clipName": "{name}-clip{nn}" } });
+        let (s, changed) = migrate(Some(stored));
+        assert!(changed);
+        assert_eq!(s.export.clip_name, "{name}-clip{cc}");
+        // Once: a version 2 `{n}` is the auto number.
+        let stored = json!({ "version": 2, "export": { "clipName": "{name} {n}" } });
+        assert_eq!(migrate(Some(stored)).0.export.clip_name, "{name} {n}");
+    }
+
+    #[test]
     fn non_object_gives_defaults() {
         assert_eq!(migrate(Some(json!("garbage"))), (Settings::default(), true));
         assert_eq!(migrate(Some(json!([1, 2]))), (Settings::default(), true));
@@ -706,7 +728,7 @@ mod tests {
     #[test]
     fn partial_file_fills_defaults() {
         let (s, changed) = migrate(Some(json!({
-            "version": 1,
+            "version": CURRENT_VERSION,
             "appearance": { "theme": "light" },
         })));
         assert!(!changed);
@@ -817,7 +839,7 @@ mod tests {
     #[test]
     fn default_shape() {
         let v = serde_json::to_value(Settings::default()).unwrap();
-        assert_eq!(v["version"], 1);
+        assert_eq!(v["version"], CURRENT_VERSION);
         assert_eq!(v["appearance"]["theme"], "system");
         assert_eq!(v["appearance"]["accent"], "windows");
         assert_eq!(v["timeline"]["thumbnails"], true);
@@ -837,7 +859,7 @@ mod tests {
         s.export.timeline_name = "  ".into();
         s.export.clip_name = " {name} part {n} ".into();
         let ok = validate(s.clone()).unwrap();
-        assert_eq!(ok.export.timeline_name, "{name}-edit");
+        assert_eq!(ok.export.timeline_name, TIMELINE_NAME);
         assert_eq!(ok.export.clip_name, "{name} part {n}");
         s.export.clip_name = "{name}/{n}".into();
         assert!(validate(s).unwrap_err().contains("can't contain /"));

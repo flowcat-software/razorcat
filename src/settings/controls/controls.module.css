@@ -6,11 +6,17 @@
   gap: 10px;
 }
 
+.preview,
 .help {
   margin: 0;
   color: var(--text-2);
   font-size: 12px;
   line-height: 16px;
+}
+
+/* A template's example file name (Vandal's). */
+.previewValue {
+  color: var(--text);
 }
 
 /* ---- choice: joined buttons ---- */
@@ -878,4 +884,85 @@
   padding: 6px 10px;
   color: var(--text-2);
   font-size: 12px;
+}
+
+/* ---- file-name tags (TagReference.tsx) ---- */
+
+/* The template field's line under it: the example, and "Tag reference" at the end. */
+.previewLine {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.previewLine .preview {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* "Tag reference": a link (as About's) that opens the guide. */
+.linkButton {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.linkButton:hover {
+  text-decoration-thickness: 2px;
+}
+
+.tagDialog {
+  width: min(560px, calc(100vw - 48px));
+}
+
+/* No word left alone on a paragraph's last line. */
+.tagDialog p {
+  text-wrap: pretty;
+}
+
+.tagDialog code {
+  color: var(--text);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tagTable {
+  width: 100%;
+  margin: 4px 0 10px;
+  border-collapse: collapse;
+}
+
+.tagTable th {
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.tagTable td {
+  padding: 5px 8px 5px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  vertical-align: top;
+}
+
+.tagTable td:last-child {
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.tagNote {
+  color: var(--text-2);
 }

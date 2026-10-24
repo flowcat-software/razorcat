@@ -89,6 +89,14 @@ pub fn logs_size() -> f64 {
     crate::log::folder_bytes() as f64
 }
 
+/// Settings › Export › file names: the name `template` gives an export now (a clip's, with
+/// `clip`), as Vandal's preview.
+#[tauri::command]
+#[specta::specta]
+pub fn preview_export_name(app: AppHandle, template: String, clip: bool) -> String {
+    crate::export::preview_name(&app, &template, clip)
+}
+
 /// Flowcat Software's website, the maker (Settings › About). A fixed address.
 #[tauri::command]
 #[specta::specta]

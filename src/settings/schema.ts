@@ -36,6 +36,10 @@ export interface TextItem extends BaseItem {
   kind: "text";
   path: PathOf<Settings, string>;
   placeholder?: string;
+  /** What the text gives, shown under the field as it's typed (a file name template's). */
+  preview?: (text: string) => Promise<string>;
+  /** A file name template: a "Tag reference" link under the field opens the guide to its tags. */
+  tags?: boolean;
 }
 
 /** One of a fixed set of numbers, as joined buttons. */

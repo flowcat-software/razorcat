@@ -1543,36 +1543,28 @@ fn stem(app: &AppHandle) -> Option<(String, PathBuf)> {
     ))
 }
 
-/// The file name for the whole timeline, or for clip `n`, from Settings › Export's templates:
-/// `{name}` the video's name; `{n}` the clip's number, `{nn}` with at least two digits, `{nnn}`
-/// three... (as Vandal's).
-fn export_name(names: &Names, stem: &str, clip: Option<u32>, format: Format) -> String {
-    let named = match clip {
-        Some(n) => numbered(&names.clip, n),
-        None => names.timeline.clone(),
+/// The file name for the whole timeline (`clip` None) or clip `clip`, from Settings › Export's
+/// templates and their tags (names.rs); `{n}` counts up past `taken`, the names in the folder
+/// it goes to.
+fn export_name(
+    names: &Names,
+    stem: &str,
+    clip: Option<u32>,
+    format: Format,
+    taken: Vec<String>,
+    now: &crate::names::Timestamp,
+) -> String {
+    let template = if clip.is_some() {
+        &names.clip
+    } else {
+        &names.timeline
     };
-    format!("{}.{}", named.replace("{name}", stem), format.extension())
-}
-
-/// `template` with each `{n}`, `{nn}`, `{nnn}`... as `n`, zero-padded to that many digits.
-/// Anything else in braces stays as it is.
-fn numbered(template: &str, n: u32) -> String {
-    let mut out = String::new();
-    let mut rest = template;
-    while let Some(start) = rest.find("{n") {
-        let digits = rest[start + 1..].bytes().take_while(|&b| b == b'n').count();
-        out.push_str(&rest[..start]);
-        if rest[start + 1 + digits..].starts_with('}') {
-            out.push_str(&format!("{n:0digits$}"));
-            rest = &rest[start + digits + 2..];
-        } else {
-            // "{name}" and the like: plain text here.
-            out.push_str(&rest[start..start + 2]);
-            rest = &rest[start + 2..];
-        }
-    }
-    out.push_str(rest);
-    out
+    let rendered = crate::names::render(template, stem, clip, now);
+    format!(
+        "{}.{}",
+        crate::names::number(&rendered, taken),
+        format.extension()
+    )
 }
 
 /// Settings › Export: how exports are named, and whether (and where) they skip the dialog.
@@ -1596,6 +1588,33 @@ fn names(app: &AppHandle) -> Names {
         clip: e.clip_name,
         save_to: e.save_to_folder.then(|| export_folder(app, &e.folder)),
     }
+}
+
+/// Settings › Export's preview of a name template: the file an export would get now, as MP4,
+/// with the open video's name (else "video"), clip 1 for a clip's, `{n}` counted in the export
+/// folder.
+pub fn preview_name(app: &AppHandle, template: &str, clip: bool) -> String {
+    let stem = stem(app).map_or_else(|| "video".to_string(), |(name, _)| name);
+    let folder = {
+        let state = app.state::<AppState>();
+        let e = &state.settings.read().unwrap().export;
+        export_folder(app, &e.folder)
+    };
+    let names = Names {
+        timeline: template.to_string(),
+        clip: template.to_string(),
+        save_to: None,
+    };
+    let now = crate::names::Timestamp::now_local();
+    let clip = clip.then_some(1);
+    export_name(
+        &names,
+        &stem,
+        clip,
+        Format::Mp4,
+        crate::names::taken_in(&folder),
+        &now,
+    )
 }
 
 /// The default export folder: Settings › Export › Folder, or the Videos folder's Razorcat folder.
@@ -1671,7 +1690,15 @@ pub fn ask_and_export(
         Err(e) => return refuse(app, e),
     };
     let names = names(app);
-    let file = export_name(&names, &stem, clip, format);
+    // `{n}` counts in the folder it goes to: the default one, or where the Save dialog opens.
+    let start_in = crate::folders::export_start(app, &source_folder);
+    let counted_in = names.save_to.clone().or_else(|| start_in.clone());
+    let taken = counted_in
+        .as_deref()
+        .map(crate::names::taken_in)
+        .unwrap_or_default();
+    let now = crate::names::Timestamp::now_local();
+    let file = export_name(&names, &stem, clip, format, taken, &now);
     // Save to default folder: no dialog, never over another file.
     if let Some(folder) = &names.save_to {
         if let Err(e) = make_folder(folder) {
@@ -1703,7 +1730,7 @@ pub fn ask_and_export(
         })
         .add_filter(kind, &[ext])
         .set_file_name(file);
-    if let Some(start) = crate::folders::export_start(app, &source_folder) {
+    if let Some(start) = start_in {
         dialog = dialog.set_directory(start);
     }
     if let Some(window) = app.get_webview_window(LABEL) {
@@ -1770,14 +1797,23 @@ pub fn ask_and_export_each(
         crate::folders::saved_to(app, &folder);
         folder
     };
+    // `{n}` counts on from file to file: each clip's name is taken for the next.
+    let mut taken = crate::names::taken_in(&folder);
+    let now = crate::names::Timestamp::now_local();
     let jobs = clips
         .into_iter()
-        .map(|c| Job {
-            output: free_name(&folder, &export_name(&names, &stem, Some(c.id), format)),
-            clips: vec![c],
-            frame: frame.clone(),
-            markup: markup.clone(),
-            format,
+        .map(|c| {
+            let file = export_name(&names, &stem, Some(c.id), format, taken.clone(), &now);
+            if let Some(name) = Path::new(&file).file_stem() {
+                taken.push(name.to_string_lossy().into_owned());
+            }
+            Job {
+                output: free_name(&folder, &file),
+                clips: vec![c],
+                frame: frame.clone(),
+                markup: markup.clone(),
+                format,
+            }
         })
         .collect();
     start(app, jobs)
@@ -2090,46 +2126,41 @@ mod tests {
 
     #[test]
     fn names_come_from_the_templates() {
+        let now = crate::names::Timestamp {
+            year: 2026,
+            month: 10,
+            day: 24,
+            hour: 9,
+            minute: 30,
+            second: 0,
+        };
+        let name = |names: &Names, clip, format, taken: &[&str]| {
+            let taken = taken.iter().map(|s| s.to_string()).collect();
+            export_name(names, "trip", clip, format, taken, &now)
+        };
         let names = Names {
             timeline: crate::settings::TIMELINE_NAME.into(),
             clip: crate::settings::CLIP_NAME.into(),
             save_to: None,
         };
+        assert_eq!(name(&names, None, Format::Mp4, &[]), "trip-edit-01.mp4");
         assert_eq!(
-            export_name(&names, "trip", None, Format::Mp4),
-            "trip-edit.mp4"
+            name(&names, None, Format::Mp4, &["trip-edit-01", "trip-edit-04"]),
+            "trip-edit-05.mp4"
         );
-        assert_eq!(
-            export_name(&names, "trip", Some(3), Format::Mp4),
-            "trip-clip03.mp4"
-        );
-        assert_eq!(
-            export_name(&names, "trip", Some(12), Format::Gif),
-            "trip-clip12.gif"
-        );
+        assert_eq!(name(&names, Some(3), Format::Mp4, &[]), "trip-clip-03.mp4");
+        assert_eq!(name(&names, Some(12), Format::Gif, &[]), "trip-clip-12.gif");
+        // Vandal's tags in both, and the auto number past what's in the folder.
         let mine = Names {
-            timeline: "final {name}".into(),
-            clip: "{n} of {name}".into(),
+            timeline: "{name} {yyyy}-{MM}-{dd} {n}".into(),
+            clip: "{c} of {name} {HH}{mm}".into(),
             save_to: None,
         };
         assert_eq!(
-            export_name(&mine, "trip", None, Format::Gif),
-            "final trip.gif"
+            name(&mine, None, Format::Gif, &["trip 2026-10-24 2"]),
+            "trip 2026-10-24 3.gif"
         );
-        assert_eq!(
-            export_name(&mine, "trip", Some(7), Format::Mp4),
-            "7 of trip.mp4"
-        );
-    }
-
-    #[test]
-    fn more_ns_pad_the_number() {
-        assert_eq!(numbered("{name}-clip{n}", 7), "{name}-clip7");
-        assert_eq!(numbered("clip {nn}", 7), "clip 07");
-        assert_eq!(numbered("clip {nnn}", 7), "clip 007");
-        assert_eq!(numbered("clip {nnnn}", 12345), "clip 12345");
-        assert_eq!(numbered("{n} and {nn}", 3), "3 and 03");
-        assert_eq!(numbered("{nope} {n", 3), "{nope} {n");
+        assert_eq!(name(&mine, Some(7), Format::Mp4, &[]), "7 of trip 0930.mp4");
     }
 
     #[test]

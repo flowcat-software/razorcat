@@ -46,6 +46,11 @@ export const commands = {
 	clearLogs: () => typedError<null, string>(__TAURI_INVOKE("clear_logs")),
 	/**  The logs folder's size in bytes (Settings › About › Debugging). */
 	logsSize: () => __TAURI_INVOKE<number | null>("logs_size"),
+	/**
+	 *  Settings › Export › file names: the name `template` gives an export now (a clip's, with
+	 *  `clip`), as Vandal's preview.
+	 */
+	previewExportName: (template: string, clip: boolean) => __TAURI_INVOKE<string>("preview_export_name", { template, clip }),
 	/**  Flowcat Software's website, the maker (Settings › About). A fixed address. */
 	openFlowcatSite: () => __TAURI_INVOKE<void>("open_flowcat_site"),
 	/**  The current settings. */
@@ -252,11 +257,15 @@ export type Export = {
 	folder?: string,
 	/**  The first export has asked whether to save to a default folder (it asks once, ever). */
 	askedFolder?: boolean,
-	/**  The whole timeline's file name, without the extension: `{name}` is the video's name. */
+	/**
+	 *  The whole timeline's file name, without the extension (names.rs): `{name}` the video's
+	 *  name, `{yyyy} {MM} {dd} {HH} {mm} {ss}` the date and time, `{n}` a number counting up in
+	 *  the folder (`{nn}` 01...), as Vandal's.
+	 */
 	timelineName?: string,
 	/**
-	 *  A clip's file name: `{name}` as above, `{n}` the clip's number (`{nn}` at least two
-	 *  digits, `{nnn}` three...).
+	 *  A clip's file name: as the timeline's, and `{c}` the clip's number (`{cc}` at least two
+	 *  digits, `{ccc}` three...).
 	 */
 	clipName?: string,
 	/**  Frames per second, one of [`GIF_RATES`]. */

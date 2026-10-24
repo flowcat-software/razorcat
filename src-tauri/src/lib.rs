@@ -15,6 +15,7 @@ mod folders;
 mod fonts;
 mod markup;
 mod media;
+mod names;
 mod paths;
 mod placement;
 mod protocol;
@@ -51,6 +52,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::open_logs_folder,
             commands::clear_logs,
             commands::logs_size,
+            commands::preview_export_name,
             commands::open_flowcat_site,
             commands::get_settings,
             commands::update_settings,
