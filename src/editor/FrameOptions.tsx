@@ -165,12 +165,14 @@ function GrowOptions({ settings }: { settings: Settings | null }) {
       {!each && (
         <span className={styles.field} {...hint("grow.colour")}>
           Colour
-          <ColorSwatch
-            name="Colour"
-            value={grow.colour}
-            onPick={(v) => colour(null, v)}
-            {...ONE_STEP}
-          />
+          <span className={styles.swatch}>
+            <ColorSwatch
+              name="Colour"
+              value={grow.colour}
+              onPick={(v) => colour(null, v)}
+              {...ONE_STEP}
+            />
+          </span>
         </span>
       )}
       <span className={styles.optionsSep} />
