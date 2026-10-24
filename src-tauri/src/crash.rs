@@ -160,7 +160,7 @@ unsafe extern "system" fn on_crash(info: *const EXCEPTION_POINTERS) -> i32 {
 }
 
 /// `razorcat.exe+0x4a6150`, or the bare address when no loaded module holds it.
-fn place(address: usize) -> String {
+pub fn place(address: usize) -> String {
     let mut module = HMODULE::default();
     let found = unsafe {
         GetModuleHandleExW(
@@ -235,7 +235,8 @@ fn blank_names(path: &Path) {
 
 /// Crashes on purpose, to check the reports end to end: `RAZORCAT_CRASH_TEST` set to
 /// `native` (an access violation), `panic` (on the main thread), `thread-panic`, `webview`
-/// (the editor's renderer) or `browser` (the whole webview), a few seconds after startup.
+/// (the editor's renderer) or `browser` (the whole webview), a few seconds after startup; or
+/// `accent`, which asks for the Windows accent again and again (the start-up crash's hunt).
 pub fn test_from_env(app: &tauri::AppHandle) {
     use tauri::Manager;
     let Ok(kind) = std::env::var("RAZORCAT_CRASH_TEST") else {
@@ -249,6 +250,24 @@ pub fn test_from_env(app: &tauri::AppHandle) {
             "native" => unsafe {
                 std::ptr::write_volatile(std::ptr::null_mut::<u32>().wrapping_add(4), 1);
             },
+            // A hunt, not a crash: ask for the Windows accent as the page does, with gaps
+            // either side of the blocking pool's 10 s idle time, so its threads come and go.
+            "accent" => {
+                for gap in [0.5, 3.0, 11.0, 0.2, 14.0, 1.0, 12.0]
+                    .iter()
+                    .cycle()
+                    .take(40)
+                {
+                    let asked = tauri::async_runtime::block_on(
+                        tauri::async_runtime::spawn_blocking(crate::appearance::windows_accent),
+                    );
+                    logln!(
+                        "[crash] test: accent {:?}",
+                        asked.ok().flatten().map(|a| a.light)
+                    );
+                    std::thread::sleep(std::time::Duration::from_secs_f64(*gap));
+                }
+            }
             "webview" | "browser" => {
                 if let Some(window) = app.get_webview_window(crate::editor::LABEL) {
                     crate::webview_crash::crash_for_test(&window, kind == "browser");

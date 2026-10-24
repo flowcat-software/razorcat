@@ -28,6 +28,7 @@ mod state;
 mod styles;
 mod thumbs;
 mod tool_styles;
+mod unloads;
 mod wave;
 mod webview_crash;
 
@@ -144,6 +145,7 @@ fn open_from_args(app: &AppHandle, args: &[String], cwd: &Path) {
 pub fn run() {
     let context = tauri::generate_context!();
     log::init(&context.config().identifier);
+    unloads::trace_from_env();
 
     #[cfg(debug_assertions)]
     export_bindings();
