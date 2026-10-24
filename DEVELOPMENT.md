@@ -142,7 +142,8 @@ uncommitted changes. For just the release exe, without an installer, use
 
 Razorcat logs to `%LOCALAPPDATA%\<identifier>\logs\razorcat.log` (`com.razorcat.desktop`, or
 `com.razorcat.desktop.dev` for dev builds), the last five runs kept as `razorcat.1.log` and on.
-In dev the same lines go to the terminal. The file never holds paths, file names or anything
+In dev the same lines go to the terminal. A run's log stops at 10 MB with a note saying so
+(a runaway error can't fill the disk); crashes and panics are still written after it. The file never holds paths, file names or anything
 else that identifies the user or the project (`scrub.rs`). A panic logs its backtrace; a native
 crash logs its exception and the module it happened in. Either one writes a small minidump,
 `crash-<date>-<time>.dmp`, beside the log, and the newest five are kept.
@@ -154,7 +155,7 @@ About can also open.
 
 To check the whole path, set `RAZORCAT_CRASH_TEST` to `native`, `panic`, `thread-panic`,
 `webview` (the renderer) or `browser` (the whole webview) before starting the app, and it
-crashes that way three seconds after startup.
+crashes that way three seconds after startup. `flood` fills the log past its cap, then panics.
 
 ## The name
 

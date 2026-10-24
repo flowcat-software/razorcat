@@ -236,7 +236,8 @@ fn blank_names(path: &Path) {
 /// Crashes on purpose, to check the reports end to end: `RAZORCAT_CRASH_TEST` set to
 /// `native` (an access violation), `panic` (on the main thread), `thread-panic`, `webview`
 /// (the editor's renderer) or `browser` (the whole webview), a few seconds after startup; or
-/// `accent`, which asks for the Windows accent again and again (the start-up crash's hunt).
+/// `accent`, which asks for the Windows accent again and again (the start-up crash's hunt), or
+/// `flood`, which fills the log past its cap and then panics.
 pub fn test_from_env(app: &tauri::AppHandle) {
     use tauri::Manager;
     let Ok(kind) = std::env::var("RAZORCAT_CRASH_TEST") else {
@@ -252,6 +253,13 @@ pub fn test_from_env(app: &tauri::AppHandle) {
             },
             // A hunt, not a crash: ask for the Windows accent as the page does, with gaps
             // either side of the blocking pool's 10 s idle time, so its threads come and go.
+            // The log's cap: ~16 MB of lines, then a panic, which still gets in.
+            "flood" => {
+                for n in 0..200_000 {
+                    logln!("[crash] test: flood line {n:06} {}", "x".repeat(60));
+                }
+                panic!("crash test after a flood");
+            }
             "accent" => {
                 for gap in [0.5, 3.0, 11.0, 0.2, 14.0, 1.0, 12.0]
                     .iter()

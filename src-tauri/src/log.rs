@@ -18,6 +18,10 @@ use crate::scrub;
 const KEEP_RUNS: usize = 5;
 /// Lines held before the file opens, at most.
 const EARLY_MAX: usize = 500;
+/// A run's log stops taking ordinary lines here (a runaway error mustn't fill the disk); its
+/// start, which usually explains a crash, is kept, and crashes and panics still get in.
+const MAX_BYTES: u64 = 10 * 1024 * 1024;
+const FULL: &str = "[log] full: further lines dropped (crashes and panics still logged)";
 
 /// Logs a line: `logln!("[export] {n} markup items")`. Name a module in brackets first.
 macro_rules! logln {
@@ -32,12 +36,15 @@ struct Log {
     /// Scrubbed from every line: the user's and computer's names, the files opened and
     /// exported.
     names: Vec<String>,
+    /// Bytes in this run's file.
+    written: u64,
 }
 
 static LOG: Mutex<Log> = Mutex::new(Log {
     file: None,
     early: Vec::new(),
     names: Vec::new(),
+    written: 0,
 });
 static START: OnceLock<Instant> = OnceLock::new();
 /// What the editor says once it's up: the last run crashed (PLAN C3), or the page was reloaded
@@ -87,13 +94,13 @@ pub fn init(identifier: &str) {
         let backtrace = std::backtrace::Backtrace::force_capture();
         // `{:#}`: the addresses too, which with the header's exe address and the build's
         // symbols name the functions.
-        line(&format!(
+        urgent_line(&format!(
             "[panic] thread {}: {info}\n{backtrace:#}",
             thread.name().unwrap_or("unnamed")
         ));
         match crate::crash::dump(None) {
-            Ok(name) => line(&format!("[panic] dump written: {name}")),
-            Err(e) => line(&format!("[panic] no dump: {e}")),
+            Ok(name) => urgent_line(&format!("[panic] dump written: {name}")),
+            Err(e) => urgent_line(&format!("[panic] no dump: {e}")),
         }
     }));
     crate::crash::install();
@@ -125,10 +132,16 @@ pub fn open(product: &str) {
             return;
         }
     };
-    let _ = writeln!(file, "{}", crate::crash::header(product));
+    // The header and the held lines count towards the cap.
+    let header = crate::crash::header(product);
+    let _ = writeln!(file, "{header}");
+    let mut written = header.len() as u64 + 1;
     for held in std::mem::take(&mut log.early) {
-        let _ = writeln!(file, "{}", scrub::scrub(&held, &log.names));
+        let line = scrub::scrub(&held, &log.names);
+        let _ = writeln!(file, "{line}");
+        written += line.len() as u64 + 1;
     }
+    log.written = written;
     let _ = file.flush();
     log.file = Some(file);
 }
@@ -148,20 +161,61 @@ fn rotate(dir: &Path) {
 pub fn line(text: &str) {
     eprintln!("{text}");
     let mut log = lock();
-    write(&mut log, text);
+    write(&mut log, text, false);
 }
 
-fn write(log: &mut Log, text: &str) {
+/// As [`line`], past the size cap: a panic's report.
+fn urgent_line(text: &str) {
+    eprintln!("{text}");
+    let mut log = lock();
+    write(&mut log, text, true);
+}
+
+/// What becomes of a line of `len` bytes, `written` already in the file.
+#[derive(Debug, PartialEq)]
+enum Admit {
+    Write,
+    /// The cap reached: the note that the log is full goes in instead, once.
+    Full,
+    Drop,
+}
+
+fn admit(written: u64, len: u64, urgent: bool) -> Admit {
+    if urgent || written + len <= MAX_BYTES {
+        Admit::Write
+    } else if written <= MAX_BYTES {
+        Admit::Full
+    } else {
+        Admit::Drop
+    }
+}
+
+fn write(log: &mut Log, text: &str, urgent: bool) {
     let at = START.get_or_init(Instant::now).elapsed().as_secs_f64();
     let stamped = format!("[{at:9.3}] {text}");
-    match log.file.as_mut() {
-        Some(file) => {
-            let _ = writeln!(file, "{}", scrub::scrub(&stamped, &log.names));
-            // Every line, so a crash loses none.
-            let _ = file.flush();
+    if log.file.is_none() {
+        if log.early.len() < EARLY_MAX {
+            log.early.push(stamped);
         }
-        None if log.early.len() < EARLY_MAX => log.early.push(stamped),
-        None => {}
+        return;
+    }
+    let line = scrub::scrub(&stamped, &log.names);
+    let admitted = admit(log.written, line.len() as u64 + 1, urgent);
+    let line = match admitted {
+        Admit::Write => line,
+        Admit::Full => format!("[{at:9.3}] {FULL}"),
+        Admit::Drop => return,
+    };
+    let Some(file) = log.file.as_mut() else {
+        return;
+    };
+    let _ = writeln!(file, "{line}");
+    // Every line, so a crash loses none.
+    let _ = file.flush();
+    log.written += line.len() as u64 + 1;
+    if admitted == Admit::Full {
+        // Past the cap from here: nothing but urgent lines follows the note.
+        log.written = log.written.max(MAX_BYTES + 1);
     }
 }
 
@@ -176,7 +230,8 @@ pub fn crash_line(text: &str, product: &str) {
         let Ok(again) = LOG.try_lock() else { return };
         log = again;
     }
-    write(&mut log, text);
+    // Past the cap: the crash is what the log is for.
+    write(&mut log, text, true);
 }
 
 /// A file's name, kept out of the log from now on (with its stem, if long enough).
@@ -242,7 +297,19 @@ pub fn take_notice() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::crashed;
+    use super::{admit, crashed, Admit, MAX_BYTES};
+
+    #[test]
+    fn a_full_log_takes_only_urgent_lines() {
+        assert_eq!(admit(0, 80, false), Admit::Write);
+        assert_eq!(admit(MAX_BYTES - 80, 80, false), Admit::Write);
+        // The line that would cross the cap is the note that the log is full...
+        assert_eq!(admit(MAX_BYTES - 40, 80, false), Admit::Full);
+        // ...and after it (the count put past the cap) nothing ordinary gets in.
+        assert_eq!(admit(MAX_BYTES + 1, 80, false), Admit::Drop);
+        // A crash or a panic always does.
+        assert_eq!(admit(MAX_BYTES + 1, 5000, true), Admit::Write);
+    }
 
     #[test]
     fn a_crash_is_found_in_the_log() {
