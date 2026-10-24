@@ -29,6 +29,7 @@ mod styles;
 mod thumbs;
 mod tool_styles;
 mod wave;
+mod webview_crash;
 
 use std::path::Path;
 

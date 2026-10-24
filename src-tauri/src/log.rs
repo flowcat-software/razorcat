@@ -212,7 +212,8 @@ pub fn page(page: &str, lines: Vec<String>) {
     }
 }
 
-/// Whether a run's log ends in a crash: a native one, a panic, or the webview's.
+/// Whether a run ended in a crash: a native one, a panic, or the webview's browser process (a
+/// renderer's crash only reloads the page, which says so).
 fn crashed(log: &str) -> bool {
     log.lines().any(|line| {
         [
@@ -251,13 +252,16 @@ mod tests {
         for line in [
             "[    3.3] [crash] exception 0xc0000005 at razorcat.exe+0x2a53d5",
             "[    3.5] [panic] thread main: panicked at src/x.rs:1:1:",
-            "[   40.0] [webview] failed: render process exited (crashed)",
+            "[   40.0] [webview] failed: editor: browser process exited (crashed); closing",
         ] {
             assert!(crashed(&format!("{calm}\n{line}")), "{line}");
         }
-        // The page's own errors aren't crashes.
+        // The page's own errors aren't crashes, nor a reloaded renderer (the page said so).
         assert!(!crashed(
             "[    5.0] [editor-page] error: TypeError: x is undefined"
+        ));
+        assert!(!crashed(
+            "[    4.1] [webview] crashed: editor: render process exited; reloading"
         ));
     }
 }

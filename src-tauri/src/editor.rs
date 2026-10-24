@@ -96,6 +96,7 @@ pub fn open(app: &AppHandle) -> tauri::Result<()> {
         .center()
         .visible(false)
         .build()?;
+    crate::webview_crash::watch(&window);
     placement::apply(app, &window, saved);
     let app_state = app.state::<AppState>();
     let mut state = app_state.editor.lock().unwrap();

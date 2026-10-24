@@ -147,8 +147,14 @@ else that identifies the user or the project (`scrub.rs`). A panic logs its back
 crash logs its exception and the module it happened in. Either one writes a small minidump,
 `crash-<date>-<time>.dmp`, beside the log, and the newest five are kept.
 
-To check the whole path, set `RAZORCAT_CRASH_TEST` to `native`, `panic` or `thread-panic`
-before starting the app, and it crashes that way three seconds after startup.
+The webview's own processes are watched too (`webview_crash.rs`): if the page's renderer dies,
+the page reloads and says so; if the whole webview goes, Razorcat says so and closes. After a
+crash, the next launch's status bar says so, with Show report (the logs folder), which Settings ›
+About can also open.
+
+To check the whole path, set `RAZORCAT_CRASH_TEST` to `native`, `panic`, `thread-panic`,
+`webview` (the renderer) or `browser` (the whole webview) before starting the app, and it
+crashes that way three seconds after startup.
 
 ## The name
 

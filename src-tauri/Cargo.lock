@@ -2720,6 +2720,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-store",
  "tauri-specta",
+ "webview2-com",
  "windows",
 ]
 

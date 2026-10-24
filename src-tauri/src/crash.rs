@@ -234,9 +234,10 @@ fn blank_names(path: &Path) {
 }
 
 /// Crashes on purpose, to check the reports end to end: `RAZORCAT_CRASH_TEST` set to
-/// `native` (an access violation), `panic` (on the main thread) or `thread-panic`, a few
-/// seconds after startup.
+/// `native` (an access violation), `panic` (on the main thread), `thread-panic`, `webview`
+/// (the editor's renderer) or `browser` (the whole webview), a few seconds after startup.
 pub fn test_from_env(app: &tauri::AppHandle) {
+    use tauri::Manager;
     let Ok(kind) = std::env::var("RAZORCAT_CRASH_TEST") else {
         return;
     };
@@ -248,6 +249,11 @@ pub fn test_from_env(app: &tauri::AppHandle) {
             "native" => unsafe {
                 std::ptr::write_volatile(std::ptr::null_mut::<u32>().wrapping_add(4), 1);
             },
+            "webview" | "browser" => {
+                if let Some(window) = app.get_webview_window(crate::editor::LABEL) {
+                    crate::webview_crash::crash_for_test(&window, kind == "browser");
+                }
+            }
             "panic" => {
                 let _ = app.run_on_main_thread(|| panic!("crash test on the main thread"));
             }
