@@ -46,7 +46,7 @@ pub fn open(app: &AppHandle, section: Option<&str>) {
                     let _ = window.set_focus();
                 }
             }
-            Err(e) => eprintln!("[settings] window failed: {e}"),
+            Err(e) => logln!("[settings] window failed: {e}"),
         }
     });
 }

@@ -558,7 +558,7 @@ pub fn migrate(stored: Option<Value>) -> (Settings, bool) {
             (checked, changed)
         }
         Err(e) => {
-            eprintln!("[settings] unreadable settings ({e}); using defaults");
+            logln!("[settings] unreadable settings ({e}); using defaults");
             (Settings::default(), true)
         }
     }
@@ -599,12 +599,12 @@ fn repair_file(app: &AppHandle<Wry>) {
     match check_raw(&bytes) {
         Repair::None => {}
         Repair::StripBom(body) => {
-            eprintln!("[settings] stripping UTF-8 BOM from {}", path.display());
+            logln!("[settings] stripping UTF-8 BOM from {}", path.display());
             let _ = std::fs::write(&path, body);
         }
         Repair::Quarantine => {
             let backup = dir.join("settings.corrupt.json");
-            eprintln!(
+            logln!(
                 "[settings] {} is not valid JSON; moved to {} and using defaults",
                 path.display(),
                 backup.display()
@@ -619,14 +619,14 @@ pub fn load(app: &AppHandle<Wry>) -> Settings {
     let store = match app.store(STORE_FILE) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("[settings] cannot open store: {e}; using defaults");
+            logln!("[settings] cannot open store: {e}; using defaults");
             return Settings::default();
         }
     };
     let (settings, changed) = migrate(store.get(STORE_KEY));
     if changed {
         if let Err(e) = save(app, &settings) {
-            eprintln!("[settings] cannot save: {e}");
+            logln!("[settings] cannot save: {e}");
         }
     }
     settings

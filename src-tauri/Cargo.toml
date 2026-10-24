@@ -27,7 +27,7 @@ specta-typescript = "0.0.12"
 tauri-plugin-single-instance = "=2.4.5"
 tauri-plugin-store = "=2.4.5"
 tauri-plugin-dialog = "=2.8.0"
-windows = { version = "0.62", features = ["Foundation", "UI_ViewManagement", "Win32_Foundation", "Win32_Graphics_DirectWrite", "Win32_Security", "Win32_System_Com", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Foundation", "UI_ViewManagement", "Win32_Foundation", "Win32_Graphics_DirectWrite", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Diagnostics_Debug", "Win32_System_JobObjects", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [profile.dev]
 opt-level = 1
@@ -38,4 +38,7 @@ codegen-units = 1
 lto = true
 opt-level = 3
 panic = "abort"
-strip = true
+# Function names and lines in the .pdb (not the exe), so a crash dump's stack names them;
+# build:local keeps the .pdb beside the installer, never shipped.
+debug = "line-tables-only"
+strip = "none"

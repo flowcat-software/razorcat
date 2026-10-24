@@ -134,6 +134,21 @@ uncommitted changes. For just the release exe, without an installer, use
 - **Digits only:** Windows file versions are numeric, so NSIS writes the number into the exe's
   file version (`0.1.0.8`).
 - The installer has no updater and isn't code-signed yet: those come with releases.
+- **Symbols:** each build's `razorcat.exe` and `razorcat.pdb` are kept in
+  `src-tauri/target/release/bundle/symbols/Razorcat_<version>/`, never shipped. Keep the
+  folder of any build given to testers: it's what turns their crash dumps into function names.
+
+## Logs and crash reports
+
+Razorcat logs to `%LOCALAPPDATA%\<identifier>\logs\razorcat.log` (`com.razorcat.desktop`, or
+`com.razorcat.desktop.dev` for dev builds), the last five runs kept as `razorcat.1.log` and on.
+In dev the same lines go to the terminal. The file never holds paths, file names or anything
+else that identifies the user or the project (`scrub.rs`). A panic logs its backtrace; a native
+crash logs its exception and the module it happened in. Either one writes a small minidump,
+`crash-<date>-<time>.dmp`, beside the log, and the newest five are kept.
+
+To check the whole path, set `RAZORCAT_CRASH_TEST` to `native`, `panic` or `thread-panic`
+before starting the app, and it crashes that way three seconds after startup.
 
 ## The name
 

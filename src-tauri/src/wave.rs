@@ -134,7 +134,7 @@ pub fn start(app: &AppHandle, generation: u64) {
             .filter(|s| all.contains(&s.generation) && s.wave.as_ref().is_some_and(|w| !w.ready));
         match made {
             Ok(true) => {
-                eprintln!(
+                logln!(
                     "[wave] made for {} in {:.1} s",
                     path.display(),
                     started.elapsed().as_secs_f64()
@@ -155,7 +155,7 @@ pub fn start(app: &AppHandle, generation: u64) {
             Ok(false) => waiting.for_each(|s| s.wave = None),
             // The timeline does without.
             Err(e) => {
-                eprintln!("[wave] {}: {e}", path.display());
+                logln!("[wave] {}: {e}", path.display());
                 waiting.for_each(|s| s.wave = None);
             }
         }

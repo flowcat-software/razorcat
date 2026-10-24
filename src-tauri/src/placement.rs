@@ -78,7 +78,7 @@ pub fn save(app: &AppHandle, saved: Saved) {
     };
     store.set(STATE_KEY, json!(saved));
     if let Err(e) = store.save() {
-        eprintln!("[placement] cannot save: {e}");
+        logln!("[placement] cannot save: {e}");
     }
 }
 

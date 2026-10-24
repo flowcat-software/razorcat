@@ -68,7 +68,7 @@ pub fn default_folder(app: &AppHandle) -> Option<PathBuf> {
     app.path()
         .app_local_data_dir()
         .map(|d| d.join("proxies"))
-        .map_err(|e| eprintln!("[proxy] no local data folder: {e}"))
+        .map_err(|e| logln!("[proxy] no local data folder: {e}"))
         .ok()
 }
 
@@ -225,7 +225,7 @@ fn move_cache(app: &AppHandle, from: &Path, to: &Path) {
         return;
     };
     if let Err(e) = fs::create_dir_all(to) {
-        eprintln!("[proxy] can't make {}: {e}", to.display());
+        logln!("[proxy] can't make {}: {e}", to.display());
         return;
     }
     let started = Instant::now();
@@ -239,7 +239,7 @@ fn move_cache(app: &AppHandle, from: &Path, to: &Path) {
         let ok = fs::rename(&old, &new).is_ok()
             || (fs::copy(&old, &new).is_ok() && fs::remove_file(&old).is_ok());
         if !ok {
-            eprintln!("[proxy] couldn't move {}", old.display());
+            logln!("[proxy] couldn't move {}", old.display());
             let _ = fs::remove_file(&new);
             continue;
         }
@@ -259,7 +259,7 @@ fn move_cache(app: &AppHandle, from: &Path, to: &Path) {
             }
         }
     }
-    eprintln!(
+    logln!(
         "[proxy] moved {moved} to {} in {:.1} s",
         to.display(),
         started.elapsed().as_secs_f64()
@@ -394,7 +394,7 @@ pub fn make(
         }
         match made {
             Ok(Some(file)) => {
-                eprintln!(
+                logln!(
                     "[proxy] made {} in {:.1} s",
                     file.display(),
                     started.elapsed().as_secs_f64()
@@ -424,14 +424,14 @@ pub fn make(
             }
             // Another file was opened, or proxies were turned off.
             Ok(None) => {
-                eprintln!("[proxy] stopped for {}", source.display());
+                logln!("[proxy] stopped for {}", source.display());
                 for &g in &all {
                     let source = crate::protocol::source_url(g);
                     let _ = ProxyStopped { source }.emit_to(&app, LABEL);
                 }
             }
             Err(message) => {
-                eprintln!("[proxy] {}: {message}", source.display());
+                logln!("[proxy] {}: {message}", source.display());
                 for &g in &all {
                     let _ = ProxyFailed {
                         source: crate::protocol::source_url(g),
@@ -570,7 +570,7 @@ fn cached_files(folder: &Path) -> Vec<(PathBuf, u64, SystemTime)> {
 pub fn trim(folder: &Path, keep: &[PathBuf], limit: u64) {
     let files = cached_files(folder);
     for path in to_drop(files, limit, keep) {
-        eprintln!("[proxy] dropping {} (cache full)", path.display());
+        logln!("[proxy] dropping {} (cache full)", path.display());
         let _ = fs::remove_file(path);
     }
 }

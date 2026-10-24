@@ -85,7 +85,7 @@ pub fn spawn(cmd: &mut Command) -> std::io::Result<Child> {
     if let Some(job) = job() {
         let process = HANDLE(child.as_raw_handle());
         if let Err(e) = unsafe { AssignProcessToJobObject(job, process) } {
-            eprintln!("[sidecar] couldn't tie the tool to Razorcat: {e}");
+            logln!("[sidecar] couldn't tie the tool to Razorcat: {e}");
         }
     }
     Ok(child)
@@ -97,7 +97,7 @@ fn job() -> Option<HANDLE> {
     static JOB: OnceLock<Option<usize>> = OnceLock::new();
     let raw = JOB.get_or_init(|| unsafe {
         let job = CreateJobObjectW(None, None)
-            .map_err(|e| eprintln!("[sidecar] no job object: {e}"))
+            .map_err(|e| logln!("[sidecar] no job object: {e}"))
             .ok()?;
         let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -107,7 +107,7 @@ fn job() -> Option<HANDLE> {
             (&raw const limits).cast(),
             size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
         )
-        .map_err(|e| eprintln!("[sidecar] job object limits: {e}"))
+        .map_err(|e| logln!("[sidecar] job object limits: {e}"))
         .ok()?;
         Some(job.0 as usize)
     });
@@ -148,7 +148,7 @@ pub struct MediaTools {
 }
 
 pub fn media_tools() -> MediaTools {
-    let check = |tool| version(tool).map_err(|e| eprintln!("[sidecar] {e}")).ok();
+    let check = |tool| version(tool).map_err(|e| logln!("[sidecar] {e}")).ok();
     MediaTools {
         ffmpeg: check(Tool::Ffmpeg),
         gifski: check(Tool::Gifski),

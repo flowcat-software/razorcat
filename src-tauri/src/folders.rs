@@ -57,6 +57,6 @@ fn remember(app: &AppHandle, key: &str, folder: &Path) {
     }
     store.set(key, folder);
     if let Err(e) = store.save() {
-        eprintln!("[folders] cannot save {key}: {e}");
+        logln!("[folders] cannot save {key}: {e}");
     }
 }

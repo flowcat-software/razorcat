@@ -248,7 +248,7 @@ pub fn report(app: &AppHandle, summary: &str, report: &str) -> Result<String, St
     .unwrap_or_default();
     let file: PathBuf = std::env::temp_dir().join(format!("razorcat-check-{name}.json"));
     fs::write(&file, report).map_err(|e| e.to_string())?;
-    eprintln!("[check] {name}: {summary} ({})", file.display());
+    logln!("[check] {name}: {summary} ({})", file.display());
     Ok(file.display().to_string())
 }
 

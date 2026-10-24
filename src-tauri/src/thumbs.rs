@@ -211,7 +211,7 @@ pub fn start(app: &AppHandle, generation: u64) {
             .filter(|s| all.contains(&s.generation) && s.thumbs.as_ref().is_some_and(|t| !t.ready));
         match made {
             Ok(Outcome::Finished) => {
-                eprintln!(
+                logln!(
                     "[thumbs] made {count} for {} in {:.1} s",
                     path.display(),
                     started.elapsed().as_secs_f64(),
@@ -233,7 +233,7 @@ pub fn start(app: &AppHandle, generation: u64) {
             Ok(Outcome::Stopped) => waiting.for_each(|s| s.thumbs = None),
             // The timeline does without (the clip shows its colour).
             Err(e) => {
-                eprintln!("[thumbs] {}: {e}", path.display());
+                logln!("[thumbs] {}: {e}", path.display());
                 waiting.for_each(|s| s.thumbs = None);
             }
         }

@@ -9,7 +9,7 @@
 // and the About page through VITE_BUILD_* variables.
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import process from "node:process";
 
 const TARGET = "src-tauri/target";
@@ -58,6 +58,14 @@ const result = spawnSync(command, {
   },
 });
 if (result.status !== 0) fail(`tauri build failed (exit ${result.status ?? result.signal})`);
+
+// The exe and its symbols, kept for reading this build's crash dumps (never shipped).
+const symbols = `${TARGET}/release/bundle/symbols/${conf.productName}_${version}`;
+mkdirSync(symbols, { recursive: true });
+for (const file of ["razorcat.exe", "razorcat.pdb"]) {
+  copyFileSync(`${TARGET}/release/${file}`, `${symbols}/${file}`);
+}
+console.log(`build:local: symbols kept in ${symbols}`);
 
 const output = extra.includes("--no-bundle")
   ? `${TARGET}/release/razorcat.exe`

@@ -1080,7 +1080,7 @@ pub fn probe(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         let found = encoders_here();
-        eprintln!(
+        logln!(
             "[export] encoders: {}",
             found
                 .iter()
@@ -1234,9 +1234,10 @@ pub fn render(
         Format::Gif => render_gif(app, clips, &frame, markup, output, progress, stop),
     }?;
     if matches!(done, Outcome::Finished) {
-        eprintln!(
-            "[export] {} in {:.1} s",
-            output.display(),
+        logln!(
+            "[export] {format:?} of {} clips, {} markup items, in {:.1} s",
+            clips.len(),
+            markup.items.len(),
             started.elapsed().as_secs_f64()
         );
     }
@@ -1275,11 +1276,11 @@ fn render_mp4(
             stop.load(Ordering::Relaxed)
         }) {
             Ok(done) => {
-                eprintln!("[export] encoded with {}", encoder.codec());
+                logln!("[export] encoded with {}", encoder.codec());
                 return Ok(done);
             }
             Err(e) => {
-                eprintln!("[export] {} failed: {e}", encoder.codec());
+                logln!("[export] {} failed: {e}", encoder.codec());
                 last = e;
             }
         }
@@ -1400,7 +1401,7 @@ fn render_gif(
     let gifski_log = gifski_log.join().unwrap_or_default();
     if !ffmpeg_ok || !gifski_ok {
         if let Err(e) = &copied {
-            eprintln!("[export] passing frames to gifski: {e}");
+            logln!("[export] passing frames to gifski: {e}");
         }
         let _ = std::fs::remove_file(&part);
         let why = if ffmpeg_ok { gifski_log } else { ffmpeg_log };
@@ -1470,6 +1471,7 @@ pub fn start(app: &AppHandle, jobs: Vec<Job>) -> bool {
         let mut bytes = 0.0;
         let mut message = None;
         for (k, job) in jobs.iter().enumerate() {
+            crate::log::private_file(&job.output);
             let name = file_name(&job.output);
             let progress = |done: f64| {
                 let _ = ExportProgress {

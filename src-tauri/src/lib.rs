@@ -1,8 +1,13 @@
+// First: its `logln!` is used by the modules after it.
+#[macro_use]
+mod log;
+
 mod appearance;
 mod check;
 mod cli;
 mod commands;
 mod convert;
+mod crash;
 mod editor;
 mod export;
 mod ffmpeg;
@@ -14,6 +19,7 @@ mod paths;
 mod placement;
 mod protocol;
 mod proxy;
+mod scrub;
 mod settings;
 mod settings_window;
 mod sidecar;
@@ -132,6 +138,9 @@ fn open_from_args(app: &AppHandle, args: &[String], cwd: &Path) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+    log::init(&context.config().identifier);
+
     #[cfg(debug_assertions)]
     export_bindings();
 
@@ -149,6 +158,7 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol(protocol::SCHEME, protocol::handle)
         .invoke_handler(specta.invoke_handler())
         .setup(move |app| {
+            log::open(&product_name(app.handle()));
             specta.mount_events(app);
             app.manage(AppState::new(settings::load(app.handle())));
             appearance::watch_windows_accent(app.handle());
@@ -158,7 +168,8 @@ pub fn run() {
             let args: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().unwrap_or_default();
             open_from_args(app.handle(), &args, &cwd);
-            eprintln!("[startup] ready");
+            logln!("[startup] ready");
+            crash::test_from_env(app.handle());
             Ok(())
         })
         // The editor: files dropped on it open there (the timeline shows where, as they're
@@ -192,6 +203,6 @@ pub fn run() {
                 _ => {}
             }
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running Razorcat");
 }

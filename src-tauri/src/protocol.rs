@@ -124,7 +124,7 @@ pub fn handle<R: Runtime>(
                 };
                 match file {
                     Some(file) => serve(&file, range(&req)).unwrap_or_else(|e| {
-                        eprintln!("[protocol] {}: {e}", file.display());
+                        logln!("[protocol] {}: {e}", file.display());
                         reply(StatusCode::INTERNAL_SERVER_ERROR, vec![])
                     }),
                     None => reply(StatusCode::NOT_FOUND, vec![]),

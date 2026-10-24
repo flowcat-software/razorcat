@@ -139,7 +139,7 @@ pub fn ready(app: &AppHandle, window: &WebviewWindow) -> Vec<SourceInfo> {
         window.show()
     };
     if let Err(e) = shown.and_then(|_| window.set_focus()) {
-        eprintln!("[editor] couldn't show the window: {e}");
+        logln!("[editor] couldn't show the window: {e}");
     }
     request_open_all(app, pending, false);
     let state = app.state::<AppState>();
@@ -167,7 +167,8 @@ pub fn request_open_at(app: &AppHandle, paths: Vec<PathBuf>, add: bool, at: Opti
         return;
     }
     for path in &paths {
-        eprintln!("[editor] open {}", path.display());
+        crate::log::private_file(path);
+        logln!("[editor] open {}", path.display());
     }
     {
         let app_state = app.state::<AppState>();
@@ -237,7 +238,7 @@ fn open_one(app: &AppHandle, path: PathBuf, add: bool, at: Option<u32>) -> bool 
                     format!("{} can't be opened.", source::file_name(&path))
                 }
             };
-            eprintln!("[editor] {message}");
+            logln!("[editor] {message}");
             let _ = OpenFailed { message }.emit_to(app, LABEL);
             false
         }
@@ -265,10 +266,15 @@ fn show(app: &AppHandle, path: PathBuf, mut opened: Source, add: bool, at: Optio
     }
     let info = opened.info();
     let generation = opened.generation;
-    eprintln!(
-        "[editor] {} {}: {}x{} {} at {}/{} fps, {} frames{}{}",
+    // The file by its facts, never its name (the log's file scrubs it anyway).
+    let kind = path.extension().map_or_else(
+        || "no extension".into(),
+        |e| e.to_string_lossy().to_lowercase(),
+    );
+    let megabytes = std::fs::metadata(&path).map_or(0.0, |m| m.len() as f64 / 1e6);
+    logln!(
+        "[editor] {} a {kind} of {megabytes:.1} MB: {}x{} {} at {}/{} fps, {} frames{}{}",
         if add { "added" } else { "opened" },
-        info.name,
         info.width,
         info.height,
         info.codec,
@@ -303,7 +309,7 @@ fn show(app: &AppHandle, path: PathBuf, mut opened: Source, add: bool, at: Optio
         SourceOpened(info).emit_to(app, LABEL)
     };
     if let Err(e) = told {
-        eprintln!("[editor] couldn't tell the page: {e}");
+        logln!("[editor] couldn't tell the page: {e}");
     }
     if !add {
         crate::check::opened(app, id);
@@ -379,7 +385,7 @@ pub fn ask_open(app: &AppHandle, add: bool) {
         .into_iter()
         .filter_map(|p| {
             p.into_path()
-                .map_err(|e| eprintln!("[editor] can't open the picked file: {e}"))
+                .map_err(|e| logln!("[editor] can't open the picked file: {e}"))
                 .ok()
         })
         .collect();

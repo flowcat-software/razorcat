@@ -148,7 +148,7 @@ fn convert(app: &AppHandle, path: &Path, kind: Kind) -> Result<Option<PathBuf>, 
     }
     match &result {
         Ok(Some(copy)) => {
-            eprintln!(
+            logln!(
                 "[convert] {} in {:.1} s: {}",
                 path.display(),
                 started.elapsed().as_secs_f64(),
@@ -159,7 +159,7 @@ fn convert(app: &AppHandle, path: &Path, kind: Kind) -> Result<Option<PathBuf>, 
             }
         }
         Ok(None) => {
-            eprintln!("[convert] stopped: {}", path.display());
+            logln!("[convert] stopped: {}", path.display());
             let _ = ConvertEnded {
                 name,
                 message: None,
@@ -167,7 +167,7 @@ fn convert(app: &AppHandle, path: &Path, kind: Kind) -> Result<Option<PathBuf>, 
             .emit_to(app, LABEL);
         }
         Err(e) => {
-            eprintln!("[convert] {}: {e}", path.display());
+            logln!("[convert] {}: {e}", path.display());
             let _ = ConvertEnded {
                 name: name.clone(),
                 message: Some(format!("{name} couldn't be converted to play here ({e}).")),
@@ -230,7 +230,7 @@ fn attempts(
             Ok(Outcome::Finished) => return Ok(Some(file)),
             Ok(Outcome::Stopped) => return Ok(None),
             Err(e) => {
-                eprintln!("[convert] {recipe} {codecs:?} failed: {e}");
+                logln!("[convert] {recipe} {codecs:?} failed: {e}");
                 last_error = e;
             }
         }

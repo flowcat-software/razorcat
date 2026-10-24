@@ -137,7 +137,7 @@ pub fn take(app: &AppHandle, marks: Vec<ExportMark>) -> Result<Markup, String> {
         std::fs::write(&path, bytes).map_err(|e| format!("The markup couldn't be kept ({e})."))?;
         markup.items.push(MarkFile { path, mark });
     }
-    eprintln!("[export] {} markup items", markup.items.len());
+    logln!("[export] {} markup items", markup.items.len());
     Ok(markup)
 }
 
