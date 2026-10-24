@@ -35,6 +35,8 @@ interface Props {
   gain?: number;
   /** Its hint in the status bar (PLAN 4.6b; else the plain number's). */
   hint?: ControlHint;
+  /** More about the value, in its tooltip (a clip's Length: the source's). */
+  about?: string;
 }
 
 const readNumber = (text: string) => {
@@ -66,6 +68,7 @@ export function NumberField({
   width,
   gain = 1,
   hint = "number",
+  about,
 }: Props) {
   /** What's typed, until Enter or leaving the field sets it (Esc drops it). */
   const [typed, setTyped] = useState<string | null>(null);
@@ -181,14 +184,19 @@ export function NumberField({
   };
 
   return (
-    <label className={styles.field} {...hintFor(hint)}>
+    <label className={styles.field} title={about} {...hintFor(hint)}>
       {label}
       <input
         className={styles.numberField}
         data-dragging={dragging || undefined}
         inputMode="numeric"
         aria-label={name ?? label}
-        title={`Drag left or right to change (Shift: ${shift.label}) · click to type`}
+        title={`${
+          about
+            ? `${about}
+`
+            : ""
+        }Drag left or right to change (Shift: ${shift.label}) · click to type`}
         style={width ? { width } : undefined}
         value={typed ?? format(value)}
         onPointerDown={onPointerDown}

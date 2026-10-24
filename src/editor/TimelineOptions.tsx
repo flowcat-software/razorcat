@@ -21,6 +21,7 @@ import {
 } from "./doc";
 import { useDoc } from "./docStore";
 import { NumberField } from "./NumberField";
+import { useSqueeze } from "./squeeze";
 import type { Player } from "./player";
 import { needsHours, parseTimecode, timecode } from "./timecode";
 import styles from "./EditorApp.module.css";
@@ -68,11 +69,15 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
   const selectedMarks = useDoc((s) => s.selectedMarks);
   const selectedClips = useDoc((s) => s.selectedClips);
   const pendingIn = useDoc((s) => s.pendingIn);
+  /** Narrow windows: the summary gives way, then the text, then the spacing. */
+  const bar = useSqueeze(2);
   if (!source) {
     return (
-      <div className={styles.timelineOptions}>
-        Open a video, then split with S, mark ranges with R, and trim by dragging a clip&apos;s
-        edge.
+      <div ref={bar} className={styles.timelineOptions}>
+        <span className={styles.optionsText}>
+          Open a video, then split with S, mark ranges with R, and trim by dragging a clip&apos;s
+          edge.
+        </span>
       </div>
     );
   }
@@ -241,17 +246,19 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
   const object = kept?.object;
   const fades = mark && markFades(kept ?? {}, mark.end - mark.start);
   return (
-    <div className={styles.timelineOptions}>
+    <div ref={bar} className={styles.timelineOptions}>
       {pendingIn !== null ? (
         <>
           <b>Range</b>
           <Field label="In" value={fmt(pendingIn)} />
-          <span>O sets the out at the playhead · drag the dashed line to adjust · Esc cancels</span>
+          <span className={styles.optionsText}>
+            O sets the out at the playhead · drag the dashed line to adjust · Esc cancels
+          </span>
         </>
       ) : marks.length > 1 ? (
         <>
           <b>Markup</b>
-          <span>
+          <span className={styles.optionsText}>
             {marks.length} selected · drag one to move them all · Ctrl or Shift+click adds or takes
             one out · Delete removes them
           </span>
@@ -346,9 +353,9 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
             label="Length"
             value={clipLength(selected)}
             onChange={(v) => clipLengthTo(selected.id, v)}
+            about={`Of the source's ${fmt(sourceLength(doc, selected))}`}
             {...time}
           />
-          <span>of the source&apos;s {fmt(sourceLength(doc, selected))}</span>
           <span className={styles.optionsSep} />
           <NumberField
             label="Fade in"
@@ -385,7 +392,7 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
           )}
         </>
       ) : (
-        <span>
+        <span className={styles.optionsText}>
           Drag a clip&apos;s edge to trim it · its title bar to move it · <b>S</b> splits · <b>R</b>{" "}
           or <b>I</b>/<b>O</b> add a range
         </span>

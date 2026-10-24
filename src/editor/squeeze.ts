@@ -1,4 +1,4 @@
-import { useLayoutEffect, type RefObject } from "react";
+import { useCallback } from "react";
 
 /** What `squeeze` needs of a bar: its widths, and the attribute its CSS reads. */
 interface Bar {
@@ -24,22 +24,25 @@ export function squeeze(bar: Bar, steps: number): number {
 
 /**
  * Keeps a bar squeezed just enough to fit (`squeeze`) as the window resizes and as buttons come
- * and go. It runs before the frame is painted, so the bar never shows cut off.
+ * and go: the ref to put on the bar (any element it renders, swapped or not). It runs as the bar
+ * is put on the page, before the frame is painted, so the bar never shows cut off.
  */
-export function useSqueeze(ref: RefObject<HTMLElement | null>, steps: number) {
-  useLayoutEffect(() => {
-    const bar = ref.current;
-    if (!bar) return;
-    const fit = () => squeeze(bar, steps);
-    fit();
-    const resized = new ResizeObserver(fit);
-    resized.observe(bar);
-    // Buttons that appear with a selection; the text that changes (the readout) doesn't count.
-    const changed = new MutationObserver(fit);
-    changed.observe(bar, { childList: true, subtree: true });
-    return () => {
-      resized.disconnect();
-      changed.disconnect();
-    };
-  }, [ref, steps]);
+export function useSqueeze(steps: number) {
+  return useCallback(
+    (bar: HTMLElement | null) => {
+      if (!bar) return;
+      const fit = () => squeeze(bar, steps);
+      fit();
+      const resized = new ResizeObserver(fit);
+      resized.observe(bar);
+      // Buttons that appear with a selection; the text that changes (the readout) doesn't count.
+      const changed = new MutationObserver(fit);
+      changed.observe(bar, { childList: true, subtree: true });
+      return () => {
+        resized.disconnect();
+        changed.disconnect();
+      };
+    },
+    [steps],
+  );
 }

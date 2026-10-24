@@ -299,8 +299,7 @@ export function TimelineBar({ source, player, inFrames, onToggleFrames }: Props)
   const deletesAll = useDoc((s) => s.selectedClips.length >= s.doc.clips.length);
   /** The Export… button's menu (the clip or clips, as MP4 or GIF), where it opens. */
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const bar = useRef<HTMLDivElement>(null);
-  useSqueeze(bar, 4);
+  const bar = useSqueeze(4);
   return (
     <div ref={bar} className={styles.timelineBar}>
       <Readout source={source} frame={frame} inFrames={inFrames} onToggle={onToggleFrames} />

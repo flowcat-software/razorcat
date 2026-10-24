@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { commands, type Settings } from "../shared/ipc";
 import { canRedo, canUndo, useDoc } from "./docStore";
 import { muteSound } from "./edits";
@@ -140,8 +140,7 @@ const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
 export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }: Props) {
   const tool = useTool((s) => s.tool);
   /** Narrow windows: the buttons drop their labels, then the tools close up (two steps). */
-  const bar = useRef<HTMLDivElement>(null);
-  useSqueeze(bar, 3);
+  const bar = useSqueeze(3);
   const undoable = useDoc(canUndo);
   const redoable = useDoc(canRedo);
   const selected = useDoc((s) => s.selected);
