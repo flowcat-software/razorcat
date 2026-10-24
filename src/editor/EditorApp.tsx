@@ -7,7 +7,14 @@ import { useMarkupKeys } from "../markup/useMarkupKeys";
 import { applyStyleSettings, loadFonts } from "../markup/useStyleSettings";
 import { ConfirmDialog } from "../settings/controls/ConfirmDialog";
 import { isTyping } from "../shared/dom";
-import { commands, events, type Settings, type SourceInfo, type ThumbsInfo } from "../shared/ipc";
+import {
+  commands,
+  events,
+  type CheckFrames,
+  type Settings,
+  type SourceInfo,
+  type ThumbsInfo,
+} from "../shared/ipc";
 import { CommandBar } from "./CommandBar";
 import { useToolKeys } from "./cropTool";
 import { EmptyEditor } from "./EmptyEditor";
@@ -40,6 +47,7 @@ import {
   onExportFailed,
 } from "./exports";
 import { checkFrames } from "./frameCheck";
+import { checkLayout } from "./layoutCheck";
 import { FrameOptions } from "./FrameOptions";
 import { playbackGain, usePlayback } from "./playback";
 import { Player } from "./player";
@@ -225,7 +233,7 @@ export function EditorApp() {
   /** Settings › General › Show thumbnails (made from proxies, so not without them). */
   const [showThumbs, setShowThumbs] = useState(true);
   /** Development: the source to check (`--check-frames`, check.rs), once it's open. */
-  const [checkFor, setCheckFor] = useState<{ source: string; edit: boolean } | null>(null);
+  const [checkFor, setCheckFor] = useState<CheckFrames | null>(null);
   /** The settings, as Rust last sent them (the export menu's toggle reads and sets them). */
   const [settings, setSettings] = useState<Settings | null>(null);
   /** Settings › Timeline › Show waveform. */
@@ -496,13 +504,24 @@ export function EditorApp() {
     };
   }, []);
 
-  // Development: the preview = export check, on the source it was asked for.
+  // Development: the preview = export check, or the layout check, on the source it was asked
+  // for.
   const checked = useRef<typeof checkFor>(null);
   useEffect(() => {
     if (!player || !source || checkFor?.source !== source.id || checked.current === checkFor)
       return;
     checked.current = checkFor;
     let gone = false;
+    if (checkFor.layout) {
+      checkLayout(player, source, (text) => !gone && setNotice({ text }))
+        .then((summary) => setNotice({ text: `Layout check: ${summary}` }))
+        .catch((e: unknown) => {
+          if (!gone) setNotice({ text: `Layout check failed: ${String(e)}`, error: true });
+        });
+      return () => {
+        gone = true;
+      };
+    }
     checkFrames(
       player,
       source,

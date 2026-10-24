@@ -16,7 +16,7 @@ use crate::state::AppState;
 
 pub const LABEL: &str = "editor";
 const SIZE: (f64, f64) = (1280.0, 800.0);
-const MIN_SIZE: (f64, f64) = (720.0, 480.0);
+pub(crate) const MIN_SIZE: (f64, f64) = (720.0, 480.0);
 
 /// What the Open dialog offers. MP4 and MOV open directly; the rest are converted on open
 /// (Phase 1.6). Keep in step with `windows/hooks.nsh` ("Open with").

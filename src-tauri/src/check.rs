@@ -3,7 +3,9 @@
 //! over it, reading the barcode of the frame on screen; `--check-edit` does it on an edited
 //! timeline (clips cut out and moved, and the file added again as a second one, PLAN 4.5e),
 //! plays across the cuts, and exports it (export = preview), then again cropped, and with test
-//! markup (PLAN 4.3c), read at points of the picture.
+//! markup (PLAN 4.3c), read at points of the picture. `--check-layout` sets the window to its
+//! smallest and the page steps through the editor's states, reporting what a bar cuts off
+//! (small windows, S4).
 //! Here: the frames export would pick (the `fps` filter over the original, as export reads it),
 //! the edit's export read back frame by frame, and the report. Release builds do none of it.
 
@@ -31,6 +33,8 @@ const BITS: usize = 16;
 static PENDING: AtomicBool = AtomicBool::new(false);
 /// ...on an edited timeline.
 static EDITED: AtomicBool = AtomicBool::new(false);
+/// ...for its layout at the smallest window, not its frames.
+static LAYOUT: AtomicBool = AtomicBool::new(false);
 
 /// Rust → editor: check the source just opened.
 #[derive(Clone, Serialize, Type, Event)]
@@ -40,6 +44,8 @@ pub struct CheckFrames {
     pub source: String,
     /// Edit the timeline first, and play across the cuts.
     pub edit: bool,
+    /// Check the layout at the smallest window instead.
+    pub layout: bool,
 }
 
 /// A launch's arguments ask for a check (development builds only): true if they do.
@@ -48,10 +54,12 @@ pub fn requested(args: &[String]) -> bool {
         return false;
     }
     let edit = args.iter().any(|a| a == "--check-edit");
-    let asked = edit || args.iter().any(|a| a == "--check-frames");
+    let layout = args.iter().any(|a| a == "--check-layout");
+    let asked = edit || layout || args.iter().any(|a| a == "--check-frames");
     if asked {
         PENDING.store(true, Ordering::Relaxed);
         EDITED.store(edit, Ordering::Relaxed);
+        LAYOUT.store(layout, Ordering::Relaxed);
     }
     asked
 }
@@ -60,7 +68,20 @@ pub fn requested(args: &[String]) -> bool {
 pub fn opened(app: &AppHandle, id: String) {
     if PENDING.swap(false, Ordering::Relaxed) {
         let edit = EDITED.load(Ordering::Relaxed);
-        let _ = CheckFrames { source: id, edit }.emit_to(app, LABEL);
+        let layout = LAYOUT.load(Ordering::Relaxed);
+        if layout {
+            if let Some(window) = app.get_webview_window(LABEL) {
+                let _ = window.unmaximize();
+                let (width, height) = crate::editor::MIN_SIZE;
+                let _ = window.set_size(tauri::LogicalSize::new(width, height));
+            }
+        }
+        let _ = CheckFrames {
+            source: id,
+            edit,
+            layout,
+        }
+        .emit_to(app, LABEL);
     }
 }
 

@@ -186,6 +186,8 @@ export type CheckFrames = {
 	source: string,
 	/**  Edit the timeline first, and play across the cuts. */
 	edit: boolean,
+	/**  Check the layout at the smallest window instead. */
+	layout: boolean,
 };
 
 /**  How the options bar shows the colors (PLAN 3D.16). */

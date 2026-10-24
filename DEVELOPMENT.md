@@ -56,6 +56,20 @@ grid frame. The result shows in the status bar; the mismatches go to
 `%TEMP%\razorcat-check-<file>.json`. Development builds only. Run it after changing the player,
 the proxy or the frame grid.
 
+The layout check proves nothing is cut off in the smallest window:
+
+```powershell
+src-tauri\target\debug\razorcat.exe --check-layout spikes\media\no-audio-720p30.mp4
+```
+
+sets the editor to its minimum size (720 × 480), opens the clip in place of the timeline, and
+steps through the editor's states (each tool, grow with every side coloured, clip, range and
+markup selections, several selected), measuring each bar (`src/editor/layoutCheck.ts`).
+Anything reaching past a bar's edge, text clipped without an ellipsis, or a bar pushed below
+the window counts as cut off; text shortened with an ellipsis is listed apart. Same report
+file. Run it after adding to a bar; a new state worth checking goes in `checkLayout`. The
+bars squeeze to fit through `src/editor/squeeze.ts`.
+
 The dev app keeps proxies, converted copies, thumbnails and waveforms in
 `%LOCALAPPDATA%\com.razorcat.desktop.dev\proxies\` (Settings › Proxies can move it).
 
