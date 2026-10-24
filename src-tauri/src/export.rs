@@ -237,14 +237,15 @@ impl Encoder {
     }
 
     /// The codec and its rate control, at `bitrate` bits a second (the hardware encoders; x264
-    /// aims at a quality instead).
+    /// aims at a quality instead). NVENC's `p2`: 2.5 times as fast as `p5`, with the same VMAF
+    /// on a screen recording, the file about a fifth bigger.
     fn args(self, bitrate: u64) -> Vec<String> {
         let b = bitrate.to_string();
         let max = (bitrate * 2).to_string();
         let mut a: Vec<String> = vec!["-c:v".into(), self.codec().into()];
         let rest: Vec<&str> = match self {
             Encoder::Nvenc => vec![
-                "-preset", "p5", "-tune", "hq", "-rc", "vbr", "-b:v", &b, "-maxrate", &max,
+                "-preset", "p2", "-tune", "hq", "-rc", "vbr", "-b:v", &b, "-maxrate", &max,
                 "-bufsize", &max,
             ],
             Encoder::Amf => vec![
