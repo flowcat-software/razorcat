@@ -8,6 +8,7 @@ import {
   GeneralIcon,
   MarkupIcon,
   ProxiesIcon,
+  RecordIcon,
   TimelineIcon,
 } from "./icons";
 import type { Section } from "./schema";
@@ -701,6 +702,29 @@ export const sections: Section[] = [
               { value: 0, label: "Original" },
             ],
             keywords: ["gif", "size", "width", "height", "resolution", "pixels", "export"],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "recording",
+    title: "Recording",
+    icon: RecordIcon,
+    description: "Where screen recordings go.",
+    groups: [
+      {
+        title: "Files",
+        items: [
+          {
+            id: "recordingFolder",
+            kind: "folder",
+            path: "recording.folder",
+            label: "Folder",
+            description:
+              "Where screen recordings are saved, named by the date and time they were made. They open in Razorcat when you stop.",
+            defaultFolder: commands.defaultRecordingFolder,
+            keywords: ["recording", "record", "screen", "capture", "folder", "location", "path"],
           },
         ],
       },

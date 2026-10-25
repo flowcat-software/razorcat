@@ -1,0 +1,63 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 100vh;
+  padding: 0 6px 0 14px;
+  box-sizing: border-box;
+  background: var(--surface, #1f1f1f);
+  color: var(--text, #f2f2f2);
+  font:
+    600 13px "Segoe UI Variable Text",
+    "Segoe UI",
+    system-ui;
+  border: 1px solid var(--border, rgb(255 255 255 / 0.12));
+  cursor: default;
+  user-select: none;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e5484d;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.time {
+  flex: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: #e5484d;
+  color: #fff;
+  font: inherit;
+}
+
+.stop:hover:not(:disabled) {
+  background: #d13a40;
+}
+
+.stop:disabled {
+  opacity: 0.7;
+}
+
+.stop svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}

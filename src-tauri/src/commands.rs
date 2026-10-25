@@ -232,6 +232,31 @@ pub fn cancel_conversion(app: AppHandle) {
     crate::convert::cancel(&app);
 }
 
+/// Records the monitor the editor is on (PLAN 5b.2); `add` puts the recording on the end of the
+/// timeline when done, else it replaces it. [`crate::recording::RecordingChanged`] says how it
+/// went. An error if one is under way.
+#[tauri::command]
+#[specta::specta]
+pub fn start_recording(app: AppHandle, add: bool) -> Result<(), String> {
+    crate::recording::start(&app, add)
+}
+
+/// Stops the recording (the control's Stop): its file is finished and opened.
+#[tauri::command]
+#[specta::specta]
+pub fn stop_recording(app: AppHandle) {
+    crate::recording::stop(&app);
+}
+
+/// Where recordings go when Settings › Recording › Folder is empty.
+#[tauri::command]
+#[specta::specta]
+pub fn default_recording_folder(app: AppHandle) -> String {
+    crate::recording::default_folder(&app)
+        .map(|p| crate::paths::for_settings(&p.to_string_lossy()))
+        .unwrap_or_default()
+}
+
 /// Exports the timeline (`clip` None) or one clip (`clip`, its number) as MP4 or GIF, with
 /// `marks` (their pixels POSTed just before, markup.rs): the Save
 /// dialog, then the export on a thread ([`crate::export::ExportProgress`], then

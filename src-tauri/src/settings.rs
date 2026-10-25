@@ -40,6 +40,8 @@ pub struct Settings {
     pub styles: Styles,
     /// How exports come out (export.rs).
     pub export: Export,
+    /// Screen recording (recording.rs, PLAN 5b).
+    pub recording: Recording,
     /// The preview's sound (PLAN 5a), as the timeline bar's speaker and slider left it.
     pub playback: Playback,
     /// Settings › About › Debugging.
@@ -57,6 +59,7 @@ impl Default for Settings {
             markup: Markup::default(),
             styles: Styles::default(),
             export: Export::default(),
+            recording: Recording::default(),
             playback: Playback::default(),
             debugging: Debugging::default(),
         }
@@ -72,6 +75,14 @@ pub struct Playback {
     pub volume: f64,
     /// Muted by the speaker (off by default).
     pub muted: bool,
+}
+
+/// Settings › Recording (PLAN 5b).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Recording {
+    /// Where recordings go, `%VARS%` allowed; empty: the Videos folder's Razorcat\Recordings.
+    pub folder: String,
 }
 
 /// Settings › About › Debugging.

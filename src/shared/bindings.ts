@@ -94,6 +94,16 @@ export const commands = {
 	/**  The status bar's Cancel: stops the conversion under way. */
 	cancelConversion: () => __TAURI_INVOKE<void>("cancel_conversion"),
 	/**
+	 *  Records the monitor the editor is on (PLAN 5b.2); `add` puts the recording on the end of the
+	 *  timeline when done, else it replaces it. [`crate::recording::RecordingChanged`] says how it
+	 *  went. An error if one is under way.
+	 */
+	startRecording: (add: boolean) => typedError<null, string>(__TAURI_INVOKE("start_recording", { add })),
+	/**  Stops the recording (the control's Stop): its file is finished and opened. */
+	stopRecording: () => __TAURI_INVOKE<void>("stop_recording"),
+	/**  Where recordings go when Settings › Recording › Folder is empty. */
+	defaultRecordingFolder: () => __TAURI_INVOKE<string>("default_recording_folder"),
+	/**
 	 *  Exports the timeline (`clip` None) or one clip (`clip`, its number) as MP4 or GIF, with
 	 *  `marks` (their pixels POSTed just before, markup.rs): the Save
 	 *  dialog, then the export on a thread ([`crate::export::ExportProgress`], then
@@ -152,6 +162,7 @@ export const events = {
 	proxyProgress: makeEvent<ProxyProgress>("proxy-progress"),
 	proxyReady: makeEvent<ProxyReady>("proxy-ready"),
 	proxyStopped: makeEvent<ProxyStopped>("proxy-stopped"),
+	recordingChanged: makeEvent<RecordingChanged>("recording-changed"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	sourceAdded: makeEvent<SourceAdded>("source-added"),
 	sourceConverted: makeEvent<SourceConverted>("source-converted"),
@@ -568,6 +579,21 @@ export type ProxyStopped = {
 	source: string,
 };
 
+/**  Settings › Recording (PLAN 5b). */
+export type Recording = {
+	/**  Where recordings go, `%VARS%` allowed; empty: the Videos folder's Razorcat\Recordings. */
+	folder?: string,
+};
+
+/**
+ *  Rust → editor: a recording started, or ended (`message` if it failed: the recording, if any,
+ *  opens on its own).
+ */
+export type RecordingChanged = {
+	recording: boolean,
+	message: string | null,
+};
+
 /**  How a redaction hides what's under it (Razorcat has no Solid: a filled rectangle does that). */
 export type RedactMode = "pixelate" | "blur";
 
@@ -586,6 +612,8 @@ export type Settings = {
 	styles?: Styles,
 	/**  How exports come out (export.rs). */
 	export?: Export,
+	/**  Screen recording (recording.rs, PLAN 5b). */
+	recording?: Recording,
 	/**  The preview's sound (PLAN 5a), as the timeline bar's speaker and slider left it. */
 	playback?: Playback,
 	/**  Settings › About › Debugging. */

@@ -192,6 +192,13 @@ export function EditorApp() {
   /** A file has sound, for M and Shift+M to mute. */
   const audio = sources.some((s) => s.audioTracks > 0);
   const [notice, setNotice] = useState<Notice | null>(null);
+  /** A screen recording is under way (PLAN 5b; recording.rs). */
+  const [recording, setRecording] = useState(false);
+  /** Records the screen: the recording goes on the timeline's end (`add`) or replaces it. */
+  const record = (add: boolean) =>
+    void commands.startRecording(add).then((r) => {
+      if (r.status === "error") setNotice({ text: r.error, error: true });
+    });
   /**
    * A question before the timeline is replaced (PLAN 4.5e3): Open with edits on it, or a file
    * dropped on it (add or replace).
@@ -199,6 +206,8 @@ export function EditorApp() {
   const [asking, setAsking] = useState<
     | { open: true }
     | { offered: string[] }
+    /** Record: the recording replaces the timeline, or goes on its end. */
+    | { record: true }
     /** The first export: save to a default folder? `folder` as the setting holds it. */
     | { folder: string; go: () => void }
     | null
@@ -445,6 +454,10 @@ export function EditorApp() {
       events.openFailed.listen(({ payload }) => {
         setConverting(null);
         setNotice({ text: payload.message, error: true });
+      }),
+      events.recordingChanged.listen(({ payload }) => {
+        setRecording(payload.recording);
+        if (payload.message) setNotice({ text: payload.message, error: true });
       }),
       events.proxyProgress.listen(({ payload }) => {
         const done = payload.done ?? 0;
@@ -732,6 +745,12 @@ export function EditorApp() {
         settings={settings}
         onOpen={replace}
         onAdd={addVideo}
+        recording={recording}
+        onRecord={() => {
+          if (recording) void commands.stopRecording();
+          else if (source) setAsking({ record: true });
+          else record(false);
+        }}
       />
       <FrameOptions source={source} sources={sources} settings={settings} />
       <div className={styles.preview}>
@@ -815,6 +834,30 @@ export function EditorApp() {
             <strong>{folderLabel(asking.folder)}</strong>
           </p>
           <p>Settings › Export changes this later. Not now keeps the Save dialog.</p>
+        </ConfirmDialog>
+      )}
+      {asking && "record" in asking && (
+        <ConfirmDialog
+          title="Add the recording to the timeline, or replace it?"
+          confirm="Add"
+          onConfirm={() => {
+            setAsking(null);
+            record(true);
+          }}
+          onCancel={() => setAsking(null)}
+          other={{
+            label: "Replace",
+            onClick: () => {
+              setAsking(null);
+              record(false);
+            },
+          }}
+        >
+          <p>
+            When you stop, the recording goes after the clips on the timeline, or replaces the
+            timeline.
+          </p>
+          {edited() && <p>Replacing loses the timeline&apos;s edits.</p>}
         </ConfirmDialog>
       )}
       {asking && "offered" in asking && (

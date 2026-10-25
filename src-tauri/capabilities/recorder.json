@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "recorder",
+  "description": "The recording's floating control (recording.rs): moved by dragging it. Stop goes through a Rust command.",
+  "windows": ["recorder"],
+  "permissions": ["core:window:allow-start-dragging"]
+}

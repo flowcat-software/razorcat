@@ -17,6 +17,7 @@ export default defineConfig(() => ({
       input: {
         editor: page("editor"),
         settings: page("settings"),
+        recorder: page("recorder"),
       },
     },
   },

@@ -22,6 +22,10 @@ interface Props {
   onOpen: () => void;
   /** Add Video: a file on the end of the timeline (PLAN 4.5e). */
   onAdd: () => void;
+  /** A screen recording is under way (PLAN 5b): Record stops it. */
+  recording: boolean;
+  /** Record the screen, or stop recording. */
+  onRecord: () => void;
 }
 
 /**
@@ -137,7 +141,16 @@ const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
 ];
 
 /** The editor's top row: the picture's tools on the left, file actions on the right. */
-export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }: Props) {
+export function CommandBar({
+  empty,
+  exporting,
+  audio,
+  settings,
+  onOpen,
+  onAdd,
+  recording,
+  onRecord,
+}: Props) {
   const tool = useTool((s) => s.tool);
   /** Narrow windows: the buttons drop their labels, then the tools close up (two steps). */
   const bar = useSqueeze(3);
@@ -266,6 +279,26 @@ export function CommandBar({ empty, exporting, audio, settings, onOpen, onAdd }:
         </button>
       </div>
       <span className={styles.spacer} />
+      <button
+        type="button"
+        className={styles.button}
+        aria-label={recording ? "Stop recording" : "Record the screen"}
+        title={recording ? "Stop recording and open it" : "Record the screen this window is on"}
+        {...hint(recording ? "recordStop" : "record")}
+        onClick={onRecord}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden>
+          {recording ? (
+            <rect x="7" y="7" width="10" height="10" rx="2" fill="#e5484d" stroke="none" />
+          ) : (
+            <>
+              <circle cx="12" cy="12" r="8" />
+              <circle cx="12" cy="12" r="3.5" fill="#e5484d" stroke="none" />
+            </>
+          )}
+        </svg>
+        <span className={styles.label}>{recording ? "Stop" : "Record"}</span>
+      </button>
       <button
         type="button"
         className={styles.button}

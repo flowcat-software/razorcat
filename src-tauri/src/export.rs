@@ -241,7 +241,7 @@ impl Encoder {
         Encoder::X264,
     ];
 
-    fn codec(self) -> &'static str {
+    pub(crate) fn codec(self) -> &'static str {
         match self {
             Encoder::Nvenc => "h264_nvenc",
             Encoder::Amf => "h264_amf",
@@ -252,7 +252,7 @@ impl Encoder {
     }
 
     /// Media Foundation, AMF and QSV want NV12 frames.
-    fn pixels(self) -> &'static str {
+    pub(crate) fn pixels(self) -> &'static str {
         match self {
             Encoder::Amf | Encoder::Qsv | Encoder::MediaFoundation => "nv12",
             Encoder::Nvenc | Encoder::X264 => "yuv420p",
@@ -262,7 +262,7 @@ impl Encoder {
     /// The codec and its rate control, at `bitrate` bits a second (the hardware encoders; x264
     /// aims at a quality instead). NVENC's `p2`: 2.5 times as fast as `p5`, with the same VMAF
     /// on a screen recording, the file about a fifth bigger.
-    fn args(self, bitrate: u64) -> Vec<String> {
+    pub(crate) fn args(self, bitrate: u64) -> Vec<String> {
         let b = bitrate.to_string();
         let max = (bitrate * 2).to_string();
         let mut a: Vec<String> = vec!["-c:v".into(), self.codec().into()];
@@ -285,7 +285,7 @@ impl Encoder {
 
 /// The bitrate for a picture `width` × `height` at `fps`: about 6 Mbit/s at 1080p30, and in
 /// proportion (spike 0.3: hardware encoders score 99+ VMAF there).
-fn bitrate(width: u32, height: u32, fps: f64) -> u64 {
+pub(crate) fn bitrate(width: u32, height: u32, fps: f64) -> u64 {
     let bits = f64::from(width) * f64::from(height) * fps * 0.1;
     (bits as u64).clamp(2_000_000, 80_000_000)
 }
@@ -1211,7 +1211,7 @@ fn encodes(encoder: Encoder) -> bool {
 }
 
 /// The encoders to try, best first (found at startup; found now if that isn't done yet).
-fn encoders(app: &AppHandle) -> Vec<Encoder> {
+pub(crate) fn encoders(app: &AppHandle) -> Vec<Encoder> {
     if let Some(found) = app.state::<AppState>().encoders.lock().unwrap().clone() {
         return found;
     }

@@ -91,6 +91,9 @@ export const CONTROL_HINTS = {
   // Razorcat's own controls (PLAN 4.6b).
   open: "[Ctrl+O] Open a video in place of the timeline · or drop one on the window",
   addVideo: "[Ctrl+Shift+O] Add a video to the end of the timeline · or drop one on a cut",
+  record:
+    "Record the screen this window is on · Razorcat steps aside, and the recording opens when you stop",
+  recordStop: "Stop recording: the recording opens",
   export: "[Ctrl+E] Export the timeline as MP4",
   exportMenu:
     "Export a GIF, each clip on its own, or the selected clips · and the export's settings",

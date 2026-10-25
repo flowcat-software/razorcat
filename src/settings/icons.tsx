@@ -60,6 +60,16 @@ export function ExportIcon() {
   );
 }
 
+/** A record button: recording. */
+export function RecordIcon() {
+  return (
+    <svg {...props}>
+      <circle cx="8" cy="8" r="5.8" />
+      <circle cx="8" cy="8" r="2.4" />
+    </svg>
+  );
+}
+
 export function AboutIcon() {
   return (
     <svg {...props}>
