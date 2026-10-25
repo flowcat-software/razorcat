@@ -52,6 +52,15 @@ import { FrameOptions } from "./FrameOptions";
 import { playbackGain, usePlayback } from "./playback";
 import { Player } from "./player";
 import { Preview } from "./Preview";
+import {
+  cancelRender,
+  clipOf,
+  playedClip,
+  renderSources,
+  startReversals,
+  useReverse,
+  type Render,
+} from "./reverse";
 import { StatusBar, type Notice } from "./StatusBar";
 import { TIMELINE_H, Timeline } from "./Timeline";
 import { TimelineBar } from "./TimelineBar";
@@ -71,8 +80,22 @@ const addVideo = () => void commands.openDialog(true);
 /** Thumbnails are made from proxies: none without them. */
 const thumbsOn = (s: Settings) => s.timeline.thumbnails && s.proxies.enabled;
 
-/** The edit as the player plays it: each clip from after its crossfade (`playedClips`). */
-const played = (doc: Doc) => ({ clips: playedClips(doc), muted: doc.muted });
+/**
+ * The edit as the player plays it: each clip from after its crossfade (`playedClips`), a reversed
+ * one from its render once it's ready (reverse.ts).
+ */
+const played = (doc: Doc) => ({
+  clips: playedClips(doc).map((c) => playedClip(c)),
+  muted: doc.muted,
+});
+
+/** The renders that are ready, as a key that changes only when they do. */
+const readyKey = (renders: Readonly<Record<string, Render>>) =>
+  Object.values(renders)
+    .filter((r) => r.ready)
+    .map((r) => r.id)
+    .sort()
+    .join();
 
 /** Settings › Timeline › Ranges and markup: how they take edits of the clips. */
 const rangeOptions = (s: Settings) =>
@@ -293,10 +316,18 @@ export function EditorApp() {
     };
   }, []);
 
-  // Each file is a deck of the player's.
+  // Each file is a deck of the player's, and so is each reversed render once it's ready
+  // (reverse.ts).
+  const renders = useReverse((s) => s.renders);
+  const ready = readyKey(renders);
+  const decks = useMemo(
+    () => [...sources, ...renderSources(sources, useReverse.getState().renders)],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `ready` stands for the renders
+    [sources, ready],
+  );
   useEffect(() => {
-    sources.forEach((s) => player?.addSource(s.id, s.framesUrl));
-  }, [player, sources]);
+    decks.forEach((s) => player?.addSource(s.id, s.framesUrl));
+  }, [player, decks]);
 
   // A new first file starts a new edit: the whole of it, one clip (and, the page reloaded, the
   // others after it). The same file converted to play here keeps its edit.
@@ -318,14 +349,44 @@ export function EditorApp() {
     useTool.getState().setPortrait(sourceHeight > sourceWidth);
   }, [sourceId, sourceFrames, sourceWidth, sourceHeight]);
 
-  // The player plays the edit (after the load above, so never another source's).
+  // The player plays the edit (after the load above, so never another source's), and again
+  // when a reversed clip's render is ready.
   useEffect(() => {
     if (!player) return;
     player.setEdit(played(useDoc.getState().doc));
-    return useDoc.subscribe((s, before) => {
+    const stopDoc = useDoc.subscribe((s, before) => {
       if (s.doc !== before.doc) player.setEdit(played(s.doc));
     });
+    const stopRenders = useReverse.subscribe((s, before) => {
+      if (readyKey(s.renders) !== readyKey(before.renders)) {
+        player.setEdit(played(useDoc.getState().doc));
+      }
+    });
+    return () => {
+      stopDoc();
+      stopRenders();
+    };
   }, [player]);
+
+  // Reversed clips get their renders, as the edit settles (reverse.ts).
+  useEffect(
+    () =>
+      startReversals((id) => {
+        const s = latest.current.find((k) => k.id === id);
+        return s ? s.rateNum / s.rateDen : null;
+      }),
+    [],
+  );
+  // A render that failed says so.
+  useEffect(
+    () =>
+      useReverse.subscribe(({ failed }) => {
+        if (!failed) return;
+        setNotice({ text: failed, error: true });
+        useReverse.setState({ failed: null });
+      }),
+    [],
+  );
 
   useEffect(() => {
     if (!player) return;
@@ -710,6 +771,17 @@ export function EditorApp() {
       .map((s) => ({
         text: `Preparing fast stepping${sources.length > 1 ? ` for ${s.name}` : ""}… ${Math.floor((proxies[s.id].done ?? 0) * 100)}%`,
       }))[0] ?? null;
+  // A reversed clip's render being made, with Cancel (PLAN §7, Clip speed SP8), which an export
+  // may be waiting for (SP10).
+  const exportWaiting = useReverse((s) => s.exportWaiting);
+  const rendering = Object.values(renders).find((r) => !r.ready);
+  const renderClip = rendering && clipOf(rendering, useDoc.getState().doc);
+  const reversing: Notice | null = rendering
+    ? {
+        text: `Reversing ${renderClip ? `clip ${renderClip}` : "a clip"}… ${Math.floor(rendering.done * 100)}% · ${exportWaiting ? "the export starts when it's done" : "it plays choppy and silent till then"}`,
+        action: { label: "Cancel", run: () => cancelRender(rendering.id) },
+      }
+    : null;
   // A conversion's progress, with Cancel, comes first; then the proxy's until it's ready, unless
   // there's something to say.
   const exportNotice: Notice | null = exporting && {
@@ -742,7 +814,7 @@ export function EditorApp() {
       <div className={styles.preview}>
         {source ? (
           <Preview
-            sources={sources}
+            sources={decks}
             player={player!}
             proxyUrls={proxyUrls}
             onError={(text) => setNotice({ text, error: true })}
@@ -779,7 +851,7 @@ export function EditorApp() {
         )}
       </div>
       <StatusBar
-        notice={exportNotice ?? conversion ?? notice ?? making}
+        notice={exportNotice ?? conversion ?? notice ?? reversing ?? making}
         empty={empty}
         scrollHints={settings?.appearance.scrollHints ?? true}
       />

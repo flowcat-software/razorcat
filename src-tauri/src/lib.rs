@@ -20,6 +20,7 @@ mod paths;
 mod placement;
 mod protocol;
 mod proxy;
+mod reverse;
 mod scrub;
 mod settings;
 mod settings_window;
@@ -68,6 +69,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::frame_check_report,
             commands::convert_for_preview,
             commands::cancel_conversion,
+            commands::reverse_render,
+            commands::cancel_reverse,
             commands::export,
             commands::export_each,
             commands::cancel_export,
@@ -95,6 +98,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             proxy::ProxyReady,
             proxy::ProxyStopped,
             proxy::ProxyFailed,
+            reverse::ReverseProgress,
+            reverse::ReverseReady,
+            reverse::ReverseEnded,
             thumbs::ThumbsUpdate,
             wave::WaveReady,
             check::CheckFrames,

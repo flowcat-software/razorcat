@@ -232,6 +232,27 @@ pub fn cancel_conversion(app: AppHandle) {
     crate::convert::cancel(&app);
 }
 
+/// A reversed clip (PLAN §7, Clip speed SP8): `source`'s grid frames `from` to `to` reversed,
+/// ready if made already, else made in the background ([`crate::reverse::ReverseProgress`], then
+/// [`crate::reverse::ReverseReady`] or [`crate::reverse::ReverseEnded`]).
+#[tauri::command]
+#[specta::specta]
+pub fn reverse_render(
+    app: AppHandle,
+    source: String,
+    from: u32,
+    to: u32,
+) -> Result<crate::reverse::Reversed, String> {
+    crate::reverse::request(&app, &source, from, to)
+}
+
+/// Stops reversed render `id` being made (the status bar's Cancel, or no clip needs it).
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_reverse(id: String) {
+    crate::reverse::cancel(&id);
+}
+
 /// Exports the timeline (`clip` None) or one clip (`clip`, its number) as MP4 or GIF, with
 /// `marks` (their pixels POSTed just before, markup.rs): the Save
 /// dialog, then the export on a thread ([`crate::export::ExportProgress`], then

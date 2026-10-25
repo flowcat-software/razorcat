@@ -10,6 +10,9 @@
 //! thumbnails from `from` on (thumbs.rs), as many as are made. `/wave/{generation}` is its
 //! waveform's peaks (wave.rs), once made.
 //!
+//! `/reversed/{id}` is a reversed render (reverse.rs), once made, and `/reversed-frames/{id}` its
+//! frame times (as `/frames/`).
+//!
 //! `POST /markup/{id}`: the page sends an item of markup's pixels for the next export
 //! (markup.rs), raw straight-alpha RGBA.
 
@@ -60,6 +63,16 @@ pub fn wave_url(generation: u64) -> String {
     format!("http://{SCHEME}.localhost/wave/{generation}")
 }
 
+/// Where the page reads reversed render `id` (reverse.rs).
+pub fn reversed_url(id: &str) -> String {
+    format!("http://{SCHEME}.localhost/reversed/{id}")
+}
+
+/// Where the page reads reversed render `id`'s frame times.
+pub fn reversed_frames_url(id: &str) -> String {
+    format!("http://{SCHEME}.localhost/reversed-frames/{id}")
+}
+
 /// Thumbnails per response: the page asks again for more.
 const THUMBS_MAX: u64 = 100;
 
@@ -75,6 +88,9 @@ enum Route {
     Wave(u64),
     /// An item of markup's pixels, sent (POST).
     Markup(u32),
+    /// A reversed render, and its frame times (16 hex digits).
+    Reversed(String),
+    ReversedFrames(String),
 }
 
 pub fn handle<R: Runtime>(
@@ -130,6 +146,17 @@ pub fn handle<R: Runtime>(
                     None => reply(StatusCode::NOT_FOUND, vec![]),
                 }
             }
+            Some(Route::Reversed(id)) => match crate::reverse::file(&id) {
+                Some(file) => serve(&file, range(&req)).unwrap_or_else(|e| {
+                    logln!("[protocol] {}: {e}", file.display());
+                    reply(StatusCode::INTERNAL_SERVER_ERROR, vec![])
+                }),
+                None => reply(StatusCode::NOT_FOUND, vec![]),
+            },
+            Some(Route::ReversedFrames(id)) => match crate::reverse::times(&id) {
+                Some(times) => frames(&times),
+                None => reply(StatusCode::NOT_FOUND, vec![]),
+            },
             Some(Route::Frames(asked)) => {
                 let times = {
                     let sources = state.sources.lock().unwrap();
@@ -188,6 +215,15 @@ pub fn handle<R: Runtime>(
 /// generation and the first thumbnail.
 fn route(path: &str) -> Option<Route> {
     let (kind, rest) = path.strip_prefix('/')?.split_once('/')?;
+    if kind == "reversed" || kind == "reversed-frames" {
+        let id = (rest.len() == 16 && rest.chars().all(|c| c.is_ascii_hexdigit()))
+            .then(|| rest.to_string())?;
+        return Some(if kind == "reversed" {
+            Route::Reversed(id)
+        } else {
+            Route::ReversedFrames(id)
+        });
+    }
     if kind == "thumbs" {
         let (generation, from) = rest.split_once('/')?;
         return Some(Route::Thumbs(generation.parse().ok()?, from.parse().ok()?));
@@ -291,6 +327,17 @@ mod tests {
         assert_eq!(route("/thumbs/6/120"), Some(Route::Thumbs(6, 120)));
         assert_eq!(route("/wave/7"), Some(Route::Wave(7)));
         assert_eq!(route("/markup/8"), Some(Route::Markup(8)));
+        let id = "0912b2a2a5ad7664";
+        assert_eq!(
+            route(&format!("/reversed/{id}")),
+            Some(Route::Reversed(id.into()))
+        );
+        assert_eq!(
+            route(&format!("/reversed-frames/{id}")),
+            Some(Route::ReversedFrames(id.into()))
+        );
+        assert_eq!(route("/reversed/../x"), None);
+        assert_eq!(route("/reversed/0912b2a2a5ad766z"), None);
         assert_eq!(route("/thumbs/6"), None);
         assert_eq!(route("/thumbs/6/x"), None);
         assert_eq!(route("/source/x"), None);

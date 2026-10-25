@@ -19,6 +19,7 @@ import { growColour, growMode, NO_GROW, outputSize, SIDES } from "./frame";
 import { GrowOverlay } from "./GrowOverlay";
 import { RedactLayer } from "./RedactLayer";
 import type { Player } from "./player";
+import { playedClip } from "./reverse";
 import { isReversed, playbackRate, sourceFrame } from "./speed";
 import { useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
@@ -289,29 +290,31 @@ function CrossfadeMix({
       const { frame, speed } = player.getState();
       const fps = player.fps;
       const at = crossfadeAt(doc, frame);
-      const v = at && videos.current.get(at.clip.source);
-      const time = at && player.frameTime(at.clip.source, sourceFrame(at.clip, at.clip.in + at.k));
-      if (at && v && time !== null) {
+      // As it plays: a reversed clip from its render, once ready (reverse.ts).
+      const clip = at && playedClip(at.clip);
+      const v = clip && videos.current.get(clip.source);
+      const time = at && clip && player.frameTime(clip.source, sourceFrame(clip, clip.in + at.k));
+      if (at && clip && v && time !== null) {
         handing = null;
-        pauseOthers(at.clip.source);
+        pauseOthers(clip.source);
         const mix = crossfadeMix(at.k, at.length);
-        show(at.clip.source, mix);
+        show(clip.source, mix);
         // A reversed clip with no render yet is sought frame by frame, as the player does.
-        if (speed > 0 && !isReversed(at.clip)) {
+        if (speed > 0 && !isReversed(clip)) {
           // Started from where it was held ready, or sought if it's well off.
           const off = Math.abs(v.currentTime - time);
           if (v.paused ? off > 1.5 / fps : off > 0.25) v.currentTime = time;
-          v.playbackRate = playbackRate(at.clip, speed);
+          v.playbackRate = playbackRate(clip, speed);
           v.preservesPitch = player.keepPitch;
           v.muted = doc.muted || !!at.clip.muted;
           v.volume = mix * player.gain;
           if (v.paused) void v.play().catch(() => {});
-          ready = { source: at.clip.source, time };
+          ready = { source: clip.source, time };
         } else {
           if (!v.paused) v.pause();
           v.muted = true;
-          if (ready?.source !== at.clip.source || ready.time !== time) v.currentTime = time;
-          ready = { source: at.clip.source, time };
+          if (ready?.source !== clip.source || ready.time !== time) v.currentTime = time;
+          ready = { source: clip.source, time };
         }
         return;
       }
@@ -329,7 +332,8 @@ function CrossfadeMix({
       handing = null;
       show(null, 0);
       // Playing towards a crossfade: its video held at the incoming clip's first frame.
-      const next = speed > 0 ? upcoming(doc, frame, fps) : null;
+      const coming = speed > 0 ? upcoming(doc, frame, fps) : null;
+      const next = coming && playedClip(coming);
       const nv = next && videos.current.get(next.source);
       const nt = next && player.frameTime(next.source, sourceFrame(next, next.in));
       pauseOthers(null);

@@ -94,6 +94,14 @@ export const commands = {
 	/**  The status bar's Cancel: stops the conversion under way. */
 	cancelConversion: () => __TAURI_INVOKE<void>("cancel_conversion"),
 	/**
+	 *  A reversed clip (PLAN §7, Clip speed SP8): `source`'s grid frames `from` to `to` reversed,
+	 *  ready if made already, else made in the background ([`crate::reverse::ReverseProgress`], then
+	 *  [`crate::reverse::ReverseReady`] or [`crate::reverse::ReverseEnded`]).
+	 */
+	reverseRender: (source: string, from: number, to: number) => typedError<Reversed, string>(__TAURI_INVOKE("reverse_render", { source, from, to })),
+	/**  Stops reversed render `id` being made (the status bar's Cancel, or no clip needs it). */
+	cancelReverse: (id: string) => __TAURI_INVOKE<void>("cancel_reverse", { id }),
+	/**
 	 *  Exports the timeline (`clip` None) or one clip (`clip`, its number) as MP4 or GIF, with
 	 *  `marks` (their pixels POSTed just before, markup.rs): the Save
 	 *  dialog, then the export on a thread ([`crate::export::ExportProgress`], then
@@ -152,6 +160,9 @@ export const events = {
 	proxyProgress: makeEvent<ProxyProgress>("proxy-progress"),
 	proxyReady: makeEvent<ProxyReady>("proxy-ready"),
 	proxyStopped: makeEvent<ProxyStopped>("proxy-stopped"),
+	reverseEnded: makeEvent<ReverseEnded>("reverse-ended"),
+	reverseProgress: makeEvent<ReverseProgress>("reverse-progress"),
+	reverseReady: makeEvent<ReverseReady>("reverse-ready"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	sourceAdded: makeEvent<SourceAdded>("source-added"),
 	sourceConverted: makeEvent<SourceConverted>("source-converted"),
@@ -570,6 +581,42 @@ export type ProxyStopped = {
 
 /**  How a redaction hides what's under it (Razorcat has no Solid: a filled rectangle does that). */
 export type RedactMode = "pixelate" | "blur";
+
+/**  Rust → editor: a reversed render stopped (cancelled, or its file closed) or failed. */
+export type ReverseEnded = {
+	id: string,
+	/**  A sentence for the user if it failed; none if it was stopped. */
+	message: string | null,
+};
+
+/**  Rust → editor: a reversed render is this far along. */
+export type ReverseProgress = {
+	id: string,
+	/**  0 to 1. */
+	done: number | null,
+};
+
+/**  Rust → editor: a reversed render is ready to play. */
+export type ReverseReady = {
+	render: Reversed,
+};
+
+/**  A reversed render as the page knows it. */
+export type Reversed = {
+	/**  What the page and the export name it by. */
+	id: string,
+	/**
+	 *  Its file (`SourceInfo::id`), and the grid frames it turns round, `from` to `to`
+	 *  (exclusive): its frame k is the file's frame `to − 1 − k`.
+	 */
+	source: string,
+	from: number,
+	to: number,
+	ready: boolean,
+	/**  Where the page reads it and its frame times (protocol.rs), once ready. */
+	url: string,
+	framesUrl: string,
+};
 
 export type Settings = {
 	version?: number,

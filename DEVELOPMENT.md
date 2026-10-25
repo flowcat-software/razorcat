@@ -83,6 +83,18 @@ mapping (`src/editor/speed.ts`) and each beep against where its second falls. Ne
 ffmpeg and `spikes/media`. Not while `tauri:dev` is rebuilding (they share `target/debug`). Run
 it after changing the export's speed chain (`tempo`, the `setpts` in `graph`).
 
+The reversed export check does the same for reversed clips:
+
+```powershell
+cd src-tauri; cargo test reversed_exports -- --ignored --nocapture
+```
+
+renders a stretch of that clip back to front as the app does (`reverse.rs`), checks every frame
+and beep of the render, then exports reversed clips from it at five speeds (−33% to −233%) as
+the page sends them (`src/editor/reverse.ts`) and checks them the same way. It copies the
+bundled ffmpeg beside the test binary, as the render runs it from there. Run it after changing
+the render or how a reversed clip maps onto it.
+
 The dev app keeps proxies, converted copies, thumbnails and waveforms in
 `%LOCALAPPDATA%\com.razorcat.desktop.dev\proxies\` (Settings › Proxies can move it).
 

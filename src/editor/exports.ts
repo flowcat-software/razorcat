@@ -18,6 +18,7 @@ import {
   type Doc,
 } from "./doc";
 import { useDoc } from "./docStore";
+import { playedClip, waitForRenders } from "./reverse";
 import { isNormal, sourceFrame, speedOf, videoEnd } from "./speed";
 import { darkLayer } from "./spotlights";
 import { redactBox, redactStrength } from "./redactions";
@@ -32,13 +33,15 @@ export type ExportFormat = "mp4" | "gif";
  * and source frames, their speed if not 100% (PLAN §7, Clip speed), whether they're heard (the track's mute mutes them all), where they start
  * on the timeline (which the markup's frames count on), their fades as they take effect (PLAN
  * 4.7a) and their colours (4.7c), and their crossfades with the clip before (4.7b), if that one's exported with them.
+ * A reversed clip is its render's, played forward (reverse.ts), once it's ready.
  */
 export function exportClips(doc: Doc, ids?: readonly ClipId[]) {
   const starts = clipStarts(doc);
   const xf = crossfades(doc);
   const picked = (i: number) => !ids || ids.includes(doc.clips[i].id);
-  return doc.clips.flatMap((c, i) =>
-    picked(i)
+  return doc.clips.flatMap((clip, i) => {
+    const c = playedClip(clip);
+    return picked(i)
       ? [
           {
             id: c.id,
@@ -57,8 +60,8 @@ export function exportClips(doc: Doc, ids?: readonly ClipId[]) {
             crossfade: i > 0 && picked(i - 1) ? xf[i] : 0,
           },
         ]
-      : [],
-  );
+      : [];
+  });
 }
 
 /** The project's frame as export reads it: the crop, and each side's grow in its colour. */
@@ -147,9 +150,17 @@ export function folderLabel(setting: string): string {
   return profile.test(setting) ? setting.replace(profile, "") : setting;
 }
 
-/** Runs `start` with the markup sent; if it can't be, says why. */
-function withMarkup(doc: Doc, start: (marks: ExportMark[]) => Promise<unknown>) {
+/**
+ * Runs `start` once clips `ids` (or all) that are reversed have their renders, with the markup
+ * sent; if it can't be, says why.
+ */
+function withMarkup(
+  doc: Doc,
+  ids: readonly ClipId[] | undefined,
+  start: (marks: ExportMark[]) => Promise<unknown>,
+) {
   beforeExport()
+    .then(() => waitForRenders(doc, ids))
     .then(() => sendMarkup(doc))
     .then(start)
     .catch((e: unknown) => {
@@ -161,7 +172,7 @@ function withMarkup(doc: Doc, start: (marks: ExportMark[]) => Promise<unknown>) 
 /** The whole timeline, as one file (Ctrl+E: MP4). */
 export function exportTimeline(format: ExportFormat = "mp4") {
   const { doc } = useDoc.getState();
-  withMarkup(doc, (marks) =>
+  withMarkup(doc, undefined, (marks) =>
     commands.export(exportClips(doc), exportFrame(doc), marks, null, format),
   );
 }
@@ -169,15 +180,16 @@ export function exportTimeline(format: ExportFormat = "mp4") {
 /** One clip, as its own file. */
 export function exportClip(id: ClipId, format: ExportFormat = "mp4") {
   const { doc } = useDoc.getState();
-  const clips = exportClips(doc, [id]);
-  if (!clips.length) return;
-  withMarkup(doc, (marks) => commands.export(clips, exportFrame(doc), marks, id, format));
+  if (!doc.clips.some((c) => c.id === id)) return;
+  withMarkup(doc, [id], (marks) =>
+    commands.export(exportClips(doc, [id]), exportFrame(doc), marks, id, format),
+  );
 }
 
 /** Each clip as its own file, into a folder. */
 export function exportEach(format: ExportFormat = "mp4") {
   const { doc } = useDoc.getState();
-  withMarkup(doc, (marks) =>
+  withMarkup(doc, undefined, (marks) =>
     commands.exportEach(exportClips(doc), exportFrame(doc), marks, format),
   );
 }
@@ -188,18 +200,21 @@ export function exportEach(format: ExportFormat = "mp4") {
  */
 export function exportClipsJoined(ids: readonly ClipId[], format: ExportFormat = "mp4") {
   const { doc } = useDoc.getState();
-  const clips = exportClips(doc, ids);
-  if (!clips.length) return;
-  const one = clips.length === 1 ? clips[0].id : null;
-  withMarkup(doc, (marks) => commands.export(clips, exportFrame(doc), marks, one, format));
+  const picked = doc.clips.filter((c) => ids.includes(c.id));
+  if (!picked.length) return;
+  const one = picked.length === 1 ? picked[0].id : null;
+  withMarkup(doc, ids, (marks) =>
+    commands.export(exportClips(doc, ids), exportFrame(doc), marks, one, format),
+  );
 }
 
 /** Clips `ids` each as its own file, into a folder (PLAN 4.5f3). */
 export function exportEachOf(ids: readonly ClipId[], format: ExportFormat = "mp4") {
   const { doc } = useDoc.getState();
-  const clips = exportClips(doc, ids);
-  if (!clips.length) return;
-  withMarkup(doc, (marks) => commands.exportEach(clips, exportFrame(doc), marks, format));
+  if (!doc.clips.some((c) => ids.includes(c.id))) return;
+  withMarkup(doc, ids, (marks) =>
+    commands.exportEach(exportClips(doc, ids), exportFrame(doc), marks, format),
+  );
 }
 
 /**

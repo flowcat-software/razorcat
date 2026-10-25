@@ -200,11 +200,14 @@ pub fn twins(app: &AppHandle, generation: u64) -> Vec<u64> {
 /// cache file).
 static MAKING: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
-/// The cached files the open sources are using: their proxies, converted copies, thumbnails.
+/// The cached files the open sources are using: their proxies, converted copies, thumbnails,
+/// reversed renders.
 pub fn in_use(app: &AppHandle) -> Vec<PathBuf> {
     let state = app.state::<AppState>();
     let open = state.sources.lock().unwrap();
-    open.iter()
+    let generations: Vec<u64> = open.iter().map(|s| s.generation).collect();
+    let mut files: Vec<PathBuf> = open
+        .iter()
         .flat_map(|s| {
             let thumbs = s.thumbs.as_ref().filter(|t| t.ready).map(|t| &t.file);
             let wave = s.wave.as_ref().filter(|w| w.ready).map(|w| &w.file);
@@ -216,7 +219,10 @@ pub fn in_use(app: &AppHandle) -> Vec<PathBuf> {
                 .cloned()
                 .collect::<Vec<_>>()
         })
-        .collect()
+        .collect();
+    drop(open);
+    files.extend(crate::reverse::in_use(&generations));
+    files
 }
 
 /// Moves the proxies from one folder to another: a rename on the same drive, else a copy.
@@ -244,6 +250,7 @@ fn move_cache(app: &AppHandle, from: &Path, to: &Path) {
             continue;
         }
         moved += 1;
+        crate::reverse::moved(&old, &new);
         // The open sources' proxies and thumbnails are read from their new place from now on.
         let state = app.state::<AppState>();
         let mut open = state.sources.lock().unwrap();

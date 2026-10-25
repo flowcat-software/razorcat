@@ -1222,7 +1222,8 @@ fn encoders(app: &AppHandle) -> Vec<Encoder> {
 
 // --- exporting ---
 
-/// The open files, as export reads them, first first (it sets the picture and the rate).
+/// The open files, as export reads them, first first (it sets the picture and the rate), then the
+/// reversed renders.
 fn inputs(app: &AppHandle) -> Result<Vec<Input>, String> {
     let state = app.state::<AppState>();
     let open = state.sources.lock().unwrap();
@@ -1251,6 +1252,17 @@ fn inputs(app: &AppHandle) -> Result<Vec<Input>, String> {
                 height,
             }
         })
+        // The reversed renders made (reverse.rs): a reversed clip exports from its render,
+        // played forward, as the preview plays it.
+        .chain(crate::reverse::for_export().into_iter().map(|r| Input {
+            id: r.id,
+            path: r.path,
+            rate: r.rate,
+            starts: r.starts,
+            audio_tracks: u32::from(r.audio),
+            width: r.width,
+            height: r.height,
+        }))
         .collect())
 }
 
@@ -3180,6 +3192,232 @@ mod tests {
                 }
             }
         }
+        assert_eq!(failed, 0);
+    }
+
+    /// The barcodes of `file`'s frames (1920 × 1080, the test clips' strip along the bottom).
+    #[cfg(test)]
+    fn barcodes(ff: &Path, file: &Path) -> Vec<u32> {
+        let row = (1080.0 - 1080.0 / 32.0_f64).round() as u32;
+        let pic = std::process::Command::new(ff)
+            .args(["-loglevel", "error", "-i"])
+            .arg(file)
+            .args(["-vf", &format!("format=gray,crop=1920:1:0:{row}"), "-f"])
+            .args(["rawvideo", "-"])
+            .output()
+            .unwrap()
+            .stdout;
+        pic.chunks_exact(1920)
+            .map(|line| {
+                (0..16).fold(0, |n, k| {
+                    let x = (f64::from(k) * 120.0 + 60.0).round() as usize;
+                    if line[x] > 128 {
+                        n | (1 << k)
+                    } else {
+                        n
+                    }
+                })
+            })
+            .collect()
+    }
+
+    /// The energy centroid (s) of `file`'s sound around each of `at` (s), within `half` either
+    /// side; None where it's silent or past the end.
+    #[cfg(test)]
+    fn beeps(ff: &Path, file: &Path, at: &[f64], half: f64) -> Vec<Option<f64>> {
+        let pcm = std::process::Command::new(ff)
+            .args(["-loglevel", "error", "-i"])
+            .arg(file)
+            .args(["-vn", "-ac", "1", "-ar", "48000", "-f", "s16le", "-"])
+            .output()
+            .unwrap()
+            .stdout;
+        let samples: Vec<f64> = pcm
+            .chunks_exact(2)
+            .map(|b| f64::from(i16::from_le_bytes([b[0], b[1]])))
+            .collect();
+        at.iter()
+            .map(|t| {
+                let a = ((t - half) * 48000.0).max(0.0) as usize;
+                let b = ((t + half) * 48000.0) as usize;
+                if b > samples.len() {
+                    return None;
+                }
+                let (w, m) = samples[a..b]
+                    .iter()
+                    .enumerate()
+                    .fold((0.0, 0.0), |(w, m), (i, v)| {
+                        (w + v * v, m + v * v * (a + i) as f64)
+                    });
+                (w > 0.0).then(|| m / w / 48000.0)
+            })
+            .collect()
+    }
+
+    /// End to end for reverse (PLAN §7, Clip speed SP8/SP10): a stretch of the OBS-like test
+    /// clip rendered back to front (reverse.rs), every frame and beep checked; then reversed
+    /// clips exported from it with the export's arguments, as the page sends them (reverse.ts's
+    /// `playedClip`), every frame against the clip's mapping (speed.ts) and the beeps where their
+    /// seconds fall backward. Needs the bundled ffmpeg and `spikes/media`; copies ffmpeg beside
+    /// the test binary (the render runs it as the app does):
+    /// `cargo test reversed_exports -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn reversed_exports_show_the_previews_frames() {
+        use crate::reverse::{read, render, Of};
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let ff = root.join("binaries/ffmpeg-x86_64-pc-windows-msvc.exe");
+        let src = root.join("../spikes/media/obs-1080p60-10m.mp4");
+        assert!(
+            ff.is_file() && src.is_file(),
+            "needs the bundled ffmpeg and spikes/media"
+        );
+        let beside = std::env::current_exe()
+            .unwrap()
+            .with_file_name("ffmpeg.exe");
+        if !beside.is_file() {
+            std::fs::copy(&ff, &beside).unwrap();
+        }
+        let rate = Rate { num: 60, den: 1 };
+        // The test clip: 10 minutes at 60, from 0.
+        let frames: u32 = 36_000;
+        let of = Of {
+            generation: 0,
+            path: src.clone(),
+            rate,
+            starts: (0..frames).map(|k| f64::from(k) / 60.0).collect(),
+            tracks: 1,
+            width: 1920,
+            height: 1080,
+        };
+        // A clip's video, 7267 to 7447 (3 s, not on a keyframe), with the page's 2 s margin.
+        let (a, b) = (7267u32, 7447u32);
+        let (lo, hi) = (a - 120, b + 120);
+        let tmp = std::env::temp_dir();
+        let file = tmp.join("razorcat-reverse-check.mp4");
+        let started = std::time::Instant::now();
+        let made = render(
+            &of,
+            &file,
+            lo,
+            hi,
+            &tmp.join("razorcat-reverse-check"),
+            |_| {},
+            || false,
+        )
+        .unwrap();
+        assert!(matches!(made, Outcome::Finished));
+        println!(
+            "rendered {} frames in {:.1} s",
+            hi - lo,
+            started.elapsed().as_secs_f64()
+        );
+        let times = read(&file, rate, hi - lo).unwrap();
+        let got = barcodes(&ff, &file);
+        let want: Vec<u32> = (0..hi - lo).map(|k| hi - 1 - k).collect();
+        assert_eq!(got, want, "the render's frames");
+        // Source second w's beep (its centroid at w + 0.025 s) at hi/60 − w − 0.025 in the render.
+        let at: Vec<f64> = (lo / 60 + 1..hi / 60)
+            .map(|w| f64::from(hi) / 60.0 - f64::from(w) - 0.025)
+            .collect();
+        let found = beeps(&ff, &file, &at, 0.45);
+        for (t, c) in at.iter().zip(&found) {
+            let off = (c.unwrap() - t) * 1000.0;
+            assert!(
+                off.abs() < 2.0,
+                "the render's beep at {t:.3} s is {off:.1} ms off"
+            );
+        }
+
+        // Reversed clips of a to b, as speed.ts makes them: stream frame r = M − 1 − j, its
+        // first frame on stream frame M − b.
+        let m = frames;
+        let out = tmp.join("razorcat-reversed-check.mp4");
+        let mut failed = 0;
+        for (num, den) in [(1u32, 1u32), (1, 2), (3, 2), (3333, 10000), (7, 3)] {
+            let (j0, end) = (m - b, m - a);
+            let first = j0 * den / num;
+            let phase = j0 * den - first * num;
+            let length = (end * den - phase).div_ceil(num) - first;
+            // Played from the render (reverse.ts): render frame k is stream frame k + off, the
+            // clip's frames renumbered so its phase stays below num.
+            let off = i64::from(m - hi);
+            let p = i64::from(phase) - off * i64::from(den);
+            let q = -p.div_euclid(i64::from(num));
+            let pin = (i64::from(first) - q) as u32;
+            let pphase = (p + q * i64::from(num)) as u32;
+            let from = (pin * num + pphase) / den;
+            let to = ((pin + length) * num + pphase).div_ceil(den);
+            let normal = num == den;
+            let cut = Cut {
+                path: file.clone(),
+                seek: (times[from as usize].0 - SEEK_EARLY).max(0.0),
+                origin: times[0].0,
+                from,
+                out: to,
+                tracks: 1,
+                speed: (!normal).then_some(ClipSpeed {
+                    num,
+                    den,
+                    phase: pphase,
+                    first: pin,
+                    length,
+                }),
+                keep_pitch: true,
+                ..Cut::default()
+            };
+            let mut args_ = vec!["-hide_banner".into(), "-loglevel".into(), "error".into()];
+            args_.push("-y".into());
+            args_.extend(args(
+                &[cut],
+                rate,
+                None,
+                (1920, 1080),
+                &[],
+                Encoder::X264,
+                20_000_000,
+            ));
+            args_.push(out.as_os_str().to_owned());
+            let r = std::process::Command::new(&ff)
+                .args(&args_)
+                .output()
+                .unwrap();
+            assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+            let got = barcodes(&ff, &out);
+            let want: Vec<u32> = (0..length)
+                .map(|u| m - 1 - ((first + u) * num + phase) / den)
+                .collect();
+            let wrong = got.iter().zip(&want).filter(|(g, w)| g != w).count()
+                + got.len().abs_diff(want.len());
+            // Source second w: stream position M − 60w (frames), at clip frame
+            // ((M − 60·(w + 0.025))·den − phase)/num − first.
+            let s = f64::from(num) / f64::from(den);
+            let at: Vec<f64> = (a / 60 + 1..b / 60)
+                .map(|w| {
+                    let x = f64::from(m) - 60.0 * (f64::from(w) + 0.025);
+                    ((x * f64::from(den) - f64::from(phase)) / f64::from(num) - f64::from(first))
+                        / 60.0
+                })
+                .collect();
+            let offsets: Vec<f64> = beeps(&ff, &out, &at, 0.45 / s)
+                .iter()
+                .zip(&at)
+                .filter_map(|(c, t)| c.map(|c| (c - t) * 1000.0))
+                .collect();
+            let worst = offsets.iter().fold(0.0_f64, |w, o| w.max(o.abs()));
+            println!(
+                "{:>7.2}% reversed: frames {}/{} wrong {wrong}; beeps {} worst {worst:.1} ms {offsets:.1?}",
+                -100.0 * s,
+                got.len(),
+                want.len(),
+                offsets.len()
+            );
+            if wrong > 0 || worst > 20.0 || offsets.is_empty() {
+                failed += 1;
+            }
+        }
+        let _ = std::fs::remove_file(&file);
+        let _ = std::fs::remove_file(&out);
         assert_eq!(failed, 0);
     }
 }
