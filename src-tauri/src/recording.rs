@@ -1,6 +1,6 @@
-//! Screen recording (PLAN 5b.2): the monitor the editor is on, recorded by the bundled ffmpeg's
-//! `gfxcapture` (Windows.Graphics.Capture, on the GPU; spike 5b.1), into the recordings folder,
-//! then opened (or added to the timeline).
+//! Screen recording (PLAN 5b): a monitor, or an area of one, picked on the overlays (picker.rs),
+//! recorded by the bundled ffmpeg's `gfxcapture` (Windows.Graphics.Capture, on the GPU, an area
+//! cropped there; spike 5b.1), into the recordings folder, then opened (or added to the timeline).
 //!
 //! The editor steps aside (minimized) and a small control (recorder.html: the time and Stop)
 //! floats at the top of the monitor, left out of the recording (`WDA_EXCLUDEFROMCAPTURE`).
@@ -82,9 +82,111 @@ pub fn default_folder(app: &AppHandle) -> Option<PathBuf> {
     crate::export::default_folder(app).map(|d| d.join("Recordings"))
 }
 
-/// Starts recording the monitor the editor is on, on a thread; `add` puts it on the end of the
-/// timeline when done, else it replaces it. Says how it went with [`RecordingChanged`].
-pub fn start(app: &AppHandle, add: bool) -> Result<(), String> {
+/// A monitor, as Windows names it (`HMONITOR`, for `gfxcapture`), and where it is in physical
+/// pixels, with its scale.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Screen {
+    pub hmonitor: u64,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub scale: f64,
+}
+
+impl Screen {
+    /// Whether the physical point (`x`, `y`) is on it.
+    pub fn contains(&self, x: i32, y: i32) -> bool {
+        x >= self.x
+            && y >= self.y
+            && i64::from(x) < i64::from(self.x) + i64::from(self.width)
+            && i64::from(y) < i64::from(self.y) + i64::from(self.height)
+    }
+}
+
+/// The monitors, as Tauri lists them.
+pub fn screens(app: &AppHandle) -> Result<Vec<Screen>, String> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTONEAREST};
+    let monitors = app.available_monitors().map_err(|e| e.to_string())?;
+    let screens: Vec<Screen> = monitors
+        .iter()
+        .map(|m| {
+            let (p, s) = (m.position(), m.size());
+            let centre = POINT {
+                x: p.x + (s.width / 2) as i32,
+                y: p.y + (s.height / 2) as i32,
+            };
+            let h = unsafe { MonitorFromPoint(centre, MONITOR_DEFAULTTONEAREST) };
+            Screen {
+                hmonitor: h.0 as u64,
+                x: p.x,
+                y: p.y,
+                width: s.width,
+                height: s.height,
+                scale: m.scale_factor(),
+            }
+        })
+        .collect();
+    if screens.is_empty() {
+        return Err("No monitor found.".into());
+    }
+    Ok(screens)
+}
+
+/// What to record: a monitor, or an area of it (monitor pixels: x, y, width, height), made even
+/// for the encoder (yuv420p halves the colour).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Target {
+    pub screen: Screen,
+    pub area: Option<(u32, u32, u32, u32)>,
+}
+
+/// The smallest area recorded, either side (px).
+const MIN_SIDE: u32 = 16;
+
+impl Target {
+    pub fn of(screen: Screen, area: Option<(u32, u32, u32, u32)>) -> Self {
+        let area = area.map(|(x, y, w, h)| {
+            let x = x.min(screen.width.saturating_sub(MIN_SIDE));
+            let y = y.min(screen.height.saturating_sub(MIN_SIDE));
+            let w = w.clamp(MIN_SIDE, screen.width - x) & !1;
+            let h = h.clamp(MIN_SIDE, screen.height - y) & !1;
+            (x, y, w, h)
+        });
+        Self { screen, area }
+    }
+
+    /// The picture's size.
+    fn size(&self) -> (u32, u32) {
+        match self.area {
+            Some((_, _, w, h)) => (w, h),
+            None => (self.screen.width & !1, self.screen.height & !1),
+        }
+    }
+
+    /// `gfxcapture`'s options for it: the monitor, and the crop (on the GPU).
+    fn source(&self) -> String {
+        let s = &self.screen;
+        let (x, y) = self.area.map_or((0, 0), |a| (a.0, a.1));
+        let (w, h) = self.size();
+        format!(
+            "hmonitor={}:crop_left={x}:crop_top={y}:crop_right={}:crop_bottom={}",
+            s.hmonitor,
+            s.width - x - w,
+            s.height - y - h
+        )
+    }
+}
+
+/// A recording is under way or starting.
+pub fn busy() -> bool {
+    NOW.lock().unwrap().is_some() || *STARTING.lock().unwrap()
+}
+
+/// Starts recording `target`, on a thread; `add` puts it on the end of the timeline when done,
+/// else it replaces it. Says how it went with [`RecordingChanged`].
+pub fn start(app: &AppHandle, add: bool, target: Target) -> Result<(), String> {
     {
         let mut starting = STARTING.lock().unwrap();
         if *starting || NOW.lock().unwrap().is_some() {
@@ -94,7 +196,7 @@ pub fn start(app: &AppHandle, add: bool) -> Result<(), String> {
     }
     let app = app.clone();
     std::thread::spawn(move || {
-        let started = begin(&app, add);
+        let started = begin(&app, add, &target);
         *STARTING.lock().unwrap() = false;
         match started {
             Ok(()) => {
@@ -120,33 +222,27 @@ pub fn start(app: &AppHandle, add: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Puts the editor aside, the control up, and ffmpeg recording.
-fn begin(app: &AppHandle, add: bool) -> Result<(), String> {
-    let editor = app
-        .get_webview_window(LABEL)
-        .ok_or("the editor isn't open")?;
-    let monitor = editor
-        .current_monitor()
-        .map_err(|e| e.to_string())?
-        .ok_or("no monitor")?;
-    let hmonitor = monitor_of(&editor)?;
+/// Puts the control up, and ffmpeg recording (the editor is aside already).
+fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<(), String> {
     let dir = folder(app);
     std::fs::create_dir_all(&dir).map_err(|e| format!("can't make {}: {e}", dir.display()))?;
     let name = file_name(&dir);
     let file = dir.join(format!("{name}.mp4"));
     let part = dir.join(format!("{name}.part"));
 
-    let _ = editor.minimize();
-    open_control(app, &monitor);
-    // The editor's minimizing animation out of the way before the first frame.
+    if let Some(editor) = app.get_webview_window(LABEL) {
+        let _ = editor.minimize();
+    }
+    open_control(app, &target.screen);
+    // The overlays and the editor out of the way before the first frame.
     std::thread::sleep(Duration::from_millis(250));
 
-    let (w, h) = (monitor.size().width, monitor.size().height);
+    let (w, h) = target.size();
     let mut why = String::from("no encoder worked");
     for encoder in encoders(app) {
-        match spawn(hmonitor, encoder, w, h, &part) {
+        match spawn(target, encoder, &part) {
             Ok(running) => {
-                logln!("[recording] {}×{} with {encoder:?}", w, h);
+                logln!("[recording] {w}×{h} with {encoder:?}");
                 *NOW.lock().unwrap() = Some(Running {
                     file,
                     add,
@@ -177,30 +273,15 @@ fn file_name(dir: &std::path::Path) -> String {
     name
 }
 
-/// The monitor `window` is on, as Windows names it (`HMONITOR`, for `gfxcapture`).
-fn monitor_of(window: &tauri::WebviewWindow) -> Result<u64, String> {
-    use windows::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONEAREST};
-    let hwnd = window.hwnd().map_err(|e| e.to_string())?;
-    let m = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
-    if m.is_invalid() {
-        return Err("no monitor".into());
-    }
-    Ok(m.0 as u64)
-}
-
-/// ffmpeg recording monitor `hmonitor` (`w` × `h` px) with `encoder` to `part`, once it's
-/// running; its error if it stopped at once.
-fn spawn(
-    hmonitor: u64,
-    encoder: Encoder,
-    w: u32,
-    h: u32,
-    part: &PathBuf,
-) -> Result<Running, String> {
+/// ffmpeg recording `target` with `encoder` to `part`, once it's running; its error if it
+/// stopped at once.
+fn spawn(target: &Target, encoder: Encoder, part: &PathBuf) -> Result<Running, String> {
+    let (w, h) = target.size();
     let mut cmd = sidecar::command(Tool::Ffmpeg)?;
     cmd.args(["-hide_banner", "-nostats", "-loglevel", "error", "-y", "-f", "lavfi", "-i"])
         .arg(format!(
-            "gfxcapture=hmonitor={hmonitor}:max_framerate={FPS}:capture_cursor=1,hwdownload,format=bgra,fps={FPS}:start_time=0,scale=out_color_matrix=bt709:out_range=tv,format={}",
+            "gfxcapture={}:max_framerate={FPS}:capture_cursor=1,hwdownload,format=bgra,fps={FPS}:start_time=0,scale=out_color_matrix=bt709:out_range=tv,format={}",
+            target.source(),
             encoder.pixels()
         ))
         .args(encoder.args(bitrate(w, h, f64::from(FPS))))
@@ -320,27 +401,31 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
     .emit_to(app, LABEL);
 }
 
-/// The control: a small window at the top of `monitor`, over everything, not in the taskbar, and
+/// The control: a small window at the top of `screen`, over everything, not in the taskbar, and
 /// left out of the recording.
-fn open_control(app: &AppHandle, monitor: &tauri::Monitor) {
-    let scale = monitor.scale_factor();
-    let pos = monitor.position().to_logical::<f64>(scale);
-    let size = monitor.size().to_logical::<f64>(scale);
+fn open_control(app: &AppHandle, screen: &Screen) {
     let builder = WebviewWindowBuilder::new(app, RECORDER, WebviewUrl::App("recorder.html".into()));
     let built = crate::appearance::themed(app, builder)
         .title("Recording")
         .inner_size(CONTROL.0, CONTROL.1)
-        .position(pos.x + (size.width - CONTROL.0) / 2.0, pos.y + CONTROL_TOP)
         .decorations(false)
         .resizable(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .focused(false)
+        .visible(false)
         .build();
     match built {
         Ok(window) => {
             exclude_from_capture(&window);
             crate::webview_crash::watch(&window);
+            // Placed in physical pixels on its monitor, then sized there (its scale).
+            let width = (CONTROL.0 * screen.scale).round() as i32;
+            let x = screen.x + (screen.width as i32 - width) / 2;
+            let y = screen.y + (CONTROL_TOP * screen.scale).round() as i32;
+            let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+            let _ = window.set_size(tauri::LogicalSize::new(CONTROL.0, CONTROL.1));
+            let _ = window.show();
         }
         Err(e) => logln!("[recording] the control failed: {e}"),
     }
@@ -364,9 +449,60 @@ fn close_control(app: &AppHandle) {
     }
 }
 
-fn show_editor(app: &AppHandle) {
+pub fn show_editor(app: &AppHandle) {
     if let Some(w) = app.get_webview_window(LABEL) {
         let _ = w.unminimize();
         let _ = w.set_focus();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn screen() -> Screen {
+        Screen {
+            hmonitor: 7,
+            x: -1920,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            scale: 1.25,
+        }
+    }
+
+    #[test]
+    fn a_whole_screen_is_cropped_to_nothing() {
+        let t = Target::of(screen(), None);
+        assert_eq!(t.size(), (1920, 1080));
+        assert_eq!(
+            t.source(),
+            "hmonitor=7:crop_left=0:crop_top=0:crop_right=0:crop_bottom=0"
+        );
+    }
+
+    #[test]
+    fn an_area_is_cropped_on_the_gpu_its_sides_even() {
+        let t = Target::of(screen(), Some((100, 50, 801, 601)));
+        assert_eq!(t.size(), (800, 600));
+        assert_eq!(
+            t.source(),
+            "hmonitor=7:crop_left=100:crop_top=50:crop_right=1020:crop_bottom=430"
+        );
+    }
+
+    #[test]
+    fn an_area_stays_on_the_screen_and_isnt_too_small() {
+        let t = Target::of(screen(), Some((1915, 1078, 3, 1)));
+        assert_eq!(t.area, Some((1904, 1064, 16, 16)));
+        let t = Target::of(screen(), Some((10, 10, 5000, 5000)));
+        assert_eq!(t.size(), (1910, 1070));
+    }
+
+    #[test]
+    fn a_screen_has_its_points() {
+        let s = screen();
+        assert!(s.contains(-1920, 0) && s.contains(-1, 1079));
+        assert!(!s.contains(0, 0) && !s.contains(-1, 1080));
     }
 }

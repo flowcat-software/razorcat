@@ -17,6 +17,7 @@ mod markup;
 mod media;
 mod names;
 mod paths;
+mod picker;
 mod placement;
 mod protocol;
 mod proxy;
@@ -71,6 +72,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::cancel_conversion,
             commands::start_recording,
             commands::stop_recording,
+            commands::pick_started,
+            commands::pick_area,
+            commands::pick_cancel,
             commands::default_recording_folder,
             commands::export,
             commands::export_each,
@@ -100,6 +104,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             proxy::ProxyStopped,
             proxy::ProxyFailed,
             recording::RecordingChanged,
+            picker::PickClear,
             thumbs::ThumbsUpdate,
             wave::WaveReady,
             check::CheckFrames,

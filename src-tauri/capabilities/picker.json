@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "picker",
+  "description": "The recording overlays (picker.rs), one per monitor: listen for another overlay's selection starting. Picking goes through Rust commands.",
+  "windows": ["pick-*"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

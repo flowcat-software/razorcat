@@ -232,13 +232,38 @@ pub fn cancel_conversion(app: AppHandle) {
     crate::convert::cancel(&app);
 }
 
-/// Records the monitor the editor is on (PLAN 5b.2); `add` puts the recording on the end of the
-/// timeline when done, else it replaces it. [`crate::recording::RecordingChanged`] says how it
-/// went. An error if one is under way.
+/// Record: the overlays, to pick what to record (PLAN 5b.3; picker.rs); `add` puts the recording
+/// on the end of the timeline when done, else it replaces it. [`crate::recording::RecordingChanged`]
+/// says how it went. An error if one is under way.
 #[tauri::command]
 #[specta::specta]
 pub fn start_recording(app: AppHandle, add: bool) -> Result<(), String> {
-    crate::recording::start(&app, add)
+    crate::picker::open(&app, add)
+}
+
+/// An overlay's selection started: the other overlays drop theirs.
+#[tauri::command]
+#[specta::specta]
+pub fn pick_started(app: AppHandle, index: u32) {
+    crate::picker::started(&app, index);
+}
+
+/// Overlay `index`'s area `rect` (monitor pixels), or with none the whole monitor, is recorded.
+#[tauri::command]
+#[specta::specta]
+pub fn pick_area(
+    app: AppHandle,
+    index: u32,
+    rect: Option<crate::picker::PickRect>,
+) -> Result<(), String> {
+    crate::picker::picked(&app, index, rect)
+}
+
+/// The overlays' Esc: nothing recorded.
+#[tauri::command]
+#[specta::specta]
+pub fn pick_cancel(app: AppHandle) {
+    crate::picker::cancel(&app);
 }
 
 /// Stops the recording (the control's Stop): its file is finished and opened.

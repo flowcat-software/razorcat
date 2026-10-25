@@ -1,0 +1,6 @@
+/* The overlay is see-through: the screen goes on under it (theme.css paints the page). */
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+}

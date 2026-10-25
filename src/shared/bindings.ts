@@ -94,13 +94,24 @@ export const commands = {
 	/**  The status bar's Cancel: stops the conversion under way. */
 	cancelConversion: () => __TAURI_INVOKE<void>("cancel_conversion"),
 	/**
-	 *  Records the monitor the editor is on (PLAN 5b.2); `add` puts the recording on the end of the
-	 *  timeline when done, else it replaces it. [`crate::recording::RecordingChanged`] says how it
-	 *  went. An error if one is under way.
+	 *  Record: the overlays, to pick what to record (PLAN 5b.3; picker.rs); `add` puts the recording
+	 *  on the end of the timeline when done, else it replaces it. [`crate::recording::RecordingChanged`]
+	 *  says how it went. An error if one is under way.
 	 */
 	startRecording: (add: boolean) => typedError<null, string>(__TAURI_INVOKE("start_recording", { add })),
 	/**  Stops the recording (the control's Stop): its file is finished and opened. */
 	stopRecording: () => __TAURI_INVOKE<void>("stop_recording"),
+	/**  An overlay's selection started: the other overlays drop theirs. */
+	pickStarted: (index: number) => __TAURI_INVOKE<void>("pick_started", { index }),
+	/**  Overlay `index`'s area `rect` (monitor pixels), or with none the whole monitor, is recorded. */
+	pickArea: (index: number, rect: {
+	x: number,
+	y: number,
+	width: number,
+	height: number,
+} | null) => typedError<null, string>(__TAURI_INVOKE("pick_area", { index, rect })),
+	/**  The overlays' Esc: nothing recorded. */
+	pickCancel: () => __TAURI_INVOKE<void>("pick_cancel"),
 	/**  Where recordings go when Settings › Recording › Folder is empty. */
 	defaultRecordingFolder: () => __TAURI_INVOKE<string>("default_recording_folder"),
 	/**
@@ -158,6 +169,7 @@ export const events = {
 	exportProgress: makeEvent<ExportProgress>("export-progress"),
 	openFailed: makeEvent<OpenFailed>("open-failed"),
 	openOffered: makeEvent<OpenOffered>("open-offered"),
+	pickClear: makeEvent<PickClear>("pick-clear"),
 	proxyFailed: makeEvent<ProxyFailed>("proxy-failed"),
 	proxyProgress: makeEvent<ProxyProgress>("proxy-progress"),
 	proxyReady: makeEvent<ProxyReady>("proxy-ready"),
@@ -520,6 +532,19 @@ export type OpenFailed = {
 export type OpenOffered = {
 	/**  Their file names, in order. */
 	names: string[],
+};
+
+/**  Rust → overlays: a selection started on monitor `except`; the others drop theirs. */
+export type PickClear = {
+	except: number,
+};
+
+/**  An area of a monitor, in its own physical pixels. */
+export type PickRect = {
+	x: number,
+	y: number,
+	width: number,
+	height: number,
 };
 
 /**
