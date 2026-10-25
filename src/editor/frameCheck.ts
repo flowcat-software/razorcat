@@ -97,7 +97,7 @@ interface Miss {
 }
 
 /** Waits (by animation frames) until `ready`, or gives up. */
-function until(ready: () => boolean, ms = PATIENCE): Promise<boolean> {
+export function until(ready: () => boolean, ms = PATIENCE): Promise<boolean> {
   const t0 = performance.now();
   return new Promise((resolve) => {
     const tick = () => {

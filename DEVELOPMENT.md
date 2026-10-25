@@ -95,6 +95,17 @@ the page sends them (`src/editor/reverse.ts`) and checks them the same way. It c
 bundled ffmpeg beside the test binary, as the render runs it from there. Run it after changing
 the render or how a reversed clip maps onto it.
 
+The reverse check does it in the app, on the preview: with the dev app running,
+
+```powershell
+src-tauri\target\debug\razorcat.exe --check-reverse spikes\media\obs-1080p60-10m.mp4
+```
+
+trims the clip to 10 s and reverses it, seeks while it plays by seeking (no render yet), waits
+for its render, then steps, seeks and plays on it, at −100% and −50%, reading every picture's
+barcode against the document (`src/editor/reverseCheck.ts`). Same report file. Run it after
+changing the player's reversed paths or the render.
+
 The dev app keeps proxies, converted copies, thumbnails and waveforms in
 `%LOCALAPPDATA%\com.razorcat.desktop.dev\proxies\` (Settings › Proxies can move it).
 

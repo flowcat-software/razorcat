@@ -199,6 +199,8 @@ export type CheckFrames = {
 	edit: boolean,
 	/**  Check the layout at the smallest window instead. */
 	layout: boolean,
+	/**  Reverse it and check the reversed frames instead. */
+	reverse: boolean,
 };
 
 /**

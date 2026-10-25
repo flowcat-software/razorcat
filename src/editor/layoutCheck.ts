@@ -160,6 +160,10 @@ export async function checkLayout(
   // At another speed, the widest percent the field shows (the badge on the clip too).
   doc().setSpeed([first], speedFromPercent(33.33));
   await at("a retimed clip with both fades");
+  // Reversed, the badge's widest ("−33.33%").
+  doc().reverse([first]);
+  await at("a reversed retimed clip");
+  doc().undo();
   doc().undo();
 
   const frames = player.frames;

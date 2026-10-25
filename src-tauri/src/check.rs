@@ -35,6 +35,8 @@ static PENDING: AtomicBool = AtomicBool::new(false);
 static EDITED: AtomicBool = AtomicBool::new(false);
 /// ...for its layout at the smallest window, not its frames.
 static LAYOUT: AtomicBool = AtomicBool::new(false);
+/// ...reversed, its render's frames (PLAN §7, Clip speed: the page's reverseCheck.ts).
+static REVERSE: AtomicBool = AtomicBool::new(false);
 
 /// Rust → editor: check the source just opened.
 #[derive(Clone, Serialize, Type, Event)]
@@ -46,6 +48,8 @@ pub struct CheckFrames {
     pub edit: bool,
     /// Check the layout at the smallest window instead.
     pub layout: bool,
+    /// Reverse it and check the reversed frames instead.
+    pub reverse: bool,
 }
 
 /// A launch's arguments ask for a check (development builds only): true if they do.
@@ -55,11 +59,13 @@ pub fn requested(args: &[String]) -> bool {
     }
     let edit = args.iter().any(|a| a == "--check-edit");
     let layout = args.iter().any(|a| a == "--check-layout");
-    let asked = edit || layout || args.iter().any(|a| a == "--check-frames");
+    let reverse = args.iter().any(|a| a == "--check-reverse");
+    let asked = edit || layout || reverse || args.iter().any(|a| a == "--check-frames");
     if asked {
         PENDING.store(true, Ordering::Relaxed);
         EDITED.store(edit, Ordering::Relaxed);
         LAYOUT.store(layout, Ordering::Relaxed);
+        REVERSE.store(reverse, Ordering::Relaxed);
     }
     asked
 }
@@ -80,6 +86,7 @@ pub fn opened(app: &AppHandle, id: String) {
             source: id,
             edit,
             layout,
+            reverse: REVERSE.load(Ordering::Relaxed),
         }
         .emit_to(app, LABEL);
     }

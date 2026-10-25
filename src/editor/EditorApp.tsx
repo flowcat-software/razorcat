@@ -48,6 +48,7 @@ import {
 } from "./exports";
 import { checkFrames } from "./frameCheck";
 import { checkLayout } from "./layoutCheck";
+import { checkReverse } from "./reverseCheck";
 import { FrameOptions } from "./FrameOptions";
 import { playbackGain, usePlayback } from "./playback";
 import { Player } from "./player";
@@ -582,6 +583,20 @@ export function EditorApp() {
       return;
     checked.current = checkFor;
     let gone = false;
+    if (checkFor.reverse) {
+      checkReverse(
+        player,
+        (text) => !gone && setNotice({ text }),
+        () => gone,
+      )
+        .then((summary) => setNotice({ text: `Reverse check: ${summary}` }))
+        .catch((e: unknown) => {
+          if (!gone) setNotice({ text: `Reverse check failed: ${String(e)}`, error: true });
+        });
+      return () => {
+        gone = true;
+      };
+    }
     if (checkFor.layout) {
       checkLayout(player, source, (text) => !gone && setNotice({ text }))
         .then((summary) => setNotice({ text: `Layout check: ${summary}` }))
