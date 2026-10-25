@@ -38,8 +38,21 @@ use crate::sidecar::{self, Tool};
 use crate::source::file_name;
 use crate::state::AppState;
 
-/// A clip of the edit, as the page sends it: its number, its source grid frames, and whether
-/// it's silent (its own mute, or the track's).
+/// A clip at another speed than 100% (PLAN §7, Clip speed; the page's speed.ts): `num` source
+/// frames to every `den` of its own, its frame v showing source frame floor((v·num + phase)/den),
+/// its first frame, and how many frames it has (its length on the timeline).
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Type)]
+pub struct ClipSpeed {
+    pub num: u32,
+    pub den: u32,
+    pub phase: u32,
+    pub first: u32,
+    pub length: u32,
+}
+
+/// A clip of the edit, as the page sends it: its number, its source grid frames (`in` to `out`,
+/// at another speed the ones its video spans), and whether it's silent (its own mute, or the
+/// track's).
 #[derive(Debug, Clone, Deserialize, Type)]
 pub struct ExportClip {
     pub id: u32,
@@ -65,6 +78,16 @@ pub struct ExportClip {
     /// How many frames it crossfades with the clip before it in the export over (none for the
     /// first).
     pub crossfade: u32,
+    /// Its speed, if not 100%.
+    #[serde(default)]
+    pub speed: Option<ClipSpeed>,
+}
+
+impl ExportClip {
+    /// How many frames it has on the timeline: its source frames', at another speed its own.
+    fn length(&self) -> u32 {
+        self.speed.map_or(self.out - self.from, |s| s.length)
+    }
 }
 
 /// A part of the picture as shown (rotation applied), in its pixels.
@@ -304,6 +327,16 @@ struct Cut {
     fade_out_colour: Option<String>,
     /// Its crossfade with the cut before it, in frames (the first's doesn't count: `crossfades`).
     crossfade: u32,
+    /// Its speed, if not 100%, and whether its sound keeps its pitch then (Settings › Timeline).
+    speed: Option<ClipSpeed>,
+    keep_pitch: bool,
+}
+
+impl Cut {
+    /// How many frames it has in the export: its source frames', at another speed its own.
+    fn length(&self) -> u32 {
+        self.speed.map_or(self.out - self.from, |s| s.length)
+    }
 }
 
 /// How far before a clip's first frame its input is seeked: the frame is kept whatever the
@@ -377,7 +410,7 @@ fn shown(clips: &[ExportClip], start: u32, end: u32) -> Vec<Show> {
     let mut shows: Vec<Show> = Vec::new();
     let mut at = 0u32;
     for (i, c) in clips.iter().enumerate() {
-        let length = c.out - c.from;
+        let length = c.length();
         // Over the end of the one before, crossfading.
         if i > 0 {
             at = at.saturating_sub(c.crossfade);
@@ -406,9 +439,9 @@ fn shown(clips: &[ExportClip], start: u32, end: u32) -> Vec<Show> {
 }
 
 /// Clip `c` of `input`, as ffmpeg seeks it, in the picture of `first` (the timeline's file).
-fn cut(input: &Input, first: &Input, c: &ExportClip) -> Cut {
+fn cut(input: &Input, first: &Input, c: &ExportClip, keep_pitch: bool) -> Cut {
     let fitted = (input.width, input.height) != (first.width, first.height);
-    let length = c.out.saturating_sub(c.from);
+    let length = if c.from < c.out { c.length() } else { 0 };
     let fade_in = c.fade_in.min(length);
     Cut {
         path: input.path.clone(),
@@ -424,7 +457,45 @@ fn cut(input: &Input, first: &Input, c: &ExportClip) -> Cut {
         fade_in_colour: fade_colour(&c.fade_in_colour),
         fade_out_colour: fade_colour(&c.fade_out_colour),
         crossfade: c.crossfade.min(length.saturating_sub(1)),
+        speed: c.speed,
+        keep_pitch,
     }
+}
+
+/// A clip's sound at speed `s` (PLAN §7, Clip speed), `length` seconds long as its picture is.
+/// Its pitch kept: `atempo` (0.5 to 100 a stage, so chained below 50%), delayed by its lead
+/// (`tempo_lead`). Else tape-style: played at another rate, higher when faster. Then padded or cut
+/// to the picture's length, so the joins stay in sync: stamped by its samples first, as `atrim`
+/// goes by the stamps, and after `atempo` and the delay they put it about 90 ms early at 10% (the
+/// export check, `retimed_exports_show_the_previews_frames`).
+fn tempo(s: ClipSpeed, keep_pitch: bool, length: f64) -> String {
+    let speed = f64::from(s.num) / f64::from(s.den);
+    let fit = format!(",asetpts=N/SR/TB,apad,atrim=duration={length:.6}");
+    if !keep_pitch {
+        return format!(
+            ",aresample=48000,asetrate={:.4},aresample=48000{fit}",
+            48000.0 * speed
+        );
+    }
+    let mut stages = Vec::new();
+    let mut rest = speed;
+    while rest < 0.5 {
+        stages.push(0.5);
+        rest /= 0.5;
+    }
+    stages.push(rest);
+    let chain: String = stages.iter().map(|t| format!(",atempo={t:.6}")).collect();
+    format!(
+        "{chain},adelay={:.3}:all=1{fit}",
+        tempo_lead(speed, stages.len())
+    )
+}
+
+/// How early `atempo` puts the sound at `speed` through `stages` of it, in ms, measured against
+/// the picture (spike SP0, `spikes/speed/compensate.mjs`): 10 ms over the speed for one stage,
+/// 13 for a chain. What's left is within 11 ms at every speed, 10% to 400%.
+fn tempo_lead(speed: f64, stages: usize) -> f64 {
+    (if stages > 1 { 13.0 } else { 10.0 }) / speed
 }
 
 /// A fade's colour as ffmpeg takes it (`0xrrggbb`): none for black, or if it isn't one.
@@ -440,7 +511,7 @@ fn crossfades(cuts: &[Cut]) -> Vec<u32> {
     let mut xf: Vec<u32> = Vec::with_capacity(cuts.len());
     for (i, c) in cuts.iter().enumerate() {
         xf.push(match i.checked_sub(1) {
-            Some(p) => c.crossfade.min(cuts[p].out - cuts[p].from - xf[p]),
+            Some(p) => c.crossfade.min(cuts[p].length() - xf[p]),
             None => 0,
         });
     }
@@ -449,7 +520,7 @@ fn crossfades(cuts: &[Cut]) -> Vec<u32> {
 
 /// How many frames the export of `cuts` has: theirs, less their crossfades.
 fn export_frames(cuts: &[Cut]) -> u32 {
-    let lengths: u32 = cuts.iter().map(|c| c.out - c.from).sum();
+    let lengths: u32 = cuts.iter().map(Cut::length).sum();
     lengths - crossfades(cuts).iter().sum::<u32>()
 }
 
@@ -577,8 +648,18 @@ fn graph(
                 ",scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
             )
         });
+        // At another speed (PLAN §7, Clip speed): each source frame onto the first of the clip's
+        // frames that shows it (speed.ts's mapping), `fps` repeating it to the next or dropping
+        // all but the last on a frame, as many frames as the clip has. Exact at every speed
+        // (spike SP0's barcodes).
+        let retime = c.speed.map_or(String::new(), |s| {
+            format!(
+                ",setpts='max(0,ceil(((N+{})*{}-{})/{})-{})',fps={}/{},trim=end_frame={}",
+                c.from, s.den, s.phase, s.num, s.first, rate.num, rate.den, s.length
+            )
+        });
         f.push(format!(
-            "[{i}:v:0]setpts=PTS+({:.6})/TB,fps={}/{},trim=start_pts={}:end_pts={},setpts=PTS-STARTPTS{fit}[v{i}]",
+            "[{i}:v:0]setpts=PTS+({:.6})/TB,fps={}/{},trim=start_pts={}:end_pts={},setpts=PTS-STARTPTS{retime}{fit}[v{i}]",
             c.seek - c.origin,
             rate.num,
             rate.den,
@@ -588,7 +669,7 @@ fn graph(
         if !audio {
             continue;
         }
-        let length = f64::from(c.out - c.from) / fps;
+        let length = f64::from(c.length()) / fps;
         if c.tracks == 0 {
             // A file with no sound: silence for as long.
             f.push(format!(
@@ -603,8 +684,12 @@ fn graph(
             String::new()
         };
         // The same stretch of time: from grid frame `from` on its file's clock, which the seek
-        // put at 0.
+        // put at 0. At another speed, the source's stretch made as long as the clip (`tempo`).
         let start = (c.origin + f64::from(c.from) / fps - c.seek).max(0.0);
+        let span = f64::from(c.out - c.from) / fps;
+        let tempo = c
+            .speed
+            .map_or(String::new(), |s| tempo(s, c.keep_pitch, length));
         let silence = if c.muted { ",volume=0" } else { "" };
         // Its fades, the picture's in seconds.
         let mut fades = String::new();
@@ -614,12 +699,12 @@ fn graph(
         if c.fade_out > 0 {
             fades += &format!(
                 ",afade=t=out:st={:.6}:d={:.6}",
-                f64::from(c.out - c.from - c.fade_out) / fps,
+                f64::from(c.length() - c.fade_out) / fps,
                 f64::from(c.fade_out) / fps
             );
         }
         f.push(format!(
-            "{tracks}{mix}atrim=start={start:.6}:duration={length:.6},asetpts=PTS-STARTPTS{fades}{silence}[a{i}]"
+            "{tracks}{mix}atrim=start={start:.6}:duration={span:.6},asetpts=PTS-STARTPTS{tempo}{fades}{silence}[a{i}]"
         ));
     }
     let n = cuts.len();
@@ -644,7 +729,7 @@ fn graph(
         // before it from its start in the export (the same picture format and clock both sides,
         // as `xfade` needs), the others joined.
         let (mut v, mut a) = ("v0".to_string(), "a0".to_string());
-        let mut at = cuts[0].out - cuts[0].from;
+        let mut at = cuts[0].length();
         for i in 1..n {
             if xf[i] > 0 {
                 at -= xf[i];
@@ -668,7 +753,7 @@ fn graph(
             }
             v = format!("vj{i}");
             a = format!("aj{i}");
-            at += cuts[i].out - cuts[i].from;
+            at += cuts[i].length();
         }
         f.push(format!("[{v}]null[vc]"));
         if audio {
@@ -870,7 +955,7 @@ fn clip_fades(
     let xf = crossfades(cuts);
     let mut start = 0;
     for (i, c) in cuts.iter().enumerate() {
-        let length = c.out - c.from;
+        let length = c.length();
         // Over the end of the one before, crossfading.
         start -= xf[i];
         // The black's own fade: out as the clip fades in (all black on its first frame); in as
@@ -1201,16 +1286,23 @@ fn prepare(
         return Err("The export can't replace a video it's made from.".into());
     }
     let first = &inputs[0];
+    let keep_pitch = app
+        .state::<AppState>()
+        .settings
+        .read()
+        .unwrap()
+        .timeline
+        .keep_pitch;
     let mut cuts = Vec::with_capacity(clips.len());
     for c in clips {
         let input = inputs
             .iter()
             .find(|i| i.id == c.source)
             .ok_or("The edit names a video that isn't open.")?;
-        if c.from >= c.out || c.out as usize > input.starts.len() {
+        if c.from >= c.out || c.out as usize > input.starts.len() || c.length() == 0 {
             return Err("The edit doesn't fit the video.".into());
         }
-        cuts.push(cut(input, first, c));
+        cuts.push(cut(input, first, c, keep_pitch));
     }
     Ok((inputs.swap_remove(0), cuts))
 }
@@ -1903,11 +1995,64 @@ mod tests {
     }
 
     #[test]
+    fn a_retimed_clip_picks_its_frames_and_stretches_its_sound() {
+        let rate = Rate { num: 30, den: 1 };
+        // Source frames 60 to 90 at 50%, phase 1: its frames 119 to 179, 60 of them.
+        let half = ClipSpeed {
+            num: 1,
+            den: 2,
+            phase: 1,
+            first: 119,
+            length: 60,
+        };
+        let c = [Cut {
+            path: "a.mp4".into(),
+            from: 60,
+            out: 90,
+            tracks: 1,
+            speed: Some(half),
+            keep_pitch: true,
+            ..Cut::default()
+        }];
+        assert_eq!(export_frames(&c), 60);
+        let a = joined(&args(
+            &c,
+            rate,
+            None,
+            (1920, 1080),
+            &[],
+            Encoder::X264,
+            6_000_000,
+        ));
+        assert!(a.contains(
+            "trim=start_pts=60:end_pts=90,setpts=PTS-STARTPTS,setpts='max(0,ceil(((N+60)*2-1)/1)-119)',fps=30/1,trim=end_frame=60[v0]"
+        ));
+        // A second of source made two: one atempo stage, its lead taken out, two seconds long.
+        assert!(a.contains(
+            "atrim=start=2.000000:duration=1.000000,asetpts=PTS-STARTPTS,atempo=0.500000,adelay=20.000:all=1,asetpts=N/SR/TB,apad,atrim=duration=2.000000[a0]"
+        ));
+        // Tape-style, and a chain below 50%.
+        assert_eq!(
+            tempo(half, false, 2.0),
+            ",aresample=48000,asetrate=24000.0000,aresample=48000,asetpts=N/SR/TB,apad,atrim=duration=2.000000"
+        );
+        let tenth = ClipSpeed {
+            num: 1,
+            den: 10,
+            ..half
+        };
+        assert_eq!(
+            tempo(tenth, true, 10.0),
+            ",atempo=0.500000,atempo=0.500000,atempo=0.500000,atempo=0.800000,adelay=130.000:all=1,asetpts=N/SR/TB,apad,atrim=duration=10.000000"
+        );
+    }
+
+    #[test]
     fn each_clip_is_seeked_before_its_first_frame() {
         let a = input("a", 1920, 1080, 1);
         let c = [
-            cut(&a, &a, &clip(1, 0, 30, 0)),
-            cut(&a, &a, &clip(2, 240, 270, 0)),
+            cut(&a, &a, &clip(1, 0, 30, 0), true),
+            cut(&a, &a, &clip(2, 240, 270, 0), true),
         ];
         assert_eq!(c[0].seek, 0.0);
         assert!((c[1].seek - 7.5).abs() < 1e-9);
@@ -1921,6 +2066,7 @@ mod tests {
                 source: "b".into(),
                 ..clip(3, 0, 30, 30)
             },
+            true,
         );
         assert_eq!(d.path, PathBuf::from("b.mp4"));
         assert_eq!((d.tracks, d.fit), (0, Some((1920, 1080))));
@@ -2339,6 +2485,7 @@ mod tests {
             fade_in_colour: String::new(),
             fade_out_colour: String::new(),
             crossfade: 0,
+            speed: None,
         }
     }
 
@@ -2447,6 +2594,7 @@ mod tests {
                 fade_out: 20,
                 ..clip(1, 0, 30, 0)
             },
+            true,
         );
         assert_eq!((long.fade_in, long.fade_out), (20, 10));
     }
@@ -2893,5 +3041,145 @@ mod tests {
         ));
         // The rest over it.
         assert!(a.contains("[2:v:0]format=yuva444p[m2];[d1_1][m2]overlay="));
+    }
+
+    /// Development (PLAN §7, Clip speed SP4): retimed clips exported by the real arguments, every
+    /// frame's barcode against the preview's mapping (speed.ts) and the beeps against where the
+    /// source's whole seconds fall, with the pitch kept and tape-style. Needs the bundled ffmpeg
+    /// and `spikes/media` (`node spikes/make-test-media.mjs`):
+    /// `cargo test retimed_exports -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn retimed_exports_show_the_previews_frames() {
+        use std::process::Command;
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let ff = root.join("binaries/ffmpeg-x86_64-pc-windows-msvc.exe");
+        let src = root.join("../spikes/media/obs-1080p60-10m.mp4");
+        assert!(
+            ff.is_file() && src.is_file(),
+            "needs the bundled ffmpeg and spikes/media"
+        );
+        let out = std::env::temp_dir().join("razorcat-retimed-check.mp4");
+        let rate = Rate { num: 60, den: 1 };
+        // Source frames 601 to 902 (not on a second or a keyframe), as speed.ts retimes them:
+        // the first frame on source frame 601 exactly, the phase making it so.
+        let (from, to) = (601u32, 902u32);
+        let mut failed = 0;
+        for (num, den) in [(1, 2), (3, 2), (2, 1), (3333, 10000), (1, 10), (7, 3)] {
+            let first = from * den / num;
+            let phase = from * den - first * num;
+            let length = (to * den - phase).div_ceil(num) - first;
+            let speed = ClipSpeed {
+                num,
+                den,
+                phase,
+                first,
+                length,
+            };
+            for keep_pitch in [true, false] {
+                let cut = Cut {
+                    path: src.clone(),
+                    seek: (f64::from(from) / 60.0 - SEEK_EARLY).max(0.0),
+                    origin: 0.0,
+                    from,
+                    out: to,
+                    tracks: 1,
+                    speed: Some(speed),
+                    keep_pitch,
+                    ..Cut::default()
+                };
+                let mut a = vec!["-hide_banner".into(), "-loglevel".into(), "error".into()];
+                a.push("-y".into());
+                a.extend(args(
+                    &[cut],
+                    rate,
+                    None,
+                    (1920, 1080),
+                    &[],
+                    Encoder::X264,
+                    20_000_000,
+                ));
+                a.push(out.as_os_str().to_owned());
+                let r = Command::new(&ff).args(&a).output().unwrap();
+                assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+
+                // The picture: each frame's barcode, a row through its strip.
+                let row = (1080.0 - 1080.0 / 32.0_f64).round() as u32;
+                let pic = Command::new(&ff)
+                    .args(["-loglevel", "error", "-i"])
+                    .arg(&out)
+                    .args(["-vf", &format!("format=gray,crop=1920:1:0:{row}"), "-f"])
+                    .args(["rawvideo", "-"])
+                    .output()
+                    .unwrap()
+                    .stdout;
+                let got: Vec<u32> = pic
+                    .chunks_exact(1920)
+                    .map(|line| {
+                        (0..16).fold(0, |n, k| {
+                            let x = (f64::from(k) * 120.0 + 60.0).round() as usize;
+                            if line[x] > 128 {
+                                n | (1 << k)
+                            } else {
+                                n
+                            }
+                        })
+                    })
+                    .collect();
+                let want: Vec<u32> = (0..length)
+                    .map(|u| ((first + u) * num + phase) / den)
+                    .collect();
+                let wrong = got.iter().zip(&want).filter(|(g, w)| g != w).count()
+                    + got.len().abs_diff(want.len());
+
+                // The sound: each beep's energy centroid (a 50 ms beep on each whole second of
+                // the source) against where that second is in the export.
+                let pcm = Command::new(&ff)
+                    .args(["-loglevel", "error", "-i"])
+                    .arg(&out)
+                    .args(["-vn", "-ac", "1", "-ar", "48000", "-f", "s16le", "-"])
+                    .output()
+                    .unwrap()
+                    .stdout;
+                let samples: Vec<f64> = pcm
+                    .chunks_exact(2)
+                    .map(|b| f64::from(i16::from_le_bytes([b[0], b[1]])))
+                    .collect();
+                let s = f64::from(num) / f64::from(den);
+                let x0 = f64::from(from) / 60.0;
+                let mut offsets = Vec::new();
+                for k in 11..15 {
+                    let at = (f64::from(k) - x0) / s;
+                    let centre = at + 0.025 / s;
+                    let (lo, hi) = (at - 0.4 / s, at + 0.5 / s);
+                    let (a, b) = ((lo * 48000.0).max(0.0) as usize, (hi * 48000.0) as usize);
+                    if b > samples.len() {
+                        continue;
+                    }
+                    let (w, m) = samples[a..b]
+                        .iter()
+                        .enumerate()
+                        .fold((0.0, 0.0), |(w, m), (i, v)| {
+                            (w + v * v, m + v * v * (a + i) as f64)
+                        });
+                    if w > 0.0 {
+                        offsets.push((m / w / 48000.0 - centre) * 1000.0);
+                    }
+                }
+                let worst = offsets.iter().fold(0.0_f64, |m, o| m.max(o.abs()));
+                println!(
+                    "{:>7.2}% {:<5} frames {}/{} wrong {wrong}; beeps {} worst {worst:.1} ms {offsets:.1?}",
+                    100.0 * s,
+                    if keep_pitch { "pitch" } else { "tape" },
+                    got.len(),
+                    want.len(),
+                    offsets.len(),
+                );
+                if wrong > 0 || offsets.is_empty() || worst > 25.0 {
+                    failed += 1;
+                }
+            }
+        }
+        assert_eq!(failed, 0);
     }
 }

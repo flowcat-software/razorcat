@@ -190,6 +190,19 @@ export type CheckFrames = {
 	layout: boolean,
 };
 
+/**
+ *  A clip at another speed than 100% (PLAN §7, Clip speed; the page's speed.ts): `num` source
+ *  frames to every `den` of its own, its frame v showing source frame floor((v·num + phase)/den),
+ *  its first frame, and how many frames it has (its length on the timeline).
+ */
+export type ClipSpeed = {
+	num: number,
+	den: number,
+	phase: number,
+	first: number,
+	length: number,
+};
+
 /**  How the options bar shows the colors (PLAN 3D.16). */
 export type ColorControl = 
 /**  The palette as a row of swatches (with the two-color chip). */
@@ -279,8 +292,9 @@ export type Export = {
 };
 
 /**
- *  A clip of the edit, as the page sends it: its number, its source grid frames, and whether
- *  it's silent (its own mute, or the track's).
+ *  A clip of the edit, as the page sends it: its number, its source grid frames (`in` to `out`,
+ *  at another speed the ones its video spans), and whether it's silent (its own mute, or the
+ *  track's).
  */
 export type ExportClip = {
 	id: number,
@@ -305,6 +319,8 @@ export type ExportClip = {
 	 *  first).
 	 */
 	crossfade: number,
+	/**  Its speed, if not 100%. */
+	speed?: ClipSpeed | null,
 };
 
 /**

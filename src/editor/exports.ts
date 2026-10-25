@@ -7,6 +7,7 @@ import { drawMarks } from "../markup/drawMarks";
 import { playheadFrame } from "../markup/model/store";
 import { commands, uploadPixels, type ExportMark } from "../shared/ipc";
 import {
+  clipLength,
   clipStarts,
   crossfades,
   fadeColours,
@@ -17,6 +18,7 @@ import {
   type Doc,
 } from "./doc";
 import { useDoc } from "./docStore";
+import { isNormal, sourceFrame, speedOf, videoEnd } from "./speed";
 import { darkLayer } from "./spotlights";
 import { redactBox, redactStrength } from "./redactions";
 import { growColour, outputSize, type Side } from "./frame";
@@ -27,7 +29,7 @@ export type ExportFormat = "mp4" | "gif";
 
 /**
  * The clips as export reads them (`ids` of them, or all), in timeline order: their numbers, files
- * and source frames, whether they're heard (the track's mute mutes them all), where they start
+ * and source frames, their speed if not 100% (PLAN §7, Clip speed), whether they're heard (the track's mute mutes them all), where they start
  * on the timeline (which the markup's frames count on), their fades as they take effect (PLAN
  * 4.7a) and their colours (4.7c), and their crossfades with the clip before (4.7b), if that one's exported with them.
  */
@@ -41,8 +43,12 @@ export function exportClips(doc: Doc, ids?: readonly ClipId[]) {
           {
             id: c.id,
             source: c.source,
-            in: c.in,
-            out: c.out,
+            // Its source frames (at another speed, those its video spans), and its speed then.
+            in: sourceFrame(c, c.in),
+            out: videoEnd(c),
+            speed: isNormal(speedOf(c))
+              ? null
+              : { ...speedOf(c), phase: c.phase ?? 0, first: c.in, length: clipLength(c) },
             muted: doc.muted || !!c.muted,
             start: starts[i],
             ...fadesOf(doc, i),

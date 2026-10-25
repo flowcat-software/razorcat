@@ -70,6 +70,19 @@ the window counts as cut off; text shortened with an ellipsis is listed apart. S
 file. Run it after adding to a bar; a new state worth checking goes in `checkLayout`. The
 bars squeeze to fit through `src/editor/squeeze.ts`.
 
+The retimed export check proves a clip at another speed exports the frames the preview shows,
+its sound in sync:
+
+```powershell
+cd src-tauri; cargo test retimed_exports -- --ignored --nocapture
+```
+
+exports the 10-minute 1080p60 test clip at six speeds (10% to 233%) with the export's own
+arguments, pitch kept and tape-style, and reads every frame's barcode against the preview's
+mapping (`src/editor/speed.ts`) and each beep against where its second falls. Needs the bundled
+ffmpeg and `spikes/media`. Not while `tauri:dev` is rebuilding (they share `target/debug`). Run
+it after changing the export's speed chain (`tempo`, the `setpts` in `graph`).
+
 The dev app keeps proxies, converted copies, thumbnails and waveforms in
 `%LOCALAPPDATA%\com.razorcat.desktop.dev\proxies\` (Settings › Proxies can move it).
 
