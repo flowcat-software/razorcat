@@ -570,11 +570,11 @@ export function EditorApp() {
         } else moveSelected(player, e.shiftKey ? (earlier ? "first" : "last") : earlier ? -1 : 1);
         return;
       }
-      // Ctrl+R: the selected clip's speed, in its popover, as Premiere's and Resolve's key;
-      // Ctrl+Shift+R is kept for reversing (PLAN §7, Clip speed). Neither reloads the page.
+      // Ctrl+R: the selected clip's speed, in its popover, as Premiere's and Resolve's key.
+      // Ctrl+Shift+R does nothing (reverse is shelved, PLAN §7). Neither reloads the page.
       if (e.code === "KeyR") {
         e.preventDefault();
-        if (e.shiftKey) return sayWhy("reverse.later");
+        if (e.shiftKey) return;
         const id = useDoc.getState().selected;
         if (id === null || !openSpeed(id)) sayWhy("speed.none");
         return;

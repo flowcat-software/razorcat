@@ -327,7 +327,6 @@ export const WHY = {
     "Copy markup first ([Ctrl+C]), then select the markup to paste its style, fades or timing onto · fades: a clip's too, onto clips",
   "order.none": "Select a clip or markup to move it",
   "speed.none": "Select a clip to change its speed",
-  "reverse.later": "Reversing a clip comes later: [Ctrl+Shift+R] is kept for it",
   "order.end": "It's as far as it goes",
   "export.none": "Open a video first",
 } as const;
