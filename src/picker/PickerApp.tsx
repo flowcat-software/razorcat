@@ -1,7 +1,7 @@
 // The recording overlay (PLAN 5b.3; picker.rs): one per monitor, transparent and dimmed, the
 // screen live under it. Vandal's overlay, for video: drag an area (Shift: a square), adjust it by
 // its edges or the keys, then Enter or the Record bar records it; F records this whole screen;
-// Esc or a right-click goes back. One selection over every monitor: starting one here clears the
+// W picks a window (a click, or Enter, records it); Esc or a right-click goes back. One selection over every monitor: starting one here clears the
 // others'. Selections are in the monitor's physical pixels, shown in CSS px.
 
 import {
@@ -13,7 +13,7 @@ import {
   type PointerEvent,
 } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { commands, events } from "../shared/ipc";
+import { commands, events, type PickLoad } from "../shared/ipc";
 import {
   arrowDelta,
   clampPoint,
@@ -30,6 +30,7 @@ import {
   type Rect,
 } from "./selection";
 import { toolbarPlacement, type Size } from "./toolbarPlacement";
+import { visiblePart, windowAt } from "./windowPick";
 import styles from "./PickerApp.module.css";
 
 const index = Number(getCurrentWebviewWindow().label.replace("pick-", ""));
@@ -57,6 +58,13 @@ export function PickerApp() {
   const [focused, setFocused] = useState(() => document.hasFocus());
   const barRef = useRef<HTMLDivElement>(null);
   const [barSize, setBarSize] = useState<Size | null>(null);
+  const [load, setLoad] = useState<PickLoad | null>(null);
+  // Window mode (key W), shared by every overlay through Rust: the window under the pointer, as
+  // an index into `load.windows`.
+  const [picking, setPicking] = useState(false);
+  const [hovered, setHovered] = useState<number | null>(null);
+  /** The window a click started on; it's picked if the click ends there too. */
+  const pressedWindow = useRef<number | null>(null);
 
   // The window is sized to its monitor after it's made: follow it.
   useEffect(() => {
@@ -75,11 +83,21 @@ export function PickerApp() {
         setDrag(null);
       }
     });
+    const picked = events.pickWindow.listen(({ payload }) => {
+      setPicking(payload.picking);
+      setHovered(payload.hovered);
+      if (payload.picking) {
+        setSelection(null);
+        setDrag(null);
+      }
+    });
+    void commands.pickLoad(index).then(setLoad);
     return () => {
       window.removeEventListener("resize", measure);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
       void cleared.then((stop) => stop());
+      void picked.then((stop) => stop());
     };
   }, []);
 
@@ -90,15 +108,47 @@ export function PickerApp() {
   }, []);
   const cancel = useCallback(() => void commands.pickCancel(), []);
 
+  /** Window mode on or off, and the window under the pointer, on every overlay. */
+  const setWindowPick = useCallback((on: boolean, w: number | null) => {
+    setPicking(on);
+    setHovered(w);
+    void commands.pickWindowChanged(on, w);
+  }, []);
+  /** The window under a monitor-local point. */
+  const windowUnder = useCallback(
+    (p: Point) => (load ? windowAt(load.windows, { x: p.x + load.x, y: p.y + load.y }) : null),
+    [load],
+  );
+  const pickWindow = useCallback((w: number) => {
+    void commands.pickWindow(w).then((r) => {
+      if (r.status === "error") console.error("[picker]", r.error);
+    });
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
+      const plainW = e.code === "KeyW" && !e.repeat && !e.ctrlKey && !e.altKey && !e.shiftKey;
+      if (picking) {
+        // Esc / W go back to selecting an area; Enter records the window lit.
+        if (e.key === "Escape" || plainW) return setWindowPick(false, null);
+        if (e.key === "Enter") {
+          if (hovered !== null) pickWindow(hovered);
+          return;
+        }
+      }
       if (e.key === "Escape") return cancel();
       if (e.key === "Enter") {
         if (selection) record(selection);
         return;
       }
       if ((e.key === "f" || e.key === "F") && !e.ctrlKey && !e.altKey) return record(null);
+      if (plainW && !picking) {
+        setSelection(null);
+        setDrag(null);
+        setWindowPick(true, pointer ? windowUnder(pointer) : null);
+        return;
+      }
       const delta = arrowDelta(e.key, e.shiftKey ? 10 : 1);
       if (delta && selection && !drag) {
         e.preventDefault();
@@ -119,7 +169,19 @@ export function PickerApp() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("contextmenu", onContextMenu);
     };
-  }, [selection, drag, size, record, cancel]);
+  }, [
+    selection,
+    drag,
+    size,
+    record,
+    cancel,
+    picking,
+    hovered,
+    pointer,
+    setWindowPick,
+    windowUnder,
+    pickWindow,
+  ]);
 
   const toLocal = (e: PointerEvent): Point =>
     clampPoint({ x: toPhysical(e.clientX, scale), y: toPhysical(e.clientY, scale) }, size);
@@ -127,6 +189,10 @@ export function PickerApp() {
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || barRef.current?.contains(e.target as Node)) return;
     e.currentTarget.setPointerCapture(e.pointerId);
+    if (picking) {
+      pressedWindow.current = windowUnder(toLocal(e));
+      return;
+    }
     const p = toLocal(e);
     const hit = selection ? hitTest(selection, p, HANDLE_TOLERANCE * scale) : null;
     if (selection && hit?.kind === "edge") {
@@ -143,6 +209,11 @@ export function PickerApp() {
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     const p = toLocal(e);
     setPointer(p);
+    if (picking) {
+      const w = windowUnder(p);
+      if (w !== hovered) setWindowPick(true, w);
+      return;
+    }
     if (!drag) return;
     switch (drag.mode) {
       case "create": {
@@ -185,7 +256,14 @@ export function PickerApp() {
     }
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
+    if (picking) {
+      // Picked on release, so the release can't land on the window below.
+      const w = pressedWindow.current;
+      pressedWindow.current = null;
+      if (e.button === 0 && w !== null && w === windowUnder(toLocal(e))) pickWindow(w);
+      return;
+    }
     if (drag?.mode === "create" && !drag.moved) setSelection(null);
     setDrag(null);
   };
@@ -203,7 +281,7 @@ export function PickerApp() {
   }, [barShown]);
 
   const css = (v: number) => v / scale;
-  let cursor = "crosshair";
+  let cursor = picking ? "default" : "crosshair";
   if (drag?.mode === "move") cursor = "move";
   else if (drag?.mode === "resize") cursor = cursorFor({ kind: "edge", edges: drag.edges });
   else if (!drag && selection && pointer)
@@ -223,6 +301,12 @@ export function PickerApp() {
         )
       : null;
 
+  // The window lit: its part on this monitor, and the whole of it in this monitor's pixels (it
+  // may run off the edges).
+  const lit = picking && load && hovered !== null ? load.windows[hovered] : undefined;
+  const windowShown = lit && load ? visiblePart(lit, { x: load.x, y: load.y, ...size }) : null;
+  const windowRect = lit && load && { ...lit, x: lit.x - load.x, y: lit.y - load.y };
+
   return (
     <div
       className={styles.root}
@@ -232,12 +316,31 @@ export function PickerApp() {
       onPointerUp={onPointerUp}
       onPointerLeave={() => !drag && setPointer(null)}
       onDoubleClick={() => {
-        if (selection && pointer && hitTest(selection, pointer, 0)?.kind === "inside") {
+        if (!picking && selection && pointer && hitTest(selection, pointer, 0)?.kind === "inside") {
           record(selection);
         }
       }}
     >
-      {!selection && <div className={styles.dimAll} />}
+      {!selection && !windowShown && <div className={styles.dimAll} />}
+      {windowRect && windowShown && (
+        <>
+          <div
+            className={`${styles.selection} ${styles.window}`}
+            style={{
+              left: css(windowRect.x),
+              top: css(windowRect.y),
+              width: css(windowRect.width),
+              height: css(windowRect.height),
+            }}
+          />
+          <span
+            className={styles.windowSize}
+            style={{ left: css(windowShown.x) + 8, top: css(windowShown.y) + 8 }}
+          >
+            {windowRect.width & ~1} × {windowRect.height & ~1}
+          </span>
+        </>
+      )}
       {selection && (
         <div
           className={styles.selection}
@@ -272,7 +375,11 @@ export function PickerApp() {
         </div>
       )}
       {focused && !drag && (
-        <HintBar hasSelection={!!selection} atBottom={!!selection && css(selection.y) < 72} />
+        <HintBar
+          picking={picking}
+          hasSelection={!!selection}
+          atBottom={!!selection && css(selection.y) < 72}
+        />
       )}
     </div>
   );
@@ -286,10 +393,25 @@ function screenSize(): Size {
   };
 }
 
-function HintBar({ hasSelection, atBottom }: { hasSelection: boolean; atBottom: boolean }) {
+function HintBar({
+  picking,
+  hasSelection,
+  atBottom,
+}: {
+  picking: boolean;
+  hasSelection: boolean;
+  atBottom: boolean;
+}) {
   return (
     <div className={`${styles.hint} ${atBottom ? styles.hintBottom : ""}`}>
-      {hasSelection ? (
+      {picking ? (
+        <>
+          <Hint keys={["Click"]} label="record window" />
+          <Hint keys={["W"]} label="select area" />
+          <Hint keys={["F"]} label="this screen" />
+          <Hint keys={["Esc"]} label="back" />
+        </>
+      ) : hasSelection ? (
         <>
           <Hint keys={["Enter"]} label="record" />
           <Hint keys={["Drag"]} label="adjust" />
@@ -302,6 +424,7 @@ function HintBar({ hasSelection, atBottom }: { hasSelection: boolean; atBottom: 
         <>
           <Hint keys={["Drag"]} label="select area" />
           <Hint keys={["Shift"]} label="square" />
+          <Hint keys={["W"]} label="window" />
           <Hint keys={["F"]} label="this screen" />
           <Hint keys={["Esc"]} label="cancel" />
         </>

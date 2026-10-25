@@ -134,12 +134,14 @@ pub fn screens(app: &AppHandle) -> Result<Vec<Screen>, String> {
     Ok(screens)
 }
 
-/// What to record: a monitor, or an area of it (monitor pixels: x, y, width, height), made even
-/// for the encoder (yuv420p halves the colour).
+/// What to record: a monitor, or an area of it (monitor pixels: x, y, width, height), or a
+/// window (its handle, and its size when picked), made even for the encoder (yuv420p halves the
+/// colour). `screen` is where the control goes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Target {
     pub screen: Screen,
     pub area: Option<(u32, u32, u32, u32)>,
+    pub window: Option<(u64, u32, u32)>,
 }
 
 /// The smallest area recorded, either side (px).
@@ -154,19 +156,38 @@ impl Target {
             let h = h.clamp(MIN_SIDE, screen.height - y) & !1;
             (x, y, w, h)
         });
-        Self { screen, area }
+        Self {
+            screen,
+            area,
+            window: None,
+        }
+    }
+
+    /// Window `hwnd`, `width` × `height` when picked, on `screen` (or mostly).
+    pub fn window(screen: Screen, hwnd: u64, width: u32, height: u32) -> Self {
+        Self {
+            screen,
+            area: None,
+            window: Some((hwnd, width.max(MIN_SIDE), height.max(MIN_SIDE))),
+        }
     }
 
     /// The picture's size.
     fn size(&self) -> (u32, u32) {
-        match self.area {
-            Some((_, _, w, h)) => (w, h),
-            None => (self.screen.width & !1, self.screen.height & !1),
+        match (self.window, self.area) {
+            (Some((_, w, h)), _) => (w & !1, h & !1),
+            (None, Some((_, _, w, h))) => (w, h),
+            (None, None) => (self.screen.width & !1, self.screen.height & !1),
         }
     }
 
-    /// `gfxcapture`'s options for it: the monitor, and the crop (on the GPU).
+    /// `gfxcapture`'s options for it: the monitor, and the crop (on the GPU); or the window, its
+    /// sides rounded down to even, and if it's resized while recording, scaled to fit the size it
+    /// started at.
     fn source(&self) -> String {
+        if let Some((hwnd, _, _)) = self.window {
+            return format!("hwnd={hwnd}:width=-2:height=-2:resize_mode=scale_aspect");
+        }
         let s = &self.screen;
         let (x, y) = self.area.map_or((0, 0), |a| (a.0, a.1));
         let (w, h) = self.size();
@@ -497,6 +518,16 @@ mod tests {
         assert_eq!(t.area, Some((1904, 1064, 16, 16)));
         let t = Target::of(screen(), Some((10, 10, 5000, 5000)));
         assert_eq!(t.size(), (1910, 1070));
+    }
+
+    #[test]
+    fn a_window_is_recorded_by_its_handle_its_sides_even() {
+        let t = Target::window(screen(), 0x1234, 1001, 7);
+        assert_eq!(t.size(), (1000, 16));
+        assert_eq!(
+            t.source(),
+            "hwnd=4660:width=-2:height=-2:resize_mode=scale_aspect"
+        );
     }
 
     #[test]

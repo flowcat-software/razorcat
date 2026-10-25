@@ -259,6 +259,27 @@ pub fn pick_area(
     crate::picker::picked(&app, index, rect)
 }
 
+/// Overlay `index`'s monitor and the windows it can pick; None once picking is over.
+#[tauri::command]
+#[specta::specta]
+pub fn pick_load(index: u32) -> Option<crate::picker::PickLoad> {
+    crate::picker::load(index)
+}
+
+/// Window mode on or off, and the window under the pointer, on one overlay: all follow.
+#[tauri::command]
+#[specta::specta]
+pub fn pick_window_changed(app: AppHandle, picking: bool, hovered: Option<u32>) {
+    crate::picker::window_changed(&app, picking, hovered);
+}
+
+/// Window `index` of the overlays' list is recorded.
+#[tauri::command]
+#[specta::specta]
+pub fn pick_window(app: AppHandle, index: u32) -> Result<(), String> {
+    crate::picker::picked_window(&app, index)
+}
+
 /// The overlays' Esc: nothing recorded.
 #[tauri::command]
 #[specta::specta]

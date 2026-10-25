@@ -34,6 +34,7 @@ mod tool_styles;
 mod unloads;
 mod wave;
 mod webview_crash;
+mod winenum;
 
 use std::path::Path;
 
@@ -75,6 +76,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::pick_started,
             commands::pick_area,
             commands::pick_cancel,
+            commands::pick_load,
+            commands::pick_window_changed,
+            commands::pick_window,
             commands::default_recording_folder,
             commands::export,
             commands::export_each,
@@ -105,6 +109,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             proxy::ProxyFailed,
             recording::RecordingChanged,
             picker::PickClear,
+            picker::PickWindow,
             thumbs::ThumbsUpdate,
             wave::WaveReady,
             check::CheckFrames,

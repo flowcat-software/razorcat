@@ -1,7 +1,8 @@
 //! What to record (PLAN 5b.3): a live, dimmed overlay over every monitor (picker.html, as
 //! Vandal's overlays, but transparent: the screen goes on under it), where the user drags an area
-//! or takes a whole screen. One selection over all of them: starting one on a monitor clears the
-//! others'. Then the overlays go, and recording.rs records what was picked.
+//! or takes a whole screen, or with W picks a window (5b.3b). One selection over all of them:
+//! starting one on a monitor clears the others'. Then the overlays go, and recording.rs records
+//! what was picked.
 
 use std::ffi::c_void;
 
@@ -13,6 +14,7 @@ use tauri_specta::Event;
 
 use crate::editor::LABEL;
 use crate::recording::{Screen, Target};
+use crate::winenum::{self, SnapWindow, WinRect};
 use std::sync::Mutex;
 
 const PREFIX: &str = "pick-";
@@ -22,6 +24,24 @@ const PREFIX: &str = "pick-";
 #[serde(rename_all = "camelCase")]
 pub struct PickClear {
     pub except: u32,
+}
+
+/// Rust → overlays: window mode is on or off, and which window (an index into
+/// [`PickLoad::windows`]) is under the pointer, so a window across monitors is lit on each.
+#[derive(Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct PickWindow {
+    pub picking: bool,
+    pub hovered: Option<u32>,
+}
+
+/// What an overlay needs: where its monitor is, and the windows that can be picked (topmost
+/// first), in virtual-desktop physical pixels.
+#[derive(Clone, Serialize, Type)]
+pub struct PickLoad {
+    pub x: i32,
+    pub y: i32,
+    pub windows: Vec<WinRect>,
 }
 
 /// An area of a monitor, in its own physical pixels.
@@ -36,6 +56,7 @@ pub struct PickRect {
 struct Picking {
     add: bool,
     screens: Vec<Screen>,
+    windows: Vec<SnapWindow>,
 }
 
 static PICKING: Mutex<Option<Picking>> = Mutex::new(None);
@@ -50,11 +71,31 @@ pub fn open(app: &AppHandle, add: bool) -> Result<(), String> {
         return Err("A recording is under way.".into());
     }
     let screens = crate::recording::screens(app)?;
+    let bounds: Vec<WinRect> = screens
+        .iter()
+        .map(|s| WinRect {
+            x: s.x,
+            y: s.y,
+            width: s.width as i32,
+            height: s.height as i32,
+        })
+        .collect();
+    // Not the editor: it may not be minimized yet.
+    let editor = app.get_webview_window(LABEL);
+    let mine = editor
+        .as_ref()
+        .and_then(|e| e.hwnd().ok())
+        .map(|h| h.0 as isize);
+    let windows = winenum::enumerate(&bounds)
+        .into_iter()
+        .filter(|w| Some(w.hwnd) != mine)
+        .collect();
     *PICKING.lock().unwrap() = Some(Picking {
         add,
         screens: screens.clone(),
+        windows,
     });
-    if let Some(editor) = app.get_webview_window(LABEL) {
+    if let Some(editor) = editor {
         let _ = editor.minimize();
     }
     // Creating webviews from a command can deadlock on Windows: elsewhere.
@@ -139,6 +180,27 @@ fn close(app: &AppHandle) {
     }
 }
 
+/// Overlay `index`'s monitor and the windows; None once picking is over.
+pub fn load(index: u32) -> Option<PickLoad> {
+    let guard = PICKING.lock().unwrap();
+    let p = guard.as_ref()?;
+    let s = p.screens.get(index as usize)?;
+    Some(PickLoad {
+        x: s.x,
+        y: s.y,
+        windows: p.windows.iter().map(|w| w.rect).collect(),
+    })
+}
+
+/// Window mode on or off, and the window under the pointer, from one overlay: all follow.
+pub fn window_changed(app: &AppHandle, picking: bool, hovered: Option<u32>) {
+    for (label, window) in app.webview_windows() {
+        if label.starts_with(PREFIX) {
+            let _ = PickWindow { picking, hovered }.emit_to(app, window.label());
+        }
+    }
+}
+
 /// A selection started on overlay `index`: the others drop theirs.
 pub fn started(app: &AppHandle, index: u32) {
     for (label, window) in app.webview_windows() {
@@ -169,4 +231,36 @@ pub fn cancel(app: &AppHandle) {
         close(app);
         crate::recording::show_editor(app);
     }
+}
+
+/// Window `index` (of [`PickLoad::windows`]) is picked: the overlays go, it's made active, and
+/// it's recorded, the control on the monitor that has its middle.
+pub fn picked_window(app: &AppHandle, index: u32) -> Result<(), String> {
+    let Some(p) = PICKING.lock().unwrap().take() else {
+        return Ok(());
+    };
+    close(app);
+    let window = *p
+        .windows
+        .get(index as usize)
+        .ok_or("That window has gone.")?;
+    let r = window.rect;
+    let (cx, cy) = (r.x + r.width / 2, r.y + r.height / 2);
+    let screen = p
+        .screens
+        .iter()
+        .find(|s| s.contains(cx, cy))
+        .or(p.screens.first())
+        .cloned()
+        .ok_or("No monitor found.")?;
+    if !winenum::activate(window.hwnd) {
+        logln!("[picker] couldn't make the window active");
+    }
+    let target = Target::window(
+        screen,
+        window.hwnd as u64,
+        r.width.max(0) as u32,
+        r.height.max(0) as u32,
+    );
+    crate::recording::start(app, p.add, target)
 }

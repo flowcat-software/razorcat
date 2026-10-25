@@ -112,6 +112,16 @@ export const commands = {
 } | null) => typedError<null, string>(__TAURI_INVOKE("pick_area", { index, rect })),
 	/**  The overlays' Esc: nothing recorded. */
 	pickCancel: () => __TAURI_INVOKE<void>("pick_cancel"),
+	/**  Overlay `index`'s monitor and the windows it can pick; None once picking is over. */
+	pickLoad: (index: number) => __TAURI_INVOKE<{
+	x: number,
+	y: number,
+	windows: WinRect[],
+} | null>("pick_load", { index }),
+	/**  Window mode on or off, and the window under the pointer, on one overlay: all follow. */
+	pickWindowChanged: (picking: boolean, hovered: number | null) => __TAURI_INVOKE<void>("pick_window_changed", { picking, hovered }),
+	/**  Window `index` of the overlays' list is recorded. */
+	pickWindow: (index: number) => typedError<null, string>(__TAURI_INVOKE("pick_window", { index })),
 	/**  Where recordings go when Settings › Recording › Folder is empty. */
 	defaultRecordingFolder: () => __TAURI_INVOKE<string>("default_recording_folder"),
 	/**
@@ -170,6 +180,7 @@ export const events = {
 	openFailed: makeEvent<OpenFailed>("open-failed"),
 	openOffered: makeEvent<OpenOffered>("open-offered"),
 	pickClear: makeEvent<PickClear>("pick-clear"),
+	pickWindow: makeEvent<PickWindow>("pick-window"),
 	proxyFailed: makeEvent<ProxyFailed>("proxy-failed"),
 	proxyProgress: makeEvent<ProxyProgress>("proxy-progress"),
 	proxyReady: makeEvent<ProxyReady>("proxy-ready"),
@@ -539,12 +550,31 @@ export type PickClear = {
 	except: number,
 };
 
+/**
+ *  What an overlay needs: where its monitor is, and the windows that can be picked (topmost
+ *  first), in virtual-desktop physical pixels.
+ */
+export type PickLoad = {
+	x: number,
+	y: number,
+	windows: WinRect[],
+};
+
 /**  An area of a monitor, in its own physical pixels. */
 export type PickRect = {
 	x: number,
 	y: number,
 	width: number,
 	height: number,
+};
+
+/**
+ *  Rust → overlays: window mode is on or off, and which window (an index into
+ *  [`PickLoad::windows`]) is under the pointer, so a window across monitors is lit on each.
+ */
+export type PickWindow = {
+	picking: boolean,
+	hovered: number | null,
 };
 
 /**
@@ -831,6 +861,14 @@ export type WaveReady = {
 	source: string,
 	/**  Where the page reads it: `BINS` bytes per grid frame. */
 	url: string,
+};
+
+/**  A window's visible frame (no invisible resize borders), virtual-desktop physical pixels. */
+export type WinRect = {
+	x: number,
+	y: number,
+	width: number,
+	height: number,
 };
 
 /**
