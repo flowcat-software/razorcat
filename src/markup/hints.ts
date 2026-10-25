@@ -130,6 +130,8 @@ export const CONTROL_HINTS = {
   snap: "Snapping to cuts, edges and the playhead · [Shift] while dragging turns it off for a moment",
   zoom: "[Ctrl]+wheel Zoom at the pointer · [Ctrl+=] [Ctrl+−] Zoom in and out · [Ctrl+0] Fit",
   resizer: "Drag to make the timeline taller, for more markup lanes · Double-click puts it back",
+  timelineScroll:
+    "Drag to scroll along the timeline · Click to jump there · [Home] [End] go to its ends",
   // The timeline's handles (Timeline.tsx's hit kinds).
   "timeline.in":
     "Drag to trim the clip's start · the rest ripples along · [Shift] no snapping · Right-click for more",

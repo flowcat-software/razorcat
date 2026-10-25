@@ -7,7 +7,9 @@ import {
   clampScroll,
   fitted,
   follow,
+  reveal,
   scrolled,
+  scrolledTo,
   sliderToZoom,
   zoomAt,
   zoomToSlider,
@@ -50,6 +52,10 @@ interface TimelineState {
   scrollBy: (dx: number) => void;
   /** Keeps frame `f` in view. */
   follow: (f: number) => void;
+  /** Brings frame `f` into view after a jump, centred (`reveal`). */
+  reveal: (f: number) => void;
+  /** Scrolls to `scroll` frames at the left edge (the scrollbar). */
+  scrollTo: (scroll: number) => void;
 }
 
 export const useTimeline = create<TimelineState>((set, get) => ({
@@ -124,5 +130,16 @@ export const useTimeline = create<TimelineState>((set, get) => ({
     const { view, width, frames } = get();
     const next = follow(view, f, width, frames);
     if (next !== view) set({ view: next });
+  },
+
+  reveal: (f) => {
+    const { view, width, frames } = get();
+    const next = reveal(view, f, width, frames);
+    if (next !== view) set({ view: next });
+  },
+
+  scrollTo: (scroll) => {
+    const { view, width, frames } = get();
+    set({ isFitted: false, view: scrolledTo(view, scroll, width, frames) });
   },
 }));

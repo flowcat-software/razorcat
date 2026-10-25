@@ -126,6 +126,33 @@ export function sliderToZoom(t: number, width: number, frames: number): number {
   return Math.exp(lo + Math.max(0, Math.min(1, t)) * (hi - lo));
 }
 
+/**
+ * What the scrollbar shows: the furthest the view scrolls each way (`lo`, `hi`, frames at its
+ * left edge) and how many frames it shows; null when there's nothing to scroll (fitted or wider).
+ */
+export function scrollRange(
+  v: View,
+  width: number,
+  frames: number,
+): { lo: number; hi: number; visible: number } | null {
+  const [lo, hi] = scrollLimits(v.zoom, width, frames);
+  return hi > lo ? { lo, hi, visible: (width - HEADER) / v.zoom } : null;
+}
+
+/** Scrolled to `scroll` (frames at the left edge), within the limits. */
+export const scrolledTo = (v: View, scroll: number, width: number, frames: number) =>
+  clampScroll({ zoom: v.zoom, scroll }, width, frames);
+
+/**
+ * Frame `f` brought into view after a jump (Home, End, the next cut): centred, within the
+ * limits, so either end lands at its edge; a view already showing it stays put.
+ */
+export function reveal(v: View, f: number, width: number, frames: number): View {
+  const x = xOf(v, f);
+  if (x >= HEADER && x <= width - 20) return v;
+  return scrolledTo(v, f - (width - HEADER) / v.zoom / 2, width, frames);
+}
+
 /** Scrolls so frame `f` is in view, a page at a time (as an NLE follows the playhead). */
 export function follow(v: View, f: number, width: number, frames: number): View {
   const x = xOf(v, f);

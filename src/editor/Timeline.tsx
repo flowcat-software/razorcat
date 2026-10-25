@@ -59,6 +59,7 @@ import { clipsExportItems, exportClip } from "./exports";
 import { Menu, type MenuItems } from "./Menu";
 import { markTargets, rangeTargets, scrubTargets, snap, trimTargets } from "./snap";
 import { useTimeline } from "./timelineStore";
+import { TimelineScrollbar } from "./TimelineScrollbar";
 import { FRAME_TICKS, HEADER, fOf, ticks, xOf, zoomAnchor, type View } from "./timelineView";
 import styles from "./EditorApp.module.css";
 
@@ -698,6 +699,8 @@ function drawWave(
  */
 export function Timeline({ source, sources, player, inFrames, thumbs, waves }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  /** A button is held down on the timeline (a scrub, a drag). */
+  const pressed = useRef(false);
   const draw = useRef<() => void>(() => {});
   const [redraw] = useState(() => () => draw.current());
 
@@ -1474,10 +1477,15 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
     draw.current();
     const stopView = useTimeline.subscribe(draw.current);
     const stopDoc = useDoc.subscribe(draw.current);
+    let last = player.getState().frame;
     const stopPlayer = player.subscribe(() => {
-      // Playing: the view follows the playhead.
+      // Playing: the view follows the playhead, a page at a time. Paused, a jump out of view
+      // (Home, End, the next cut) brings it back in, centred; not while the pointer drags on
+      // the timeline (scrubbing past its edge would move the view under the pointer).
       const { frame, speed } = player.getState();
       if (speed !== 0) useTimeline.getState().follow(frame);
+      else if (frame !== last && !pressed.current) useTimeline.getState().reveal(frame);
+      last = frame;
       draw.current();
     });
     return () => {
@@ -1504,6 +1512,19 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
     ro.observe(canvas);
     return () => ro.disconnect();
   }, [frames]);
+
+  // A press on the timeline lasts until it's let go anywhere (released outside it, uncaptured).
+  useEffect(() => {
+    const up = () => {
+      pressed.current = false;
+    };
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => {
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+  }, []);
 
   // Wheel: Ctrl zooms at the pointer (at the playhead, if the pointer is on it), otherwise it
   // scrolls. Not passive, so the page doesn't.
@@ -2193,6 +2214,7 @@ ${d.group.length} items`,
         className={styles.timelineCanvas}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
+          pressed.current = true;
           hideTip();
           tipFor.current = null;
           const docState = useDoc.getState();
@@ -2515,6 +2537,7 @@ ${d.group.length} items`,
       <div ref={readout} className={styles.dragReadout} style={{ display: "none" }} />
       <div ref={tip} className={styles.handleTip} style={{ display: "none" }} />
       {menu && <Menu items={menu.items} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />}
+      <TimelineScrollbar />
     </>
   );
 }

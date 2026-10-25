@@ -1175,6 +1175,30 @@
   background: var(--tl-bg);
 }
 
+/* The timeline's scrollbar (TimelineScrollbar.tsx), along its bottom while zoomed in: a thin
+   track, its thumb the part in view, both firmer under the pointer. */
+.timelineScrollbar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  height: 10px;
+  touch-action: none;
+}
+
+.timelineThumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 3px;
+  background: var(--text-3);
+  opacity: 0.6;
+}
+
+.timelineScrollbar:hover .timelineThumb,
+.timelineScrollbar:active .timelineThumb {
+  opacity: 1;
+}
+
 .timelineCanvas {
   position: absolute;
   inset: 0;

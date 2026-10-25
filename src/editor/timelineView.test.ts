@@ -6,6 +6,8 @@ import {
   fOf,
   fitted,
   follow,
+  reveal,
+  scrollRange,
   scrolled,
   sliderToZoom,
   ticks,
@@ -111,6 +113,25 @@ describe("scrolling", () => {
     const v = { zoom: 10, scroll: 0 };
     expect(follow(v, 50, 1044, 1000)).toBe(v);
     expect(follow(v, 150, 1044, 1000).scroll).toBe(140);
+  });
+
+  it("centres the playhead after a jump out of view, the ends at their edges", () => {
+    // 100 frames visible.
+    const v = { zoom: 10, scroll: 0 };
+    expect(reveal(v, 50, 1044, 1000)).toBe(v);
+    expect(reveal(v, 500, 1044, 1000).scroll).toBe(450);
+    // Home and End: as far as the limits go.
+    expect(reveal({ zoom: 10, scroll: 500 }, 0, 1044, 1000).scroll).toBe(-10);
+    expect(reveal(v, 999, 1044, 1000).scroll).toBe(910);
+  });
+
+  it("gives the scrollbar its range, or none when fitted", () => {
+    expect(scrollRange({ zoom: 10, scroll: 0 }, 1044, 1000)).toEqual({
+      lo: -10,
+      hi: 910,
+      visible: 100,
+    });
+    expect(scrollRange(fitted(1044, 1000), 1044, 1000)).toBeNull();
   });
 });
 
