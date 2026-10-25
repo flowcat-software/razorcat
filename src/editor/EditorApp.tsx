@@ -256,6 +256,12 @@ export function EditorApp() {
     return () => player.close();
   }, [player]);
 
+  // Settings › Timeline › Keep the sound's pitch: a retimed clip plays so (PLAN §7, Clip speed).
+  const keepPitch = settings?.timeline.keepPitch ?? true;
+  useEffect(() => {
+    player?.setKeepPitch(keepPitch);
+  }, [player, keepPitch]);
+
   // The playback volume (PLAN 5a): the player plays at it.
   useEffect(() => {
     if (!player) return;

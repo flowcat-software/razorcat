@@ -39,3 +39,28 @@ describe("the player's videos", () => {
     expect(player.originals()).toEqual([]);
   });
 });
+
+describe("the player's frames at another speed", () => {
+  beforeAll(() => {
+    vi.stubGlobal("requestAnimationFrame", () => 0);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+  });
+
+  // A clip's frames are its source's at its speed (speed.ts): the player shows the source frame.
+  it("shows each timeline frame's source frame", () => {
+    const player = new Player(30);
+    player.setEdit({
+      clips: [
+        { source: "a", in: 0, out: 10 },
+        { source: "a", in: 50, out: 60, speed: { num: 2, den: 1 } },
+        { source: "a", in: 0, out: 6, speed: { num: 1, den: 3 }, phase: 1 },
+      ],
+      muted: false,
+    });
+    expect(player.frames).toBe(26);
+    expect([9, 10, 11, 19].map((t) => player.sourceFrame(t))).toEqual([9, 100, 102, 118]);
+    // At a third, phase 1: floor((v + 1) / 3).
+    expect([20, 21, 22, 23, 25].map((t) => player.sourceFrame(t))).toEqual([0, 0, 1, 1, 2]);
+  });
+});

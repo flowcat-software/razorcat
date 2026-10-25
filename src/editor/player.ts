@@ -1,14 +1,18 @@
 // The player: the timeline's sources' `<video>`s, driven in timeline frames, with their proxies.
 //
 // The playhead is a timeline frame. The edit (`setEdit`: the document's clips) maps it to a
-// source and a grid frame of it: frame t in a clip starting at `start` is frame `in + t - start`
-// of the clip's source. Each source is a deck: its original's `<video>`, its proxy's, and its
+// source and a grid frame of it: frame t in a clip starting at `start` is the clip's frame
+// `in + t - start`, which at 100% is that frame of its source, and at another speed the source
+// frame it shows (speed.ts). A retimed clip plays at its speed times J/L's (`playbackRate`), its
+// sound keeping its pitch or not (Settings › Timeline). Each source is a deck: its original's `<video>`, its proxy's, and its
 // frame times (PLAN 4.5e). The deck of the playhead's clip is on screen (`PlayerState.source`:
 // Preview.tsx shows only it); the others wait, hidden.
 //
 // Showing frame t seeks its deck's original to the middle of that source frame's picture
 // (`FrameTimes.seek`), so it lands on exactly that picture; while playing, each picture the
-// original presents (`requestVideoFrameCallback`) moves the playhead to the frame showing it. At a
+// original presents (`requestVideoFrameCallback`) moves the playhead to the frame showing it (a
+// retimed clip: the video's clock, each animation frame, as a slowed clip shows one picture over
+// several of its frames, `retimedTick`). At a
 // clip's last frame, playing pauses, seeks to the next clip's first and plays on, so nothing cut
 // out ever shows. When the next clip is another source's, its deck was sought there while this
 // clip played, so at the cut it only has to be shown and played.
@@ -31,6 +35,15 @@
 
 import type { SourceId } from "./doc";
 import { frameAt, parseFrameTimes, type FrameTimes } from "./frameTimes";
+import {
+  clipFrameAt,
+  isNormal,
+  playbackRate,
+  sourceFrame,
+  sourcePosition,
+  speedOf,
+  type Speed,
+} from "./speed";
 
 export interface PlayerState {
   /** The playhead: the timeline frame shown (or being sought to). */
@@ -41,12 +54,14 @@ export interface PlayerState {
   source: SourceId | null;
 }
 
-/** A clip as played: where it starts on the timeline, and the source frames it shows. */
+/** A clip as played: where it starts on the timeline, and the frames it shows (speed.ts). */
 interface Span {
   start: number;
   source: SourceId;
   in: number;
   out: number;
+  speed?: Speed;
+  phase?: number;
   /** Silent (the clip's mute, or the track's). */
   muted: boolean;
 }
@@ -162,6 +177,10 @@ export class Player {
   private readonly pictureListeners = new Set<() => void>();
   /** A crossfade's incoming clip over the picture (Preview.tsx's `CrossfadeMix`), if showing. */
   private mixing: MixShown | null = null;
+  /** A retimed clip playing forward: the animation frame following its video's clock. */
+  private retimed = 0;
+  /** A clip at another speed keeps its sound's pitch (Settings › Timeline; `setKeepPitch`). */
+  private pitchKept = true;
 
   constructor(
     /** Frames per second: the timeline's. */
@@ -189,7 +208,14 @@ export class Player {
    * mute alone doesn't pause: the sound goes or comes back as it plays.
    */
   setEdit(edit: {
-    clips: readonly { source: SourceId; in: number; out: number; muted?: boolean }[];
+    clips: readonly {
+      source: SourceId;
+      in: number;
+      out: number;
+      speed?: Speed;
+      phase?: number;
+      muted?: boolean;
+    }[];
     muted: boolean;
   }) {
     const mutes = [edit.muted, ...edit.clips.map((c) => !!c.muted)].join();
@@ -198,7 +224,13 @@ export class Player {
       edit.clips.length === this.spans.length &&
       edit.clips.every((c, i) => {
         const s = this.spans[i];
-        return c.source === s.source && c.in === s.in && c.out === s.out;
+        return (
+          c.source === s.source &&
+          c.in === s.in &&
+          c.out === s.out &&
+          c.speed === s.speed &&
+          c.phase === s.phase
+        );
       });
     this.mutes = mutes;
     if (onlyMuted) {
@@ -214,6 +246,8 @@ export class Player {
         source: c.source,
         in: c.in,
         out: c.out,
+        speed: c.speed,
+        phase: c.phase,
         muted: edit.muted || !!c.muted,
       };
       start += c.out - c.in;
@@ -254,6 +288,15 @@ export class Player {
     this.applyVolume();
   }
 
+  /** Whether a clip at another speed keeps its sound's pitch (Settings › Timeline). */
+  setKeepPitch(keep: boolean) {
+    this.pitchKept = keep;
+  }
+
+  get keepPitch() {
+    return this.pitchKept;
+  }
+
   /** The playback volume, for the other videos that play sound (a crossfade's). */
   get gain() {
     return this.playbackGain;
@@ -283,7 +326,19 @@ export class Player {
   sourceFrame(t: number) {
     const span = this.spans[this.spanIndex(t)];
     if (!span) return 0;
-    return Math.min(span.out - 1, span.in + Math.max(0, t - span.start));
+    return sourceFrame(span, Math.min(span.out - 1, span.in + Math.max(0, t - span.start)));
+  }
+
+  /** Where clip `span`'s first frame is in its source (its source frame). */
+  private firstOf(span: Span) {
+    return sourceFrame(span, span.in);
+  }
+
+  /** Sets `v` to play `span` at the shuttle speed `speed`, its sound as the settings say. */
+  private rateFor(v: HTMLVideoElement, span: Span, speed: number) {
+    v.playbackRate = playbackRate(span, speed);
+    // Set on every play: turning it off on a video that has played didn't always take (SP0).
+    v.preservesPitch = this.pitchKept;
   }
 
   /** The source and its frame to show for timeline frame `t`: the playhead's, unless peeked. */
@@ -469,10 +524,11 @@ export class Player {
       const v = this.deckOf(span)?.original?.video;
       if (!span || !v) return;
       v.muted = span.muted;
-      v.playbackRate = speed;
+      this.rateFor(v, span, speed);
       this.set({ speed });
       this.paint();
       this.preload();
+      this.followRetimed();
       void v.play().catch((e: unknown) => {
         console.error("[player] play:", e);
         this.set({ speed: 0 });
@@ -500,6 +556,8 @@ export class Player {
   private stop() {
     cancelAnimationFrame(this.backward);
     this.backward = 0;
+    cancelAnimationFrame(this.retimed);
+    this.retimed = 0;
     this.crossing = false;
     for (const deck of this.decks.values()) {
       const v = deck.original?.video;
@@ -553,7 +611,7 @@ export class Player {
     const next = this.spans[this.playing + 1];
     if (!now || !next || next.source === now.source) return;
     const deck = this.deckOf(next);
-    if (deck?.times && deck.original) deck.original.seek(deck.times.seek[next.in]);
+    if (deck?.times && deck.original) deck.original.seek(deck.times.seek[this.firstOf(next)]);
   }
 
   /**
@@ -675,12 +733,40 @@ export class Player {
   private played(time: number) {
     const span = this.spans[this.playing];
     const times = this.deckOf(span)?.times;
-    if (this.crossing || !span || !times) return;
+    // A retimed clip follows its video's clock instead (`retimedTick`).
+    if (this.crossing || !span || !times || !isNormal(speedOf(span))) return;
     const s = frameAt(times.start, time);
     if (s >= span.in && s < span.out) this.set({ frame: span.start + s - span.in });
     // The picture covers the clip's last frame (a picture can cover several, VFR).
     if (time >= times.start[span.out - 1] - 1e-3) this.cut();
   }
+
+  /** Playing forward: a retimed clip's playhead follows its video's clock (`retimedTick`). */
+  private followRetimed() {
+    cancelAnimationFrame(this.retimed);
+    this.retimed = requestAnimationFrame(this.retimedTick);
+  }
+
+  /**
+   * A retimed clip playing: the playhead goes where its video's time is, each animation frame (a
+   * slowed clip shows a picture over several of its frames, and the video only says when a
+   * picture changes); past its last frame, playing moves to the next clip. Clips at 100% follow
+   * each picture (`played`), and this only waits.
+   */
+  private retimedTick = () => {
+    this.retimed = 0;
+    if (this.state.speed <= 0) return;
+    this.retimed = requestAnimationFrame(this.retimedTick);
+    const span = this.spans[this.playing];
+    const deck = this.deckOf(span);
+    const v = deck?.original?.video;
+    if (this.crossing || !span || !deck?.times || !v || isNormal(speedOf(span))) return;
+    const starts = deck.times.start;
+    const x = sourcePosition(starts, frameAt(starts, v.currentTime), v.currentTime);
+    const f = clipFrameAt(span, x);
+    if (f >= span.out) this.cut();
+    else if (f >= span.in) this.set({ frame: span.start + f - span.in });
+  };
 
   /**
    * Playing reached the end of a clip: on to the next one (its source's deck on screen), or stop
@@ -704,14 +790,15 @@ export class Player {
       return;
     }
     this.playing++;
-    const ready = !v.busy && Math.abs(v.shownTime - deck.times.start[next.in]) < 1e-3;
+    const first = this.firstOf(next);
+    const ready = !v.busy && Math.abs(v.shownTime - deck.times.start[first]) < 1e-3;
     const playOn = next.source !== now.source && ready;
     // Crossing (till its first picture's on screen) before the playhead moves: a crossfade's
     // video stays on top through it (Preview.tsx's `CrossfadeMix`).
     this.crossing = !playOn;
     this.set({ frame: next.start, source: next.source });
     v.video.muted = next.muted;
-    v.video.playbackRate = this.state.speed;
+    this.rateFor(v.video, next, this.state.speed);
     this.preload();
     if (playOn) {
       // Sought there already, while the last clip played: play on at once.
@@ -721,7 +808,7 @@ export class Player {
       });
       return;
     }
-    v.seek(deck.times.seek[next.in]);
+    v.seek(deck.times.seek[first]);
   }
 
   // --- development: the preview = export check (frameCheck.ts) ---

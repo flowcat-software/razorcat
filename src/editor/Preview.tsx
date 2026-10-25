@@ -19,6 +19,7 @@ import { growColour, growMode, NO_GROW, outputSize, SIDES } from "./frame";
 import { GrowOverlay } from "./GrowOverlay";
 import { RedactLayer } from "./RedactLayer";
 import type { Player } from "./player";
+import { playbackRate, sourceFrame } from "./speed";
 import { useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
@@ -289,7 +290,7 @@ function CrossfadeMix({
       const fps = player.fps;
       const at = crossfadeAt(doc, frame);
       const v = at && videos.current.get(at.clip.source);
-      const time = at && player.frameTime(at.clip.source, at.clip.in + at.k);
+      const time = at && player.frameTime(at.clip.source, sourceFrame(at.clip, at.clip.in + at.k));
       if (at && v && time !== null) {
         handing = null;
         pauseOthers(at.clip.source);
@@ -299,7 +300,8 @@ function CrossfadeMix({
           // Started from where it was held ready, or sought if it's well off.
           const off = Math.abs(v.currentTime - time);
           if (v.paused ? off > 1.5 / fps : off > 0.25) v.currentTime = time;
-          v.playbackRate = speed;
+          v.playbackRate = playbackRate(at.clip, speed);
+          v.preservesPitch = player.keepPitch;
           v.muted = doc.muted || !!at.clip.muted;
           v.volume = mix * player.gain;
           if (v.paused) void v.play().catch(() => {});
@@ -328,7 +330,7 @@ function CrossfadeMix({
       // Playing towards a crossfade: its video held at the incoming clip's first frame.
       const next = speed > 0 ? upcoming(doc, frame, fps) : null;
       const nv = next && videos.current.get(next.source);
-      const nt = next && player.frameTime(next.source, next.in);
+      const nt = next && player.frameTime(next.source, sourceFrame(next, next.in));
       pauseOthers(null);
       if (next && nv && nt !== null && (ready?.source !== next.source || ready.time !== nt)) {
         nv.muted = true;

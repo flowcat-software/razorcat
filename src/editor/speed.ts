@@ -11,9 +11,9 @@
 // speed change converts them (`setClipSpeed`), and only reading the media needs source frames
 // (`sourceFrame`: the preview and the export).
 //
-// Markup on a clip whose speed changes keeps its start on its video. Its length and fades stay in
-// timeline frames, or with `stretchMarks` scale with the speed (Settings › Timeline, Richard,
-// 2026-10-24). Ranges mark video, so they always scale with it. Fades and crossfades are in
+// Markup on a clip whose speed changes keeps its start on its video. Its length and fades scale
+// with the speed (`stretchMarks`), or stay in timeline frames (Settings › Timeline, on by default;
+// Richard, 2026-10-24). Ranges mark video, so they always scale with it. Fades and crossfades are in
 // timeline frames, and stay.
 
 import type { Clip, ClipId, Doc } from "./doc";
@@ -82,6 +82,35 @@ function kept(s: Speed): Speed {
   if (s.num * 100 < MIN_SPEED_PERCENT * s.den) return speedFromPercent(MIN_SPEED_PERCENT);
   if (s.num * 100 > MAX_SPEED_PERCENT * s.den) return speedFromPercent(MAX_SPEED_PERCENT);
   return speed(s.num, s.den);
+}
+
+/** WebView2's `playbackRate` limits (SP0: it throws outside them; sound plays at all of them). */
+export const MIN_RATE = 0.0625;
+export const MAX_RATE = 16;
+
+/**
+ * The `playbackRate` that plays clip `c` at `shuttle` (1 playing, 2/4/8 with L): its speed times
+ * that, kept to WebView2's limits (at 1000%, L goes no faster than 1.6×).
+ */
+export function playbackRate(c: Timed, shuttle: number): number {
+  const s = speedOf(c);
+  return Math.max(MIN_RATE, Math.min(MAX_RATE, (s.num / s.den) * shuttle));
+}
+
+/**
+ * Where a video's time `time` is in its source, in frames with a fraction: within frame s of the
+ * frame times `starts` (each frame's start, s), as far through it as the time is.
+ */
+export function sourcePosition(starts: ArrayLike<number>, s: number, time: number): number {
+  const a = starts[s];
+  const b = s + 1 < starts.length ? starts[s + 1] : a + (a - (starts[s - 1] ?? 0) || 1 / 30);
+  return s + Math.max(0, Math.min(1, (time - a) / (b - a)));
+}
+
+/** The clip's frame showing source position `x` (frames, with a fraction; speed.ts's mapping). */
+export function clipFrameAt(c: Timed, x: number): number {
+  const s = speedOf(c);
+  return Math.floor((x * s.den - phaseOf(c)) / s.num);
 }
 
 /** The source frame clip `c` shows on its frame `v`. */

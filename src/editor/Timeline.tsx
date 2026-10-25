@@ -59,7 +59,16 @@ import { clipsExportItems, exportClip } from "./exports";
 import { Menu, type MenuItems } from "./Menu";
 import { markTargets, rangeTargets, scrubTargets, snap, trimTargets } from "./snap";
 import { useTimeline } from "./timelineStore";
-import { formatSpeed, isNormal, NORMAL_SPEED, sourceFrame, speedOf, videoEnd } from "./speed";
+import {
+  clipFrame,
+  formatSpeed,
+  isNormal,
+  NORMAL_SPEED,
+  sourceFrame,
+  speedOf,
+  videoEnd,
+  type Speed,
+} from "./speed";
 import { TimelineScrollbar } from "./TimelineScrollbar";
 import { openSpeed, setSpeedAnchor } from "./speedStore";
 import { FRAME_TICKS, HEADER, fOf, ticks, xOf, zoomAnchor, type View } from "./timelineView";
@@ -581,10 +590,13 @@ function useColours(onChange: () => void): () => Record<string, string> {
 }
 
 /** A clip as drawn: where it starts on the timeline, and the source frames it shows. */
+/** A clip as drawn: where it starts, its frames, and its speed (speed.ts). */
 interface Span {
   start: number;
   in: number;
   out: number;
+  speed?: Speed;
+  phase?: number;
 }
 
 /**
@@ -608,14 +620,17 @@ function drawThumbs(
   if (!first) return;
   const tw = (THUMB_H * first.width) / first.height;
   const x0 = xOf(view, clip.start);
-  /** Timeline x of source frame `f` in this clip. */
+  /** Timeline x of the clip's frame `f`. */
   const at = (f: number) => xOf(view, clip.start + f - clip.in);
-  const span = s.step * view.zoom;
+  // The thumbnails are of source frames, every `step`: at another speed, a source frame shows on
+  // its own frames of the clip (speed.ts), so a thumbnail spans more or fewer of them.
+  const rate = speedOf(clip);
+  const span = (s.step * view.zoom * rate.den) / rate.num;
   if (span <= tw) {
     for (let i = Math.max(0, Math.floor((HEADER - x0) / tw)); x0 + i * tw < right; i++) {
       const f = clip.in + Math.floor((i * tw) / view.zoom);
       if (f >= clip.out) break;
-      const bitmap = s.bitmaps[Math.floor(f / s.step)];
+      const bitmap = s.bitmaps[Math.floor(sourceFrame(clip, f) / s.step)];
       if (!bitmap) continue;
       const l = Math.round(x0 + i * tw);
       g.drawImage(bitmap, l, THUMB_TOP, Math.round(x0 + (i + 1) * tw) - l, THUMB_H);
@@ -623,12 +638,15 @@ function drawThumbs(
     return;
   }
   const w = Math.round(tw);
-  const leftmost = clip.in + Math.max(0, (HEADER - x0) / view.zoom);
-  const last = Math.min(s.bitmaps.length, Math.ceil(clip.out / s.step));
-  for (let k = Math.floor(leftmost / s.step); k < last; k++) {
-    const l = Math.round(at(Math.max(k * s.step, clip.in)));
+  const leftmost = clip.in + Math.max(0, Math.floor((HEADER - x0) / view.zoom));
+  const last = Math.min(s.bitmaps.length, Math.ceil(videoEnd(clip) / s.step));
+  for (let k = Math.floor(sourceFrame(clip, leftmost) / s.step); k < last; k++) {
+    const a = Math.max(clipFrame(clip, k * s.step), clip.in);
+    const b = Math.min(clipFrame(clip, (k + 1) * s.step), clip.out);
+    if (b <= a) continue;
+    const l = Math.round(at(a));
     if (l >= right) break;
-    const r = Math.round(at(Math.min((k + 1) * s.step, clip.out)));
+    const r = Math.round(at(b));
     g.save();
     g.beginPath();
     g.rect(l, THUMB_TOP, r - l, THUMB_H);
@@ -685,13 +703,21 @@ function drawWave(
   right: number,
 ) {
   const half = WAVE_H / 2 - 1;
-  /** Source frame at timeline x, in this clip. */
-  const at = (x: number) => clip.in + fOf(view, x) - clip.start;
+  // Where timeline x is in the source, in frames with a fraction (at another speed, as far
+  // through its source as its frames go: speed.ts), kept to the clip's video.
+  const rate = speedOf(clip);
+  const first = sourceFrame(clip, clip.in);
+  const last = videoEnd(clip);
+  const at = (x: number) => {
+    const v = clip.in + fOf(view, x) - clip.start;
+    const src = (v * rate.num + (clip.phase ?? 0)) / rate.den;
+    return Math.max(first, Math.min(last, src));
+  };
   const end = Math.min(right, xOf(view, clip.start + clip.out - clip.in));
   g.fillStyle = "rgb(255 255 255 / 0.55)";
   g.beginPath();
   for (let x = Math.floor(Math.max(xOf(view, clip.start), HEADER)); x < end; x++) {
-    const a = waveHeight(peaks.max(Math.max(clip.in, at(x)), Math.min(clip.out, at(x + 1)))) * half;
+    const a = waveHeight(peaks.max(at(x), at(x + 1))) * half;
     if (a > 0) g.rect(x, WAVE_MID - a, 1, Math.max(1, 2 * a));
   }
   g.fill();
@@ -1082,7 +1108,13 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
       }
       const xf = crossfades(doc);
       doc.clips.forEach((clip, i) => {
-        const span = { start: starts[i], in: clip.in, out: clip.out };
+        const span = {
+          start: starts[i],
+          in: clip.in,
+          out: clip.out,
+          speed: clip.speed,
+          phase: clip.phase,
+        };
         const len = clipLength(clip);
         const x0 = xOf(view, span.start);
         const x1 = xOf(view, span.start + len);
