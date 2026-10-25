@@ -37,11 +37,16 @@
 // fade doesn't apply.
 //
 // The frame (crop, and the space grown round it; frame.ts) is one for the whole project.
+//
+// A clip can play faster or slower than its source (speed.ts). Its frames are then its source's
+// at its speed, and everything above that names a clip's frames (`in`, `out`, ranges' pieces,
+// markup's anchor) counts in those: at 100%, the source's grid frames.
 
 import { translateAnnotation } from "../markup/geometry";
 import type { Annotation, NewAnnotation } from "../markup/model/types";
 import type { Rect, Size } from "./fit";
 import { fullFrame, keepCrop, sameGrow, type Frame, type Grow } from "./frame";
+import { retimedLength, type Speed } from "./speed";
 
 export type ClipId = number;
 
@@ -59,10 +64,17 @@ export interface Clip {
   id: ClipId;
   /** The file it shows. */
   source: SourceId;
-  /** The first source grid frame shown. */
+  /** The first of its frames shown: its source's grid frames at its speed (speed.ts). */
   in: number;
-  /** The source grid frame after the last one shown (exclusive). */
+  /** The frame after the last one shown (exclusive). */
   out: number;
+  /**
+   * How fast it plays its source (100% if not set), where its frames fall on it, and where its
+   * video ends if its last frame covers more (speed.ts).
+   */
+  speed?: Speed;
+  phase?: number;
+  sourceOut?: number;
   /** Silent, in the preview and the export. Its parts (a split, a copy) are too. */
   muted?: boolean;
   /** How many frames it fades in from black over, and out to black over (none if not set). */
@@ -77,7 +89,7 @@ export interface Clip {
 
 export type RangeId = number;
 
-/** Part of a range: source frames `in` to `out` (exclusive) of one clip. */
+/** Part of a range: frames `in` to `out` (exclusive) of one clip. */
 export interface Piece {
   clip: ClipId;
   in: number;
@@ -103,7 +115,7 @@ export type MarkObject = NewAnnotation;
 /** A piece of markup: what it shows, and when, anchored to the video under its start. */
 export interface Mark {
   id: MarkId;
-  /** The clip its start is on, and the source frame there. */
+  /** The clip its start is on, and the clip's frame there. */
   clip: ClipId;
   at: number;
   /** How many frames it lasts. */
@@ -421,9 +433,13 @@ export function longestSource(doc: Doc): number {
   return Math.max(0, ...doc.sources.map((s) => s.frames));
 }
 
-/** The length of the source `clip` shows, in grid frames: how far it can be pulled out. */
+/**
+ * The length of the source `clip` shows, in the clip's frames (its grid frames at the clip's
+ * speed): how far it can be pulled out.
+ */
 export function sourceLength(doc: Doc, clip: Clip): number {
-  return doc.sources.find((s) => s.id === clip.source)?.frames ?? clip.out;
+  const source = doc.sources.find((s) => s.id === clip.source);
+  return source ? retimedLength(clip, source.frames) : clip.out;
 }
 
 /** Grows the frame by `grow`. The same document if nothing changes. */
@@ -513,7 +529,7 @@ export function editPoints(doc: Doc): number[] {
 }
 
 /**
- * Clip `c` cut in two at source frame `at`: the part before keeps its fade-in, the part after
+ * Clip `c` cut in two at its frame `at`: the part before keeps its fade-in, the part after
  * its fade-out (and its id, `id`); at the cut, none, or with `fadeCuts` the fade the whole had
  * at that end. Their colours go with them.
  */
@@ -581,7 +597,7 @@ export function inCrossfade(doc: Doc, f: number): boolean {
 }
 
 /**
- * Trims clip `id` to show source frames `in` to `out` (ripple: the clips after it move along).
+ * Trims clip `id` to show its frames `in` to `out` (ripple: the clips after it move along).
  * Kept to the source, and to at least one frame: an `in` past the clip's `out` stops a frame
  * before it, and the other way round. The same document if nothing changes.
  */
@@ -690,11 +706,14 @@ export function moveClips(doc: Doc, ids: readonly ClipId[], at: number): Doc {
   return clips.every((c, i) => c === doc.clips[i]) ? doc : { ...doc, clips };
 }
 
-/** A clip as copied (Ctrl+C), for `insertClip`: its source frames and its markup. */
+/** A clip as copied (Ctrl+C), for `insertClip`: its frames, its speed and its markup. */
 export interface ClipCopy {
   source: SourceId;
   in: number;
   out: number;
+  speed?: Speed;
+  phase?: number;
+  sourceOut?: number;
   muted?: boolean;
   fadeIn?: number;
   fadeOut?: number;
@@ -709,11 +728,14 @@ export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
   const clip = doc.clips.find((c) => c.id === id);
   if (!clip) return null;
   const marks = doc.marks.filter((m) => m.clip === id);
-  const { source, in: a, out: b, muted } = clip;
+  const { source, in: a, out: b, speed, phase, sourceOut, muted } = clip;
   return {
     source,
     in: a,
     out: b,
+    ...(speed && { speed }),
+    ...(phase && { phase }),
+    ...(sourceOut !== undefined && { sourceOut }),
     ...(muted && { muted: true }),
     ...fades(clip.fadeIn ?? 0, clip.fadeOut ?? 0),
     ...(clip.fadeInColour && { fadeInColour: clip.fadeInColour }),
@@ -734,6 +756,9 @@ export function insertClip(doc: Doc, copy: ClipCopy, at: number, keepFades = tru
     source: copy.source,
     in: copy.in,
     out: copy.out,
+    ...(copy.speed && { speed: copy.speed }),
+    ...(copy.phase && { phase: copy.phase }),
+    ...(copy.sourceOut !== undefined && { sourceOut: copy.sourceOut }),
     ...(copy.muted && { muted: true }),
     ...(keepFades && fades(copy.fadeIn ?? 0, copy.fadeOut ?? 0)),
     ...(keepFades && copy.fadeInColour && { fadeInColour: copy.fadeInColour }),
@@ -1022,7 +1047,7 @@ export function deleteRange(doc: Doc, id: RangeId): Doc {
   return { ...doc, ranges: doc.ranges.filter((r) => r.id !== id) };
 }
 
-/** Clip `from` was cut at source frame `at`: the pieces past it now belong to clip `to`. */
+/** Clip `from` was cut at its frame `at`: the pieces past it now belong to clip `to`. */
 function handOver(ranges: readonly Range[], from: ClipId, to: ClipId, at: number): Range[] {
   return ranges.map((r) => {
     if (!r.pieces.some((p) => p.clip === from && p.out > at)) return r;
@@ -1216,7 +1241,7 @@ export function shownMarks(doc: Doc): ShownMark[] {
   return shown;
 }
 
-/** The video at timeline frame `f`, as an anchor: its clip and source frame. */
+/** The video at timeline frame `f`, as an anchor: its clip and the clip's frame. */
 function anchorAt(doc: Doc, f: number): { clip: ClipId; at: number } | null {
   const under = clipAt(doc, f);
   return under && { clip: under.clip.id, at: under.clip.in + f - under.start };
@@ -1323,7 +1348,7 @@ export function setFades(doc: Doc, ids: readonly MarkId[], fadeIn: number, fadeO
   );
 }
 
-/** Clip `from` was cut at source frame `at`: markup starting past it now belongs to clip `to`. */
+/** Clip `from` was cut at its frame `at`: markup starting past it now belongs to clip `to`. */
 function handMarksOver(marks: readonly Mark[], from: ClipId, to: ClipId, at: number): Mark[] {
   return marks.map((m) => (m.clip === from && m.at >= at ? { ...m, clip: to } : m));
 }
