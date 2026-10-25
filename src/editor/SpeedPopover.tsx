@@ -1,19 +1,22 @@
 import { useEffect, useRef, type PointerEvent } from "react";
 import { useMenuPlacement } from "../markup/menuPlacement";
+import { hint as hintFor } from "../markup/HintLine";
 import { usePopover } from "../markup/usePopover";
 import type { SourceInfo } from "../shared/ipc";
 import { clipLength, longestSource, total, type Clip } from "./doc";
 import { useDoc } from "./docStore";
 import { NumberField } from "./NumberField";
 import {
+  isNormal,
+  isReversed,
   NORMAL_SPEED,
   sameSpeed,
-  sourceFrame,
+  signedPercent,
   SPEED_PRESETS,
   speedFromPercent,
   speedOf,
-  speedPercent,
   videoEnd,
+  videoStart,
 } from "./speed";
 import { closeSpeed, useSpeedPopover, type Point } from "./speedStore";
 import { needsHours, parseTimecode, timecode } from "./timecode";
@@ -32,9 +35,10 @@ interface Props {
 }
 
 /**
- * A clip's speed (PLAN §7, Clip speed), as Premiere's and Resolve's: a percent, or the duration
- * that speed gives it (its video all kept, where the options bar's Length trims), linked; the
- * usual speeds a click away. Its fields drag as the options bar's do; its title bar moves it.
+ * A clip's speed (PLAN §7, Clip speed), as Premiere's and Resolve's: a percent, negative to play
+ * it backward, or the duration that speed gives it (its video all kept, where the options bar's
+ * Length trims), linked; the usual speeds a click away, and Reverse. Its fields drag as the
+ * options bar's do; its title bar moves it.
  * Everything changed while it's open is one undo step: Enter, OK, × or a click elsewhere keeps
  * it (Richard), Esc puts it all back. Closed, the timeline has the keys again (Space plays).
  */
@@ -138,9 +142,9 @@ function Panel({
   const id = clip.id;
   const clipNow = () => useDoc.getState().doc.clips.find((c) => c.id === id);
   const setSpeed = (percent: number) => {
-    useDoc.getState().setSpeed([id], speedFromPercent(percent));
+    useDoc.getState().setSpeed([id], speedFromPercent(Math.abs(percent)), percent < 0);
     const c = clipNow();
-    return c ? speedPercent(speedOf(c)) : percent;
+    return c ? signedPercent(c) : percent;
   };
   const setDuration = (v: number) => {
     useDoc.getState().setDuration(id, Math.max(1, v));
@@ -148,7 +152,8 @@ function Panel({
     return c ? clipLength(c) : v;
   };
   // Its video's length at 100%: the source frames it shows.
-  const natural = videoEnd(clip) - sourceFrame(clip, clip.in);
+  const natural = videoEnd(clip) - videoStart(clip);
+  const reversed = isReversed(clip);
 
   return (
     <div
@@ -174,11 +179,11 @@ function Panel({
       <div className={styles.speedFields}>
         <NumberField
           label="Speed"
-          value={speedPercent(now)}
+          value={signedPercent(clip)}
           onChange={(v) => setSpeed(v)}
-          format={(v) => `${+v.toFixed(2)}%`}
+          format={(v) => `${v < 0 ? "−" : ""}${+Math.abs(v).toFixed(2)}%`}
           parse={(text) => {
-            const n = Number(text.replace("%", ""));
+            const n = Number(text.replace("%", "").replace("−", "-"));
             return text.trim() !== "" && Number.isFinite(n) ? n : null;
           }}
           decimals={2}
@@ -217,10 +222,19 @@ function Panel({
         <button
           type="button"
           className={markup.ghostButton}
-          disabled={sameSpeed(now, NORMAL_SPEED)}
-          onClick={() => useDoc.getState().setSpeed([id], NORMAL_SPEED)}
+          disabled={isNormal(now) && !reversed}
+          onClick={() => useDoc.getState().setSpeed([id], NORMAL_SPEED, false)}
         >
           Reset
+        </button>
+        <button
+          type="button"
+          className={markup.ghostButton}
+          aria-pressed={reversed}
+          {...hintFor("clip.reverse")}
+          onClick={() => useDoc.getState().reverse([id])}
+        >
+          Reverse
         </button>
         <span className={markup.spacer} />
         <button type="button" className={markup.accentButton} onClick={() => close(true)}>

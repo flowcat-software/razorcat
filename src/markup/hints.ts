@@ -105,7 +105,8 @@ export const CONTROL_HINTS = {
   "crop.portrait": "Taller than wide: 9:16 instead of 16:9",
   "crop.reset": "Back to the whole picture · [Ctrl+Z] undoes it",
   "clip.speed":
-    "The clip's speed, 10% to 1000% · drag or type · [Enter] keeps it, [Esc] puts it back",
+    "The clip's speed, 10% to 1000%, negative to play it backward · drag or type · [Enter] keeps it, [Esc] puts it back",
+  "clip.reverse": "Play the clip backward, at the same speed · [Ctrl+Shift+R]",
   "clip.duration":
     "How long the clip lasts, by changing its speed: all of its video kept · [Enter] keeps it, [Esc] puts it back",
   "clip.fadeColour":
@@ -327,7 +328,7 @@ export const WHY = {
     "Copy markup first ([Ctrl+C]), then select the markup to paste its style, fades or timing onto · fades: a clip's too, onto clips",
   "order.none": "Select a clip or markup to move it",
   "speed.none": "Select a clip to change its speed",
-  "reverse.later": "Reversing a clip comes later: [Ctrl+Shift+R] is kept for it",
+  "reverse.none": "Select a clip to reverse it",
   "order.end": "It's as far as it goes",
   "export.none": "Open a video first",
 } as const;

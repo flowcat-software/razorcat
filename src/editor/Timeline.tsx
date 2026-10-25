@@ -63,10 +63,13 @@ import {
   clipFrame,
   formatSpeed,
   isNormal,
+  isReversed,
   NORMAL_SPEED,
+  sourceAt,
   sourceFrame,
   speedOf,
   videoEnd,
+  videoStart,
   type Speed,
 } from "./speed";
 import { TimelineScrollbar } from "./TimelineScrollbar";
@@ -589,14 +592,15 @@ function useColours(onChange: () => void): () => Record<string, string> {
   return read;
 }
 
-/** A clip as drawn: where it starts on the timeline, and the source frames it shows. */
-/** A clip as drawn: where it starts, its frames, and its speed (speed.ts). */
+/** A clip as drawn: where it starts, its frames, and its speed and direction (speed.ts). */
 interface Span {
   start: number;
   in: number;
   out: number;
   speed?: Speed;
   phase?: number;
+  mirror?: number;
+  sourceOut?: number;
 }
 
 /**
@@ -623,10 +627,11 @@ function drawThumbs(
   /** Timeline x of the clip's frame `f`. */
   const at = (f: number) => xOf(view, clip.start + f - clip.in);
   // The thumbnails are of source frames, every `step`: at another speed, a source frame shows on
-  // its own frames of the clip (speed.ts), so a thumbnail spans more or fewer of them.
+  // its own frames of the clip (speed.ts), so a thumbnail spans more or fewer of them. Reversed,
+  // a thumbnail per place, each of the frame there.
   const rate = speedOf(clip);
   const span = (s.step * view.zoom * rate.den) / rate.num;
-  if (span <= tw) {
+  if (span <= tw || isReversed(clip)) {
     for (let i = Math.max(0, Math.floor((HEADER - x0) / tw)); x0 + i * tw < right; i++) {
       const f = clip.in + Math.floor((i * tw) / view.zoom);
       if (f >= clip.out) break;
@@ -704,20 +709,20 @@ function drawWave(
 ) {
   const half = WAVE_H / 2 - 1;
   // Where timeline x is in the source, in frames with a fraction (at another speed, as far
-  // through its source as its frames go: speed.ts), kept to the clip's video.
-  const rate = speedOf(clip);
-  const first = sourceFrame(clip, clip.in);
+  // through its source as its frames go, backward if reversed: speed.ts), kept to the clip's
+  // video.
+  const first = videoStart(clip);
   const last = videoEnd(clip);
   const at = (x: number) => {
-    const v = clip.in + fOf(view, x) - clip.start;
-    const src = (v * rate.num + (clip.phase ?? 0)) / rate.den;
+    const src = sourceAt(clip, clip.in + fOf(view, x) - clip.start);
     return Math.max(first, Math.min(last, src));
   };
   const end = Math.min(right, xOf(view, clip.start + clip.out - clip.in));
   g.fillStyle = "rgb(255 255 255 / 0.55)";
   g.beginPath();
   for (let x = Math.floor(Math.max(xOf(view, clip.start), HEADER)); x < end; x++) {
-    const a = waveHeight(peaks.max(at(x), at(x + 1))) * half;
+    const [p, q] = [at(x), at(x + 1)];
+    const a = waveHeight(peaks.max(Math.min(p, q), Math.max(p, q))) * half;
     if (a > 0) g.rect(x, WAVE_MID - a, 1, Math.max(1, 2 * a));
   }
   g.fill();
@@ -1114,6 +1119,8 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
           out: clip.out,
           speed: clip.speed,
           phase: clip.phase,
+          mirror: clip.mirror,
+          sourceOut: clip.sourceOut,
         };
         const len = clipLength(clip);
         const x0 = xOf(view, span.start);
@@ -1184,11 +1191,12 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
           }
           g.fillText(name, lx, CLIP_TOP + 10);
           let w = g.measureText(`${name} `).width;
-          // At another speed, a badge saying it after the name (PLAN §7, Clip speed).
+          // At another speed or reversed, a badge saying it after the name (PLAN §7, Clip
+          // speed): "−100%" reversed.
           const sp = speedOf(clip);
-          if (!isNormal(sp)) {
+          if (!isNormal(sp) || isReversed(clip)) {
             g.font = "600 10px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
-            const label = formatSpeed(sp);
+            const label = formatSpeed(sp, isReversed(clip));
             const bw = g.measureText(label).width + 8;
             if (x1 - lx > w + bw + 4) {
               g.fillStyle = "rgb(255 255 255 / 0.24)";
@@ -1718,16 +1726,20 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
     if (!clip) return;
     player.peek(sourceFrame(clip, t.edge === "in" ? clip.in : clip.out - 1), clip.source);
     const fmt = formatter();
-    // In and Out in the file's time, as the options bar's (at another speed: speed.ts).
+    // In and Out in the file's time, as the options bar's (at another speed: speed.ts). A
+    // reversed clip's left edge is its video's end in the file, its right edge its start.
     const was = t.orig;
-    const inF = sourceFrame(clip, clip.in);
+    const backward = isReversed(clip);
     const lines =
-      t.edge === "in"
-        ? [`In ${fmt(inF)}  ${signed(inF - sourceFrame(was, was.in))}`]
+      (t.edge === "in") !== backward
+        ? [`In ${fmt(videoStart(clip))}  ${signed(videoStart(clip) - videoStart(was))}`]
         : [`Out ${fmt(videoEnd(clip))}  ${signed(videoEnd(clip) - videoEnd(was))}`];
     lines.push(`Length ${fmt(clipLength(clip))}`);
-    if (t.edge === "in" && clip.in === 0) lines.push("(the source's start)");
-    if (t.edge === "out" && clip.out === sourceLength(doc, clip)) lines.push("(the source's end)");
+    const [startEnd, endEnd] = backward
+      ? ["(the source's end)", "(the source's start)"]
+      : ["(the source's start)", "(the source's end)"];
+    if (t.edge === "in" && clip.in === 0) lines.push(startEnd);
+    if (t.edge === "out" && clip.out === sourceLength(doc, clip)) lines.push(endEnd);
     showReadout(lines.join("\n"), e.clientX, e.clientY);
   };
 
@@ -2563,6 +2575,11 @@ ${d.group.length} items`,
                 },
                 { label: "Copy clips", hint: "Ctrl+C", run: copySelectedClip },
                 {
+                  label: "Reverse clips",
+                  hint: "Ctrl+Shift+R",
+                  run: () => useDoc.getState().reverse(group),
+                },
+                {
                   label: "Delete clips (close the gap)",
                   hint: "Delete",
                   disabled: group.length >= docState.doc.clips.length,
@@ -2607,9 +2624,14 @@ ${d.group.length} items`,
                 run: () => openSpeed(clip.id, { x: e.clientX, y: e.clientY }),
               },
               {
+                label: isReversed(clip) ? "Play Forward" : "Reverse",
+                hint: "Ctrl+Shift+R",
+                run: () => useDoc.getState().reverse([clip.id]),
+              },
+              {
                 label: "Reset Speed",
-                disabled: isNormal(speedOf(clip)),
-                run: () => useDoc.getState().setSpeed([clip.id], NORMAL_SPEED),
+                disabled: isNormal(speedOf(clip)) && !isReversed(clip),
+                run: () => useDoc.getState().setSpeed([clip.id], NORMAL_SPEED, false),
               },
               {
                 label: "Restore the full length",

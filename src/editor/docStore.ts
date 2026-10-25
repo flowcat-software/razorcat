@@ -69,7 +69,7 @@ import {
 } from "./doc";
 import type { Rect, Size } from "./fit";
 import type { Grow } from "./frame";
-import { setClipSpeed, setClipsSpeed, type Speed } from "./speed";
+import { reverseClips, setClipSpeed, setClipsSpeed, type Speed } from "./speed";
 
 /** Oldest steps are dropped beyond this. */
 export const HISTORY_LIMIT = 200;
@@ -134,8 +134,10 @@ export interface DocState {
   move: (id: ClipId, to: number) => boolean;
   /** Trims clip `id` to its frames `in` to `out` (ripple). */
   trim: (id: ClipId, inF: number, outF: number) => boolean;
-  /** Clips `ids` at speed `to` (ripple; PLAN §7, Clip speed). */
-  setSpeed: (ids: readonly ClipId[], to: Speed) => boolean;
+  /** Clips `ids` at speed `to`, backward if `reversed` (ripple; PLAN §7, Clip speed). */
+  setSpeed: (ids: readonly ClipId[], to: Speed, reversed?: boolean) => boolean;
+  /** Clips `ids` turned round, forward or backward, their speeds kept. */
+  reverse: (ids: readonly ClipId[]) => boolean;
   /** Clip `id` retimed to last `length` frames (ripple). */
   setDuration: (id: ClipId, length: number) => boolean;
   /** A copy of clip `id` straight after it, selected; its id, or null. */
@@ -376,9 +378,13 @@ export const useDoc = create<DocState>()((set, get) => {
     remove: (id) => applyClips((doc) => deleteClip(doc, id, get().options.deleteWithClip)),
     move: (id, to) => applyClips((doc) => moveClip(doc, id, to)),
     trim: (id, inF, outF) => applyClips((doc) => trimClip(doc, id, inF, outF)),
-    setSpeed: (ids, to) => {
+    setSpeed: (ids, to, reversed) => {
       const { follow, stretchMarks } = get().options;
-      return applyClips((doc) => setClipsSpeed(doc, ids, to, follow && stretchMarks));
+      return applyClips((doc) => setClipsSpeed(doc, ids, to, follow && stretchMarks, reversed));
+    },
+    reverse: (ids) => {
+      const { follow, stretchMarks } = get().options;
+      return applyClips((doc) => reverseClips(doc, ids, follow && stretchMarks));
     },
     setDuration: (id, length) => {
       const { follow, stretchMarks } = get().options;

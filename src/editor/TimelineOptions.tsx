@@ -21,7 +21,7 @@ import {
 } from "./doc";
 import { useDoc } from "./docStore";
 import { NumberField } from "./NumberField";
-import { clipFrame, sourceFrame, videoEnd } from "./speed";
+import { isReversed, trimSource, videoEnd, videoStart } from "./speed";
 import { useSqueeze } from "./squeeze";
 import type { Player } from "./player";
 import { needsHours, parseTimecode, timecode } from "./timecode";
@@ -148,7 +148,8 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
 
   // A clip: In and Out trim it (as dragging its edge, the frame at that end shown), Length
   // moves its Out. In and Out are its file's frames (at another speed, where its video starts
-  // and ends in the file: speed.ts); Length is its frames on the timeline.
+  // and ends in the file; reversed, In is at the clip's end: speed.ts); Length is its frames on
+  // the timeline.
   const clipTrim = (id: ClipId, inF: (c: Clip) => number, outF: (c: Clip) => number) => {
     const c = useDoc.getState().doc.clips.find((k) => k.id === id);
     if (c) useDoc.getState().trim(id, inF(c), outF(c));
@@ -159,21 +160,21 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
   const clipIn = (id: ClipId, v: number, dragging: boolean) => {
     const { clip, start } = clipTrim(
       id,
-      (c) => clipFrame(c, v),
-      (c) => c.out,
+      (c) => trimSource(c, "in", v).in,
+      (c) => trimSource(c, "in", v).out,
     );
     if (!clip) return v;
-    peek(start, dragging);
-    return sourceFrame(clip, clip.in);
+    peek(start + (isReversed(clip) ? clipLength(clip) - 1 : 0), dragging);
+    return videoStart(clip);
   };
   const clipOut = (id: ClipId, v: number, dragging: boolean) => {
     const { clip, start } = clipTrim(
       id,
-      (c) => c.in,
-      (c) => clipFrame(c, v),
+      (c) => trimSource(c, "out", v).in,
+      (c) => trimSource(c, "out", v).out,
     );
     if (!clip) return v;
-    peek(start + clipLength(clip) - 1, dragging);
+    peek(start + (isReversed(clip) ? 0 : clipLength(clip) - 1), dragging);
     return videoEnd(clip);
   };
   const clipLengthTo = (id: ClipId, v: number) => {
@@ -339,7 +340,7 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
           <b>Clip {selected.id}</b>
           <NumberField
             label="In"
-            value={sourceFrame(selected, selected.in)}
+            value={videoStart(selected)}
             onChange={(v, dragging) => clipIn(selected.id, v, dragging)}
             onDragEnd={unpeek}
             {...time}

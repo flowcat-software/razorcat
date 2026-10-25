@@ -21,15 +21,22 @@ import {
 import { useDoc } from "./docStore";
 import {
   clipFrame,
+  formatSpeed,
+  isReversed,
   retimedLength,
+  reverseClips,
   setClipSpeed,
   setClipsSpeed,
+  signedPercent,
+  sourceAt,
   sourceFrame,
   speed,
   speedFromPercent,
   speedOf,
   speedPercent,
+  trimSource,
   videoEnd,
+  videoStart,
 } from "./speed";
 
 const last = (xs: readonly number[]) => xs[xs.length - 1];
@@ -283,6 +290,96 @@ describe("clip speed", () => {
   });
 });
 
+describe("reversed clips", () => {
+  const range = (a: number, b: number) => Array.from({ length: b - a }, (_, k) => a + k);
+
+  it("show their video back to front, and reversing again gives the clip back", () => {
+    const doc = trimClip(wholeSource(1000), 1, 300, 400);
+    const r = reverseClips(doc, [1]);
+    expect(r.clips[0]).toMatchObject({ mirror: 1000 });
+    expect(shown(r)).toEqual(range(300, 400).reverse());
+    expect(isReversed(r.clips[0])).toBe(true);
+    expect([videoStart(r.clips[0]), videoEnd(r.clips[0])]).toEqual([300, 400]);
+    expect(reverseClips(r, [1]).clips[0]).toEqual(doc.clips[0]);
+  });
+
+  it("keep their video at every speed, running backward, and come back exactly", () => {
+    const doc = trimClip(wholeSource(5000), 1, 1234, 2345);
+    for (const s of SPEEDS) {
+      const fwd = setClipSpeed(doc, 1, s);
+      const rev = setClipSpeed(fwd, 1, s, false, true);
+      const frames = shown(rev);
+      expect(frames[0]).toBe(2344);
+      expect(last(frames)).toBeGreaterThanOrEqual(1234);
+      expect(frames.every((j, k) => k === 0 || j <= frames[k - 1])).toBe(true);
+      expect(Math.abs(total(rev) - total(fwd))).toBeLessThanOrEqual(1);
+      expect([videoStart(rev.clips[0]), videoEnd(rev.clips[0])]).toEqual([1234, 2345]);
+      expect(setClipSpeed(rev, 1, s, false, false).clips[0]).toEqual(fwd.clips[0]);
+    }
+  });
+
+  it("change speed backward, keeping their first frame", () => {
+    let doc = reverseClips(trimClip(wholeSource(5000), 1, 1234, 2345), [1]);
+    for (const s of SPEEDS) {
+      doc = setClipSpeed(doc, 1, s);
+      expect(shown(doc)[0]).toBe(2344);
+      expect(isReversed(doc.clips[0])).toBe(true);
+    }
+  });
+
+  it("never split a frame differently", () => {
+    for (const s of SPEEDS) {
+      const doc = setClipSpeed(wholeSource(120), 1, s, false, true);
+      const whole = shown(doc);
+      for (let f = 1; f < total(doc); f += 7) expect(shown(split(doc, f))).toEqual(whole);
+    }
+  });
+
+  it("trim their video's start at their end, and pull out to the source's start", () => {
+    const doc = reverseClips(trimClip(wholeSource(1000), 1, 300, 400), [1]);
+    const c = doc.clips[0];
+    const later = trimSource(c, "in", 320);
+    const t = trimClip(doc, 1, later.in, later.out);
+    expect(shown(t)).toEqual(range(320, 400).reverse());
+    const earlier = trimSource(c, "out", 390);
+    expect(shown(trimClip(doc, 1, earlier.in, earlier.out))).toEqual(range(300, 390).reverse());
+    // Pulled right out: down to the source's first frame.
+    const out = trimClip(doc, 1, c.in, sourceLength(doc, c));
+    expect(last(shown(out))).toBe(0);
+    // And its start back to the source's end.
+    expect(shown(trimClip(doc, 1, 0, c.out))[0]).toBe(999);
+  });
+
+  it("turn their ranges and markup round with their video", () => {
+    let doc = wholeSource(100);
+    doc = addRange(doc, 10, 30);
+    doc = addMark(doc, text, 10, 20, 0);
+    doc = { ...doc, marks: doc.marks.map((m) => ({ ...m, fadeIn: 6, fadeOut: 4 })) };
+    const r = reverseClips(doc, [1]);
+    expect(shownRanges(r)[0]).toMatchObject({ a: 70, b: 90 });
+    expect(shownMarks(r)[0]).toMatchObject({ start: 70, end: 90 });
+    expect(r.marks[0]).toMatchObject({ length: 20, fadeIn: 6, fadeOut: 4 });
+    // Its video: source frames 29 to 10, now on 70 to 89.
+    expect(shown(r)[70]).toBe(29);
+    expect(reverseClips(r, [1])).toMatchObject({ ranges: doc.ranges, marks: doc.marks });
+  });
+
+  it("are copied reversed", () => {
+    const doc = setClipSpeed(wholeSource(100), 1, speed(3, 2), false, true);
+    const two = insertClip(doc, copyClip(doc, 1)!, 1);
+    expect(two.clips[1]).toMatchObject({ mirror: 100 });
+    expect(shown(two)).toEqual([...shown(doc), ...shown(doc)]);
+  });
+
+  it("show their speed signed", () => {
+    const doc = setClipSpeed(wholeSource(100), 1, speed(1, 2), false, true);
+    expect(signedPercent(doc.clips[0])).toBe(-50);
+    expect(formatSpeed(speed(1, 2), true)).toBe("−50%");
+    expect(sourceAt(doc.clips[0], 0)).toBe(100);
+    expect(sourceAt(doc.clips[0], 200)).toBe(0);
+  });
+});
+
 describe("clip speed in the store", () => {
   const s = () => useDoc.getState();
   const options = (follow: boolean, stretchMarks: boolean) =>
@@ -312,6 +409,22 @@ describe("clip speed in the store", () => {
     // Following off: markup keeps its place on the timeline, the stretch setting aside.
     options(false, true);
     s().setSpeed([1], speed(2, 1));
+    expect(shownMarks(s().doc)[0]).toMatchObject({ start: 40, end: 70 });
+  });
+
+  it("reverses in one undo step, markup turned round while it follows its video", () => {
+    expect(s().reverse([1])).toBe(true);
+    expect(isReversed(s().doc.clips[0])).toBe(true);
+    expect(shownMarks(s().doc)[0]).toMatchObject({ start: 230, end: 260 });
+    expect(s().setSpeed([1], speed(2, 1), false)).toBe(true);
+    expect(isReversed(s().doc.clips[0])).toBe(false);
+    s().undo();
+    s().undo();
+    expect(isReversed(s().doc.clips[0])).toBe(false);
+    expect(total(s().doc)).toBe(300);
+    // Following off: it stays where it was.
+    options(false, false);
+    s().reverse([1]);
     expect(shownMarks(s().doc)[0]).toMatchObject({ start: 40, end: 70 });
   });
 });

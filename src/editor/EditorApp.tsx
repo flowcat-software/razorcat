@@ -571,10 +571,15 @@ export function EditorApp() {
         return;
       }
       // Ctrl+R: the selected clip's speed, in its popover, as Premiere's and Resolve's key;
-      // Ctrl+Shift+R is kept for reversing (PLAN §7, Clip speed). Neither reloads the page.
+      // Ctrl+Shift+R reverses the selected clips, or plays them forward again (PLAN §7, Clip
+      // speed). Neither reloads the page.
       if (e.code === "KeyR") {
         e.preventDefault();
-        if (e.shiftKey) return sayWhy("reverse.later");
+        if (e.shiftKey) {
+          const ids = useDoc.getState().selectedClips;
+          if (!ids.length || !useDoc.getState().reverse(ids)) sayWhy("reverse.none");
+          return;
+        }
         const id = useDoc.getState().selected;
         if (id === null || !openSpeed(id)) sayWhy("speed.none");
         return;

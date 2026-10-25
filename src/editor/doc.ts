@@ -69,12 +69,14 @@ export interface Clip {
   /** The frame after the last one shown (exclusive). */
   out: number;
   /**
-   * How fast it plays its source (100% if not set), where its frames fall on it, and where its
-   * video ends if its last frame covers more (speed.ts).
+   * How fast it plays its source (100% if not set), where its frames fall on it, where its
+   * video ends if its last frame covers more, and, running backward, its source's length, which
+   * its frames count back from (speed.ts).
    */
   speed?: Speed;
   phase?: number;
   sourceOut?: number;
+  mirror?: number;
   /** Silent, in the preview and the export. Its parts (a split, a copy) are too. */
   muted?: boolean;
   /** How many frames it fades in from black over, and out to black over (none if not set). */
@@ -714,6 +716,7 @@ export interface ClipCopy {
   speed?: Speed;
   phase?: number;
   sourceOut?: number;
+  mirror?: number;
   muted?: boolean;
   fadeIn?: number;
   fadeOut?: number;
@@ -728,7 +731,7 @@ export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
   const clip = doc.clips.find((c) => c.id === id);
   if (!clip) return null;
   const marks = doc.marks.filter((m) => m.clip === id);
-  const { source, in: a, out: b, speed, phase, sourceOut, muted } = clip;
+  const { source, in: a, out: b, speed, phase, sourceOut, mirror, muted } = clip;
   return {
     source,
     in: a,
@@ -736,6 +739,7 @@ export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
     ...(speed && { speed }),
     ...(phase && { phase }),
     ...(sourceOut !== undefined && { sourceOut }),
+    ...(mirror !== undefined && { mirror }),
     ...(muted && { muted: true }),
     ...fades(clip.fadeIn ?? 0, clip.fadeOut ?? 0),
     ...(clip.fadeInColour && { fadeInColour: clip.fadeInColour }),
@@ -759,6 +763,7 @@ export function insertClip(doc: Doc, copy: ClipCopy, at: number, keepFades = tru
     ...(copy.speed && { speed: copy.speed }),
     ...(copy.phase && { phase: copy.phase }),
     ...(copy.sourceOut !== undefined && { sourceOut: copy.sourceOut }),
+    ...(copy.mirror !== undefined && { mirror: copy.mirror }),
     ...(copy.muted && { muted: true }),
     ...(keepFades && fades(copy.fadeIn ?? 0, copy.fadeOut ?? 0)),
     ...(keepFades && copy.fadeInColour && { fadeInColour: copy.fadeInColour }),
