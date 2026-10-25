@@ -26,6 +26,7 @@ dist-ssr
 /spikes/export/out/
 /spikes/export/results/
 /spikes/speed/results/
+/spikes/reverse/results/
 
 # Bundled media tools (ffmpeg, gifski): downloaded by npm run fetch-tools
 /src-tauri/binaries/
