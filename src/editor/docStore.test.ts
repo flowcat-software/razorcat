@@ -79,6 +79,7 @@ describe("the document store", () => {
       copyFades: true,
       defaultClipFade: 15,
       fadeClipCuts: false,
+      stretchMarks: false,
     });
     s().addRange(60, 70);
     // A trim past the range and back again, in one drag: it's where it was.
@@ -95,6 +96,7 @@ describe("the document store", () => {
       copyFades: true,
       defaultClipFade: 15,
       fadeClipCuts: false,
+      stretchMarks: false,
     });
     const r = s().doc.ranges[0];
     expect(r.pieces).toEqual([{ clip: 1, in: 65, out: 75 }]);
@@ -112,6 +114,7 @@ describe("the document store", () => {
       copyFades: true,
       defaultClipFade: 15,
       fadeClipCuts: false,
+      stretchMarks: false,
     });
     s().remove(2);
     s().setOptions({
@@ -123,6 +126,7 @@ describe("the document store", () => {
       copyFades: true,
       defaultClipFade: 15,
       fadeClipCuts: false,
+      stretchMarks: false,
     });
     expect(s().doc.ranges).toHaveLength(1);
     s().undo();

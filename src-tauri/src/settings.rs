@@ -193,6 +193,12 @@ pub struct Timeline {
     /// A clip split fades at the cut, each part as the whole did at that end (off by default:
     /// the cut is clean).
     pub fade_split_clips: bool,
+    /// Changing a clip's speed scales the markup on it, its length and fades, with the video
+    /// (off by default: markup keeps its length). Only while ranges and markup follow their video.
+    pub markup_stretches_with_speed: bool,
+    /// A clip at another speed keeps its sound's pitch (on by default); off, it's tape-style,
+    /// higher when faster.
+    pub keep_pitch: bool,
 }
 
 /// The default markup fade's range, in frames.
@@ -211,6 +217,8 @@ impl Default for Timeline {
             copies_keep_fades: true,
             default_clip_fade: 15,
             fade_split_clips: false,
+            markup_stretches_with_speed: false,
+            keep_pitch: true,
         }
     }
 }
@@ -851,6 +859,8 @@ mod tests {
         assert_eq!(v["timeline"]["deleteRangesWithClip"], true);
         assert_eq!(v["timeline"]["splitMarkup"], true);
         assert_eq!(v["timeline"]["fadeSplitMarkup"], false);
+        assert_eq!(v["timeline"]["markupStretchesWithSpeed"], false);
+        assert_eq!(v["timeline"]["keepPitch"], true);
         assert_eq!(v["editing"]["numberDragSpeed"], "normal");
         assert_eq!(v["export"]["gifFps"], 20);
         assert_eq!(v["export"]["gifSize"], 640);

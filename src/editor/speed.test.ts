@@ -1,6 +1,6 @@
 // Clip speed in the document (PLAN §7, Clip speed SP1): the frames a retimed clip shows, and
 // trims, splits, ranges and markup on it.
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   addMark,
   addRange,
@@ -18,6 +18,7 @@ import {
   type Doc,
   type MarkObject,
 } from "./doc";
+import { useDoc } from "./docStore";
 import {
   clipFrame,
   retimedLength,
@@ -279,5 +280,68 @@ describe("clip speed", () => {
       [50, 100],
     ]);
     expect(shown(doc)).toEqual(Array.from({ length: 100 }, (_, u) => 2 * u));
+  });
+});
+
+describe("clip speed in the store", () => {
+  const s = () => useDoc.getState();
+  const options = (follow: boolean, stretchMarks: boolean) =>
+    s().setOptions({ ...s().options, follow, stretchMarks });
+  beforeEach(() => {
+    s().load(300);
+    s().addMark(text, 40, 30, 0);
+    options(true, false);
+  });
+
+  it("sets a speed, and a duration, each one undo step", () => {
+    expect(s().setSpeed([1], speed(2, 1))).toBe(true);
+    expect(total(s().doc)).toBe(150);
+    expect(s().setDuration(1, 100)).toBe(true);
+    expect(total(s().doc)).toBe(100);
+    s().undo();
+    expect(total(s().doc)).toBe(150);
+    s().undo();
+    expect(total(s().doc)).toBe(300);
+  });
+
+  it("stretches markup only while it follows its video", () => {
+    options(true, true);
+    s().setSpeed([1], speed(2, 1));
+    expect(shownMarks(s().doc)[0]).toMatchObject({ start: 20, end: 35 });
+    s().undo();
+    // Following off: markup keeps its place on the timeline, the stretch setting aside.
+    options(false, true);
+    s().setSpeed([1], speed(2, 1));
+    expect(shownMarks(s().doc)[0]).toMatchObject({ start: 40, end: 70 });
+  });
+});
+
+describe("the speed popover's one step", () => {
+  const s = () => useDoc.getState();
+  beforeEach(() => s().load(300));
+
+  it("keeps a field's drag inside it, and Esc puts it all back", () => {
+    s().beginGesture(); // opened
+    s().setSpeed([1], speed(2, 1));
+    s().beginGesture(); // a field dragged
+    s().setSpeed([1], speed(3, 1));
+    s().endGesture();
+    expect(total(s().doc)).toBe(100);
+    s().cancelGesture(); // Esc
+    expect(total(s().doc)).toBe(300);
+    expect(s().past).toHaveLength(0);
+  });
+
+  it("makes one undo step of it all when kept", () => {
+    s().beginGesture();
+    s().setSpeed([1], speed(2, 1));
+    s().beginGesture();
+    s().setDuration(1, 120);
+    s().endGesture();
+    s().endGesture(); // Enter
+    expect(total(s().doc)).toBe(120);
+    expect(s().past).toHaveLength(1);
+    s().undo();
+    expect(total(s().doc)).toBe(300);
   });
 });

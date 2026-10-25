@@ -21,6 +21,7 @@ import {
 } from "./doc";
 import { useDoc } from "./docStore";
 import { NumberField } from "./NumberField";
+import { clipFrame, sourceFrame, videoEnd } from "./speed";
 import { useSqueeze } from "./squeeze";
 import type { Player } from "./player";
 import { needsHours, parseTimecode, timecode } from "./timecode";
@@ -146,7 +147,8 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
   };
 
   // A clip: In and Out trim it (as dragging its edge, the frame at that end shown), Length
-  // moves its Out. In its file's frames, as shown.
+  // moves its Out. In and Out are its file's frames (at another speed, where its video starts
+  // and ends in the file: speed.ts); Length is its frames on the timeline.
   const clipTrim = (id: ClipId, inF: (c: Clip) => number, outF: (c: Clip) => number) => {
     const c = useDoc.getState().doc.clips.find((k) => k.id === id);
     if (c) useDoc.getState().trim(id, inF(c), outF(c));
@@ -157,22 +159,22 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
   const clipIn = (id: ClipId, v: number, dragging: boolean) => {
     const { clip, start } = clipTrim(
       id,
-      () => v,
+      (c) => clipFrame(c, v),
       (c) => c.out,
     );
     if (!clip) return v;
     peek(start, dragging);
-    return clip.in;
+    return sourceFrame(clip, clip.in);
   };
   const clipOut = (id: ClipId, v: number, dragging: boolean) => {
     const { clip, start } = clipTrim(
       id,
       (c) => c.in,
-      () => v,
+      (c) => clipFrame(c, v),
     );
     if (!clip) return v;
     peek(start + clipLength(clip) - 1, dragging);
-    return clip.out;
+    return videoEnd(clip);
   };
   const clipLengthTo = (id: ClipId, v: number) => {
     const { clip } = clipTrim(
@@ -337,14 +339,14 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
           <b>Clip {selected.id}</b>
           <NumberField
             label="In"
-            value={selected.in}
+            value={sourceFrame(selected, selected.in)}
             onChange={(v, dragging) => clipIn(selected.id, v, dragging)}
             onDragEnd={unpeek}
             {...time}
           />
           <NumberField
             label="Out"
-            value={selected.out}
+            value={videoEnd(selected)}
             onChange={(v, dragging) => clipOut(selected.id, v, dragging)}
             onDragEnd={unpeek}
             {...time}

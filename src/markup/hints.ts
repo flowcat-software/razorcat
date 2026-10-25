@@ -104,6 +104,10 @@ export const CONTROL_HINTS = {
   "crop.ratio": "Keep the crop to this shape · [Shift] while dragging keeps the shape it has",
   "crop.portrait": "Taller than wide: 9:16 instead of 16:9",
   "crop.reset": "Back to the whole picture · [Ctrl+Z] undoes it",
+  "clip.speed":
+    "The clip's speed, 10% to 1000% · drag or type · [Enter] keeps it, [Esc] puts it back",
+  "clip.duration":
+    "How long the clip lasts, by changing its speed: all of its video kept · [Enter] keeps it, [Esc] puts it back",
   "clip.fadeColour":
     "The colour the clip fades from or to · black or white also from the fade handle's right-click",
   "grow.colour": "The colour of the space grown · one for every side, once they meet",
@@ -322,6 +326,8 @@ export const WHY = {
   "pasteOnto.none":
     "Copy markup first ([Ctrl+C]), then select the markup to paste its style, fades or timing onto · fades: a clip's too, onto clips",
   "order.none": "Select a clip or markup to move it",
+  "speed.none": "Select a clip to change its speed",
+  "reverse.later": "Reversing a clip comes later: [Ctrl+Shift+R] is kept for it",
   "order.end": "It's as far as it goes",
   "export.none": "Open a video first",
 } as const;

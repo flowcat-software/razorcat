@@ -65,6 +65,12 @@ export const isNormal = (s: Speed) => s.num === s.den;
 /** `s` in percent (not rounded). */
 export const speedPercent = (s: Speed) => (100 * s.num) / s.den;
 
+/** `s` as shown: its percent to two decimals at most ("150%", "33.33%"). */
+export const formatSpeed = (s: Speed) => `${+speedPercent(s).toFixed(2)}%`;
+
+/** The speeds the options bar's dropdown offers, in percent (PLAN §7). */
+export const SPEED_PRESETS = [25, 50, 100, 200, 400];
+
 /** `percent` (to two decimals) as a speed, kept to the limits. */
 export function speedFromPercent(percent: number): Speed {
   const p = Math.max(MIN_SPEED_PERCENT, Math.min(MAX_SPEED_PERCENT, percent));

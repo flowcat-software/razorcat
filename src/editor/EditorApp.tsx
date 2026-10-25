@@ -55,6 +55,8 @@ import { Preview } from "./Preview";
 import { StatusBar, type Notice } from "./StatusBar";
 import { TIMELINE_H, Timeline } from "./Timeline";
 import { TimelineBar } from "./TimelineBar";
+import { openSpeed } from "./speedStore";
+import { SpeedPopover } from "./SpeedPopover";
 import { TimelineOptions } from "./TimelineOptions";
 import { useTimeline } from "./timelineStore";
 import { useTool } from "./toolStore";
@@ -83,6 +85,7 @@ const rangeOptions = (s: Settings) =>
     copyFades: s.timeline.copiesKeepFades,
     defaultClipFade: s.timeline.defaultClipFade,
     fadeClipCuts: s.timeline.fadeSplitClips,
+    stretchMarks: s.timeline.markupStretchesWithSpeed,
   });
 
 /** How long the playback volume rests before it's kept in the settings (ms). */
@@ -539,7 +542,8 @@ export function EditorApp() {
   }, [player, source, checkFor]);
 
   // Ctrl+O opens a video, Ctrl+E exports, Ctrl+, opens Settings, Ctrl+Z undoes (as in Vandal); Ctrl+0, Ctrl+=
-  // and Ctrl+− fit and zoom the timeline; Ctrl+D, C and V duplicate, copy and paste clips.
+  // and Ctrl+− fit and zoom the timeline; Ctrl+D, C and V duplicate, copy and paste clips; Ctrl+R
+  // a clip's speed.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey || e.metaKey) return;
@@ -558,6 +562,15 @@ export function EditorApp() {
           const how = e.shiftKey ? (earlier ? "back" : "front") : earlier ? "backward" : "forward";
           markupDoc.getState().reorder(selectedMarks.map(annotationId), how);
         } else moveSelected(player, e.shiftKey ? (earlier ? "first" : "last") : earlier ? -1 : 1);
+        return;
+      }
+      // Ctrl+R: the selected clip's speed, in its popover, as Premiere's and Resolve's key;
+      // Ctrl+Shift+R is kept for reversing (PLAN §7, Clip speed). Neither reloads the page.
+      if (e.code === "KeyR") {
+        e.preventDefault();
+        if (e.shiftKey) return sayWhy("reverse.later");
+        const id = useDoc.getState().selected;
+        if (id === null || !openSpeed(id)) sayWhy("speed.none");
         return;
       }
       // Ctrl+Shift+V, F and T: the copied markup's style, fades or timing onto the selected
@@ -741,6 +754,7 @@ export function EditorApp() {
         onToggleFrames={() => setInFrames((f) => !f)}
       />
       <TimelineOptions source={source} inFrames={inFrames} player={player} />
+      <SpeedPopover source={source} inFrames={inFrames} />
       <div className={styles.timeline} style={{ height: timelineH }}>
         {source && player && (
           <Timeline

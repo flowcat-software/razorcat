@@ -8,6 +8,7 @@ import { commands } from "../shared/ipc";
 import type { MarkObject } from "./doc";
 import { useDoc } from "./docStore";
 import type { Player } from "./player";
+import { speedFromPercent } from "./speed";
 import { useTool, type Tool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
@@ -156,6 +157,10 @@ export async function checkLayout(
   doc().setClipFades(first, { fadeIn: 10 });
   doc().setClipFades(first, { fadeOut: 10 });
   await at("a clip with both fades");
+  // At another speed, the widest percent the field shows (the badge on the clip too).
+  doc().setSpeed([first], speedFromPercent(33.33));
+  await at("a retimed clip with both fades");
+  doc().undo();
 
   const frames = player.frames;
   const range = doc().addRange(Math.round(frames / 4), Math.round(frames / 2));

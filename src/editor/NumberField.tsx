@@ -39,6 +39,10 @@ interface Props {
   about?: string;
   /** Joined to the field's right side (a colour swatch: what the value's colour is). */
   addon?: ReactNode;
+  /** Decimals a typed value keeps (a speed's percent: 2; else whole numbers). Drags step by 1. */
+  decimals?: number;
+  /** Its input's id, so a key can put the cursor in it (Ctrl+R: the clip's speed). */
+  inputId?: string;
 }
 
 const readNumber = (text: string) => {
@@ -72,6 +76,8 @@ export function NumberField({
   hint = "number",
   about,
   addon,
+  decimals = 0,
+  inputId,
 }: Props) {
   /** What's typed, until Enter or leaving the field sets it (Esc drops it). */
   const [typed, setTyped] = useState<string | null>(null);
@@ -87,7 +93,7 @@ export function NumberField({
       return;
     }
     const n = typed === null ? null : parse(typed);
-    if (n !== null) onChange(Math.round(n), false, false);
+    if (n !== null) onChange(Math.round(n * 10 ** decimals) / 10 ** decimals, false, false);
     setTyped(null);
   };
 
@@ -190,6 +196,7 @@ export function NumberField({
     <label className={styles.field} title={about} {...hintFor(hint)}>
       {label}
       <input
+        id={inputId}
         className={styles.numberField}
         data-dragging={dragging || undefined}
         inputMode="numeric"

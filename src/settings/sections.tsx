@@ -200,6 +200,34 @@ export const sections: Section[] = [
           },
         ],
       },
+      {
+        title: "Clip speed",
+        items: [
+          {
+            id: "markupStretchesWithSpeed",
+            kind: "toggle",
+            path: "timeline.markupStretchesWithSpeed",
+            label: "Markup stretches with the clip's speed",
+            description:
+              "Slowing a clip down makes the markup on it last longer, and its fades too; speeding it up, shorter. Off: markup keeps its length and starts on the same frame of the video.",
+            disabled: (s) => !s.timeline.rangesFollowVideo,
+            note: (s) =>
+              s.timeline.rangesFollowVideo
+                ? undefined
+                : "Markup stays at its place on the timeline: turn on Ranges and markup follow their video to use this.",
+            keywords: ["speed", "slow", "fast", "markup", "text", "stretch", "length", "clip"],
+          },
+          {
+            id: "keepPitch",
+            kind: "toggle",
+            path: "timeline.keepPitch",
+            label: "Keep the sound's pitch",
+            description:
+              "A clip sped up or slowed down sounds at its own pitch, in the preview and the export. Off: faster sounds higher and slower lower, as a tape does.",
+            keywords: ["speed", "slow", "fast", "pitch", "audio", "sound", "tape", "chipmunk"],
+          },
+        ],
+      },
     ],
   },
   {

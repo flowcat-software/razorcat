@@ -5,6 +5,8 @@
 //
 // Every edit is one undo step. A drag is wrapped in beginGesture/endGesture so all its
 // intermediate updates become a single step; edits that change nothing add nothing to history.
+// Gestures nest: a popover's edits (the speed popover's, its fields dragged too) are one step,
+// or all cancelled.
 //
 // After an edit of the clips, the ranges and markup follow their video (each range kept in one
 // place), or, with Settings › Timeline › "Ranges and markup follow their video" off, stay where
@@ -67,6 +69,7 @@ import {
 } from "./doc";
 import type { Rect, Size } from "./fit";
 import type { Grow } from "./frame";
+import { setClipSpeed, setClipsSpeed, type Speed } from "./speed";
 
 /** Oldest steps are dropped beyond this. */
 export const HISTORY_LIMIT = 200;
@@ -89,6 +92,8 @@ export interface RangeOptions {
   defaultClipFade: number;
   /** A clip split (or cut by ranges) fades at the cut as the whole did at its ends. */
   fadeClipCuts: boolean;
+  /** A clip's speed changed, the markup on it stretches with it (while it follows its video). */
+  stretchMarks: boolean;
 }
 
 export interface DocState {
@@ -127,8 +132,12 @@ export interface DocState {
   remove: (id: ClipId) => boolean;
   /** Moves clip `id` to position `to`. */
   move: (id: ClipId, to: number) => boolean;
-  /** Trims clip `id` to source frames `in` to `out` (ripple). */
+  /** Trims clip `id` to its frames `in` to `out` (ripple). */
   trim: (id: ClipId, inF: number, outF: number) => boolean;
+  /** Clips `ids` at speed `to` (ripple; PLAN §7, Clip speed). */
+  setSpeed: (ids: readonly ClipId[], to: Speed) => boolean;
+  /** Clip `id` retimed to last `length` frames (ripple). */
+  setDuration: (id: ClipId, length: number) => boolean;
   /** A copy of clip `id` straight after it, selected; its id, or null. */
   duplicate: (id: ClipId) => ClipId | null;
   /** Inserts `copy` as a new clip at position `at`, selected; its id. */
@@ -245,6 +254,9 @@ export function canRedo(s: DocState): boolean {
 }
 
 export const useDoc = create<DocState>()((set, get) => {
+  /** How many gestures are open: they nest, and the outermost makes the step (or cancels). */
+  let gestures = 0;
+
   /**
    * Applies a pure edit as one history step (or as part of the current gesture), with the
    * markup's lanes settled after it (`settleLanes`): `yielding`, what it moved or added, gives
@@ -339,9 +351,11 @@ export const useDoc = create<DocState>()((set, get) => {
       copyFades: true,
       defaultClipFade: 15,
       fadeClipCuts: false,
+      stretchMarks: false,
     },
 
-    load: (frames, size, id) =>
+    load: (frames, size, id) => {
+      gestures = 0;
       set({
         doc: wholeSource(frames, size, id),
         past: [],
@@ -352,7 +366,8 @@ export const useDoc = create<DocState>()((set, get) => {
         selectedRange: null,
         selectedMarks: [],
         pendingIn: null,
-      }),
+      });
+    },
 
     split: (f) => {
       const { splitMarks, fadeCuts, fadeClipCuts } = get().options;
@@ -361,6 +376,14 @@ export const useDoc = create<DocState>()((set, get) => {
     remove: (id) => applyClips((doc) => deleteClip(doc, id, get().options.deleteWithClip)),
     move: (id, to) => applyClips((doc) => moveClip(doc, id, to)),
     trim: (id, inF, outF) => applyClips((doc) => trimClip(doc, id, inF, outF)),
+    setSpeed: (ids, to) => {
+      const { follow, stretchMarks } = get().options;
+      return applyClips((doc) => setClipsSpeed(doc, ids, to, follow && stretchMarks));
+    },
+    setDuration: (id, length) => {
+      const { follow, stretchMarks } = get().options;
+      return applyClips((doc) => setClipSpeed(doc, id, { length }, follow && stretchMarks));
+    },
     duplicate: (id) => added(applyClips((doc) => duplicateClip(doc, id, get().options.copyFades))),
     paste: (copy, at) =>
       added(applyClips((doc) => insertClip(doc, copy, at, get().options.copyFades))),
@@ -447,15 +470,20 @@ export const useDoc = create<DocState>()((set, get) => {
     grow: (grow) => apply((doc) => setGrow(doc, grow)),
 
     beginGesture: () => {
+      gestures++;
       if (!get().gestureStart) set({ gestureStart: get().doc });
     },
     endGesture: () => {
+      // Inside another (a field dragged in the speed popover): the outer one ends it.
+      gestures = Math.max(0, gestures - 1);
+      if (gestures > 0) return;
       const { gestureStart: start, doc, past } = get();
       if (!start) return;
       if (doc === start) set({ gestureStart: null });
       else set({ gestureStart: null, past: pushLimited(past, start), future: [] });
     },
     cancelGesture: () => {
+      gestures = 0;
       const start = get().gestureStart;
       if (!start) return;
       set({ doc: start, gestureStart: null });

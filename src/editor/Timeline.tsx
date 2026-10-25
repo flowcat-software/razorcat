@@ -59,7 +59,9 @@ import { clipsExportItems, exportClip } from "./exports";
 import { Menu, type MenuItems } from "./Menu";
 import { markTargets, rangeTargets, scrubTargets, snap, trimTargets } from "./snap";
 import { useTimeline } from "./timelineStore";
+import { formatSpeed, isNormal, NORMAL_SPEED, sourceFrame, speedOf, videoEnd } from "./speed";
 import { TimelineScrollbar } from "./TimelineScrollbar";
+import { openSpeed, setSpeedAnchor } from "./speedStore";
 import { FRAME_TICKS, HEADER, fOf, ticks, xOf, zoomAnchor, type View } from "./timelineView";
 import styles from "./EditorApp.module.css";
 
@@ -94,6 +96,9 @@ export const TIMELINE_H = 232;
 const CLIP_H = 76;
 /** The clip's label row, above its thumbnails. */
 const LABEL_H = 18;
+/** A retimed clip's speed badge in that row: its top (from the clip's) and height. */
+const BADGE_Y = 3;
+const BADGE_H = 14;
 /** The waveform's band, below them. */
 const WAVE_H = 20;
 const THUMB_H = CLIP_H - LABEL_H - WAVE_H;
@@ -701,6 +706,8 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /** A button is held down on the timeline (a scrub, a drag). */
   const pressed = useRef(false);
+  /** Where each retimed clip's speed badge is drawn (canvas x), for a click to open its speed. */
+  const badges = useRef(new Map<ClipId, { x: number; w: number }>());
   const draw = useRef<() => void>(() => {});
   const [redraw] = useState(() => () => draw.current());
 
@@ -903,6 +910,23 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
     };
   }, [waves, redraw]);
 
+  // Where a clip is, for its speed popover opened from the keyboard (Ctrl+R): below its label
+  // row, from its start or the timeline's left edge if it's scrolled past that.
+  useEffect(() => {
+    setSpeedAnchor((id) => {
+      const canvas = canvasRef.current;
+      const { doc } = useDoc.getState();
+      const i = doc.clips.findIndex((c) => c.id === id);
+      if (!canvas || i < 0) return null;
+      const r = canvas.getBoundingClientRect();
+      const { view } = useTimeline.getState();
+      const x0 = xOf(view, clipStarts(doc)[i]);
+      const x = Math.max(HEADER, Math.min(r.width - 40, x0 + 9));
+      return { x: r.left + x, y: r.top + CLIP_TOP + LABEL_H };
+    });
+    return () => setSpeedAnchor(() => null);
+  }, []);
+
   // Drawing: on the next animation frame after anything changes.
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -926,6 +950,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
       }
       const g = canvas.getContext("2d")!;
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      badges.current.clear();
       g.fillStyle = c["tl-bg"];
       g.fillRect(0, 0, W, H);
       g.font = "11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
@@ -1126,7 +1151,24 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
             if (x1 - lx > g.measureText(full).width + 10) name = full;
           }
           g.fillText(name, lx, CLIP_TOP + 10);
-          const w = g.measureText(`${name} `).width;
+          let w = g.measureText(`${name} `).width;
+          // At another speed, a badge saying it after the name (PLAN §7, Clip speed).
+          const sp = speedOf(clip);
+          if (!isNormal(sp)) {
+            g.font = "600 10px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
+            const label = formatSpeed(sp);
+            const bw = g.measureText(label).width + 8;
+            if (x1 - lx > w + bw + 4) {
+              g.fillStyle = "rgb(255 255 255 / 0.24)";
+              g.beginPath();
+              g.roundRect(lx + w, CLIP_TOP + BADGE_Y, bw, BADGE_H, 3);
+              g.fill();
+              g.fillStyle = "#fff";
+              g.fillText(label, lx + w + 4, CLIP_TOP + 10);
+              badges.current.set(clip.id, { x: lx + w, w: bw });
+              w += bw + 4;
+            }
+          }
           g.font = "11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
           g.fillStyle = "rgb(255 255 255 / 0.8)";
           if (x1 - lx > w + 90) {
@@ -1593,6 +1635,12 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
   // selected. By an edge it's trimmed; by its title bar it's dragged to another place, the
   // others sliding aside. On the ruler's top strip a drag draws a range; a range's bar moves it
   // and its edges resize it. A drag is one undo step.
+  /** The clip whose speed badge is at canvas (x, y), if any. */
+  const badgeAt = (x: number, y: number): ClipId | null => {
+    if (y < CLIP_TOP + BADGE_Y || y > CLIP_TOP + BADGE_Y + BADGE_H) return null;
+    for (const [id, b] of badges.current) if (x >= b.x && x <= b.x + b.w) return id;
+    return null;
+  };
   const at = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top, view: useTimeline.getState().view };
@@ -1636,12 +1684,15 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
     const { doc } = useDoc.getState();
     const clip = doc.clips.find((c) => c.id === t.id);
     if (!clip) return;
-    player.peek(t.edge === "in" ? clip.in : clip.out - 1, clip.source);
+    player.peek(sourceFrame(clip, t.edge === "in" ? clip.in : clip.out - 1), clip.source);
     const fmt = formatter();
+    // In and Out in the file's time, as the options bar's (at another speed: speed.ts).
+    const was = t.orig;
+    const inF = sourceFrame(clip, clip.in);
     const lines =
       t.edge === "in"
-        ? [`In ${fmt(clip.in)}  ${signed(clip.in - t.orig.in)}`]
-        : [`Out ${fmt(clip.out)}  ${signed(clip.out - t.orig.out)}`];
+        ? [`In ${fmt(inF)}  ${signed(inF - sourceFrame(was, was.in))}`]
+        : [`Out ${fmt(videoEnd(clip))}  ${signed(videoEnd(clip) - videoEnd(was))}`];
     lines.push(`Length ${fmt(clipLength(clip))}`);
     if (t.edge === "in" && clip.in === 0) lines.push("(the source's start)");
     if (t.edge === "out" && clip.out === sourceLength(doc, clip)) lines.push("(the source's end)");
@@ -2067,7 +2118,10 @@ ${d.group.length} items`,
         orig: hit.clip,
         targets: trimTargets(docState.doc, index, hit.kind, player.getState().frame),
       };
-      player.peek(hit.kind === "in" ? hit.clip.in : hit.clip.out - 1, hit.clip.source);
+      player.peek(
+        sourceFrame(hit.clip, hit.kind === "in" ? hit.clip.in : hit.clip.out - 1),
+        hit.clip.source,
+      );
       return;
     }
     if (hit.kind === "crossfade") {
@@ -2221,6 +2275,15 @@ ${d.group.length} items`,
           const { x, y, view } = at(e);
           if (audio && onSpeaker(x, y)) {
             docState.muteTrack(!docState.doc.muted);
+            return;
+          }
+          // A clip's speed badge: its speed, in the popover below it.
+          const badge = badgeAt(x, y);
+          if (badge !== null) {
+            const r = e.currentTarget.getBoundingClientRect();
+            const b = badges.current.get(badge)!;
+            docState.select(badge);
+            openSpeed(badge, { x: r.left + b.x, y: r.top + CLIP_TOP + BADGE_Y + BADGE_H });
             return;
           }
           e.currentTarget.setPointerCapture(e.pointerId);
@@ -2505,6 +2568,17 @@ ${d.group.length} items`,
                 run: deleteSelected,
               },
               "-",
+              // Its speed: in the options bar's field (the menu closes first).
+              {
+                label: "Speed…",
+                hint: "Ctrl+R",
+                run: () => openSpeed(clip.id, { x: e.clientX, y: e.clientY }),
+              },
+              {
+                label: "Reset Speed",
+                disabled: isNormal(speedOf(clip)),
+                run: () => useDoc.getState().setSpeed([clip.id], NORMAL_SPEED),
+              },
               {
                 label: "Restore the full length",
                 disabled: whole,
