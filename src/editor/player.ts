@@ -27,6 +27,11 @@
 // original; playing backward (which `<video>` can't) seeks frame after frame, on the proxy when
 // there is one. A muted clip (or track) plays with the original muted; the proxy always is.
 //
+// A reversed clip (PLAN §7, Clip speed SP6) plays from its reversed render (reverse.ts: another
+// deck, played forward), which the editor puts in its place once it's ready. Till then it's played
+// as J plays: seeking frame after frame at the timeline's rate, on the proxy when there is one,
+// silent ("soft"). Playing moves into it and out of it at the cuts.
+//
 // Some frames the original can't show by seeking: in open-GOP video (x265's default), the few
 // frames before a keyframe are decoded after it, and WebView2's decoder, seeking there, starts at
 // the keyframe and shows that instead (the frame check, frameCheck.ts, found them). When the
@@ -62,6 +67,8 @@ interface Span {
   out: number;
   speed?: Speed;
   phase?: number;
+  /** Reversed, with no render yet: played by seeking (`playSoft`). */
+  mirror?: number;
   /** Silent (the clip's mute, or the track's). */
   muted: boolean;
 }
@@ -181,6 +188,8 @@ export class Player {
   private retimed = 0;
   /** A clip at another speed keeps its sound's pitch (Settings › Timeline; `setKeepPitch`). */
   private pitchKept = true;
+  /** Playing forward through a reversed clip by seeking (`playSoft`). */
+  private soft = false;
 
   constructor(
     /** Frames per second: the timeline's. */
@@ -214,6 +223,7 @@ export class Player {
       out: number;
       speed?: Speed;
       phase?: number;
+      mirror?: number;
       muted?: boolean;
     }[];
     muted: boolean;
@@ -229,7 +239,8 @@ export class Player {
           c.in === s.in &&
           c.out === s.out &&
           c.speed === s.speed &&
-          c.phase === s.phase
+          c.phase === s.phase &&
+          c.mirror === s.mirror
         );
       });
     this.mutes = mutes;
@@ -248,6 +259,7 @@ export class Player {
         out: c.out,
         speed: c.speed,
         phase: c.phase,
+        mirror: c.mirror,
         muted: edit.muted || !!c.muted,
       };
       start += c.out - c.in;
@@ -521,6 +533,10 @@ export class Player {
       if (this.state.frame >= this.frames - 1) this.seek(0);
       this.playing = this.spanIndex(this.state.frame);
       const span = this.spans[this.playing];
+      if (span?.mirror !== undefined) {
+        this.playSoft(speed);
+        return;
+      }
       const v = this.deckOf(span)?.original?.video;
       if (!span || !v) return;
       v.muted = span.muted;
@@ -552,10 +568,44 @@ export class Player {
     this.backward = requestAnimationFrame(tick);
   }
 
+  /**
+   * Plays forward from the playhead through a reversed clip that has no render yet, as J plays
+   * backward: the playhead moves at the timeline's rate (times L's), each frame sought (the
+   * proxy's, if there is one: the original catches up when it stops), silent. On a clip that
+   * isn't, it plays on as usual; at the timeline's end it stops.
+   */
+  private playSoft(speed: number) {
+    this.set({ speed });
+    this.soft = true;
+    this.proxyHeld = false;
+    const from = this.state.frame;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const n = Math.min(
+        this.frames - 1,
+        from + Math.floor(((now - t0) / 1000) * this.fps * speed),
+      );
+      const span = this.spans[this.spanIndex(n)];
+      if (span && span.mirror === undefined) {
+        // Out of it: plays on from there.
+        this.seek(n);
+        this.play(speed);
+        return;
+      }
+      this.set({ frame: n });
+      if (this.deckOf(span)?.proxy) this.showProxy(n);
+      else this.show(n);
+      if (n >= this.frames - 1) this.pause();
+      else this.backward = requestAnimationFrame(tick);
+    };
+    this.backward = requestAnimationFrame(tick);
+  }
+
   /** Stops playing, either way, leaving the playhead where it is. */
   private stop() {
     cancelAnimationFrame(this.backward);
     this.backward = 0;
+    this.soft = false;
     cancelAnimationFrame(this.retimed);
     this.retimed = 0;
     this.crossing = false;
@@ -649,7 +699,7 @@ export class Player {
     if (!t || !p) return;
     const proxyShowsFrame = !p.busy && this.proxyFrame(p.shownTime) === t.frame;
     let on: boolean;
-    if (this.state.speed > 0 || this.originalShowsFrame()) on = false;
+    if ((this.state.speed > 0 && !this.soft) || this.originalShowsFrame()) on = false;
     else if (proxyShowsFrame && (!this.proxyHeld || this.originalMissed())) on = true;
     else if (this.proxyHeld) on = false;
     else return;
@@ -700,7 +750,8 @@ export class Player {
   }
 
   private onOriginal(deck: Deck, meta?: VideoFrameCallbackMetadata) {
-    const playing = this.state.speed > 0 && this.deckOf(this.spans[this.playing]) === deck;
+    const playing =
+      this.state.speed > 0 && !this.soft && this.deckOf(this.spans[this.playing]) === deck;
     if (meta && deck.times) {
       if (playing) this.played(meta.mediaTime);
       else if (
@@ -783,6 +834,15 @@ export class Player {
       this.set({ frame: this.frames - 1 });
       return;
     }
+    if (next.mirror !== undefined) {
+      // A reversed clip with no render yet: played by seeking.
+      const speed = this.state.speed;
+      this.stop();
+      this.peeked = null;
+      this.set({ frame: next.start, source: next.source });
+      this.playSoft(speed);
+      return;
+    }
     const deck = this.deckOf(next);
     const v = deck?.original;
     if (!deck?.times || !v) {
@@ -858,7 +918,7 @@ export class Player {
 
   /** A source ran out while playing (a clip that ends where its source does). */
   private onEnded = () => {
-    if (this.state.speed > 0 && !this.crossing) this.cut();
+    if (this.state.speed > 0 && !this.crossing && !this.soft) this.cut();
     this.paint();
   };
 

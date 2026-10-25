@@ -19,7 +19,7 @@ import { growColour, growMode, NO_GROW, outputSize, SIDES } from "./frame";
 import { GrowOverlay } from "./GrowOverlay";
 import { RedactLayer } from "./RedactLayer";
 import type { Player } from "./player";
-import { playbackRate, sourceFrame } from "./speed";
+import { isReversed, playbackRate, sourceFrame } from "./speed";
 import { useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
@@ -296,7 +296,8 @@ function CrossfadeMix({
         pauseOthers(at.clip.source);
         const mix = crossfadeMix(at.k, at.length);
         show(at.clip.source, mix);
-        if (speed > 0) {
+        // A reversed clip with no render yet is sought frame by frame, as the player does.
+        if (speed > 0 && !isReversed(at.clip)) {
           // Started from where it was held ready, or sought if it's well off.
           const off = Math.abs(v.currentTime - time);
           if (v.paused ? off > 1.5 / fps : off > 0.25) v.currentTime = time;

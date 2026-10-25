@@ -63,4 +63,11 @@ describe("the player's frames at another speed", () => {
     // At a third, phase 1: floor((v + 1) / 3).
     expect([20, 21, 22, 23, 25].map((t) => player.sourceFrame(t))).toEqual([0, 0, 1, 1, 2]);
   });
+
+  it("shows a reversed clip's frames back to front", () => {
+    const player = new Player(30);
+    // Source frames 300 to 309 of 1000, backward: stream frames 690 to 699.
+    player.setEdit({ clips: [{ source: "a", in: 690, out: 700, mirror: 1000 }], muted: false });
+    expect([0, 1, 9].map((t) => player.sourceFrame(t))).toEqual([309, 308, 300]);
+  });
 });
