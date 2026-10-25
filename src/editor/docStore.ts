@@ -351,7 +351,7 @@ export const useDoc = create<DocState>()((set, get) => {
       copyFades: true,
       defaultClipFade: 15,
       fadeClipCuts: false,
-      stretchMarks: false,
+      stretchMarks: true,
     },
 
     load: (frames, size, id) => {

@@ -735,7 +735,8 @@ export type Timeline = {
 	fadeSplitClips?: boolean,
 	/**
 	 *  Changing a clip's speed scales the markup on it, its length and fades, with the video
-	 *  (off by default: markup keeps its length). Only while ranges and markup follow their video.
+	 *  (on by default; Richard, 2026-10-24). Off, markup keeps its length. Only while ranges and
+	 *  markup follow their video.
 	 */
 	markupStretchesWithSpeed?: boolean,
 	/**
