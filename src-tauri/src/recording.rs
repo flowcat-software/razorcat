@@ -32,14 +32,18 @@ pub const RECORDER: &str = "recorder";
 /// The marks round an area being recorded (PLAN 5b.3c; outline.html): its corners, the rest of
 /// its monitor dimmed.
 const OUTLINE_LABEL: &str = "recording-outline";
-/// The recording's frame rate (5b.5 makes it a choice).
-const FPS: u32 = 60;
-/// The control's size (logical px) and its gap from the monitor's top.
-const CONTROL: (f64, f64) = (196.0, 44.0);
+/// The countdown's window (countdown.html).
+const COUNTDOWN_LABEL: &str = "recording-countdown";
+/// The control's size (logical px) and its gap from the monitor's top: the dot, the time, Pause
+/// and Stop.
+const CONTROL: (f64, f64) = (232.0, 44.0);
 /// What the microphone's mute button adds to it (a button and a gap).
 const CONTROL_MIC: f64 = 36.0;
-/// Mutes and unmutes the microphone while recording, wherever the keys are (PLAN 5b.4d).
+/// While recording, wherever the keys are: mute and unmute the microphone (PLAN 5b.4d), pause
+/// and resume, stop (5b.5c). Settable with 5b.8's shortcuts.
 const MUTE_KEY: &str = "Ctrl+Alt+M";
+const PAUSE_KEY: &str = "Ctrl+Alt+P";
+const STOP_KEY: &str = "Ctrl+Alt+S";
 const CONTROL_TOP: f64 = 8.0;
 /// How long ffmpeg must keep running for an encoder to count as working.
 const STARTED: Duration = Duration::from_millis(1500);
@@ -55,18 +59,58 @@ pub struct RecordingChanged {
     pub message: Option<String>,
 }
 
+/// A recording under way: its segments (one per stretch between pauses, each ffmpeg into its own
+/// file, joined when it stops), and what a new segment needs.
 struct Running {
-    child: Child,
-    stdin: ChildStdin,
-    part: PathBuf,
+    /// The segment being recorded; None while paused.
+    seg: Option<Segment>,
+    /// The segments done and whole, in order.
+    parts: Vec<PathBuf>,
+    /// Where the segments go: `{base}.{n}.part`.
+    base: PathBuf,
+    target: Target,
+    encoder: Encoder,
+    sources: Vec<audio::Source>,
+    video: Video,
     file: PathBuf,
     /// Added to the timeline when done (else it replaces it).
     add: bool,
+    /// What to say when it's done: why the sound isn't as asked.
+    warning: Option<String>,
+    /// The microphone muted (kept across segments).
+    muted: bool,
+}
+
+/// One stretch of recording: ffmpeg into `part`, with its sound.
+struct Segment {
+    child: Child,
+    stdin: ChildStdin,
+    part: PathBuf,
     log: Arc<Mutex<Vec<String>>>,
     /// The sound being taken, into ffmpeg (PLAN 5b.4).
     sound: Vec<Capture>,
-    /// What to say when it's done: why the sound isn't as asked.
-    warning: Option<String>,
+}
+
+/// How the picture is taken (Settings › Recording › Video).
+#[derive(Debug, Clone, Copy)]
+struct Video {
+    fps: u32,
+    cursor: bool,
+}
+
+fn video(app: &AppHandle) -> Video {
+    let state = app.state::<AppState>();
+    let settings = state.settings.read().unwrap();
+    Video {
+        fps: settings.recording.fps,
+        cursor: settings.recording.cursor,
+    }
+}
+
+fn segment_path(base: &std::path::Path, n: usize) -> PathBuf {
+    let mut name = base.as_os_str().to_owned();
+    name.push(format!(".{n}.part"));
+    PathBuf::from(name)
 }
 
 /// The sound to record, as Settings › Recording has it: the microphone (the one chosen, or the
@@ -95,18 +139,33 @@ fn sound_sources(app: &AppHandle) -> Vec<audio::Source> {
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct MicMuted(pub bool);
 
+/// Rust → the control: the recording paused or going again (its button or [`PAUSE_KEY`]).
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct RecordingPaused(pub bool);
+
 /// Mutes the microphone being recorded, or unmutes it (`muted` None: the other way). Says so to
 /// the control.
 pub fn mute(app: &AppHandle, muted: Option<bool>) {
-    let now = NOW.lock().unwrap();
-    let Some(mic) = now
-        .as_ref()
-        .and_then(|r| r.sound.iter().find(|c| c.microphone))
-    else {
+    let mut now = NOW.lock().unwrap();
+    let Some(r) = now.as_mut() else {
         return;
     };
-    let muted = muted.unwrap_or(!mic.muted());
-    mic.set_muted(muted);
+    if !r
+        .sources
+        .iter()
+        .any(|s| matches!(s, audio::Source::Microphone(_)))
+    {
+        return;
+    }
+    let muted = muted.unwrap_or(!r.muted);
+    r.muted = muted;
+    if let Some(mic) = r
+        .seg
+        .as_ref()
+        .and_then(|s| s.sound.iter().find(|c| c.microphone))
+    {
+        mic.set_muted(muted);
+    }
     drop(now);
     logln!(
         "[recording] microphone {}",
@@ -115,22 +174,37 @@ pub fn mute(app: &AppHandle, muted: Option<bool>) {
     let _ = MicMuted(muted).emit_to(app, RECORDER);
 }
 
-/// [`MUTE_KEY`] held while a recording has the microphone; let go when it's done.
-fn hold_mute_key(app: &AppHandle, on: bool) {
+/// What a key held while recording does.
+type KeyAction = fn(&AppHandle);
+
+/// The keys held while recording ([`MUTE_KEY`] only with the microphone); let go when it's done.
+fn hold_keys(app: &AppHandle, on: bool, mic: bool) {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
     let keys = app.global_shortcut();
     if !on {
-        let _ = keys.unregister(MUTE_KEY);
+        for key in [MUTE_KEY, PAUSE_KEY, STOP_KEY] {
+            let _ = keys.unregister(key);
+        }
         return;
     }
-    let registered = keys.on_shortcut(MUTE_KEY, |app, _, event| {
-        if event.state == ShortcutState::Pressed {
-            mute(app, None);
+    let held: [(&str, KeyAction); 3] = [
+        (MUTE_KEY, |app| mute(app, None)),
+        (PAUSE_KEY, pause),
+        (STOP_KEY, stop),
+    ];
+    for (key, action) in held {
+        if key == MUTE_KEY && !mic {
+            continue;
         }
-    });
-    if let Err(e) = registered {
-        // Another app has it: the control's button still mutes.
-        logln!("[recording] {MUTE_KEY} not available: {e}");
+        let registered = keys.on_shortcut(key, move |app, _, event| {
+            if event.state == ShortcutState::Pressed {
+                action(app);
+            }
+        });
+        if let Err(e) = registered {
+            // Another app has it: the control's buttons still work.
+            logln!("[recording] {key} not available: {e}");
+        }
     }
 }
 
@@ -177,9 +251,12 @@ fn sound_args(inputs: &[SoundInput]) -> Vec<String> {
 static NOW: Mutex<Option<Running>> = Mutex::new(None);
 /// Set while a recording starts (before it's `NOW`), so a second can't.
 static STARTING: Mutex<bool> = Mutex::new(false);
-/// Stop was asked for while it started (the control is up before ffmpeg is): it stops as soon as
-/// it's under way.
+/// Stop was asked for while it started (the control is up before ffmpeg is, and the countdown
+/// runs): it's cancelled in the countdown, or stops as soon as it's under way.
 static STOP_ASKED: Mutex<bool> = Mutex::new(false);
+/// Held while a segment ends or starts (pause, resume, stop), so they happen one at a time: a
+/// Stop mid-pause waits for the paused segment's file to be whole.
+static SWITCH: Mutex<()> = Mutex::new(());
 
 /// Where recordings go: Settings › Recording › Folder, else the default.
 fn folder(app: &AppHandle) -> PathBuf {
@@ -262,6 +339,8 @@ pub struct Target {
     pub screen: Screen,
     pub area: Option<(u32, u32, u32, u32)>,
     pub window: Option<(u64, u32, u32)>,
+    /// A window's top-left when picked (virtual-desktop px).
+    pub at: Option<(i32, i32)>,
 }
 
 /// The smallest area recorded, either side (px).
@@ -280,15 +359,29 @@ impl Target {
             screen,
             area,
             window: None,
+            at: None,
         }
     }
 
-    /// Window `hwnd`, `width` × `height` when picked, on `screen` (or mostly).
-    pub fn window(screen: Screen, hwnd: u64, width: u32, height: u32) -> Self {
+    /// Window `hwnd`, at `x`, `y` (virtual-desktop px) and `width` × `height` when picked, on
+    /// `screen` (or mostly).
+    pub fn window(screen: Screen, hwnd: u64, (x, y, width, height): (i32, i32, u32, u32)) -> Self {
         Self {
             screen,
             area: None,
             window: Some((hwnd, width.max(MIN_SIDE), height.max(MIN_SIDE))),
+            at: Some((x, y)),
+        }
+    }
+
+    /// Where it is on its monitor, in the monitor's physical pixels (the countdown's place): the
+    /// area, the window (as picked), or all of it.
+    fn on_screen(&self) -> (i32, i32, u32, u32) {
+        let s = &self.screen;
+        match (self.area, self.window, self.at) {
+            (Some((x, y, w, h)), _, _) => (x as i32, y as i32, w, h),
+            (None, Some((_, w, h)), Some((x, y))) => (x - s.x, y - s.y, w, h),
+            _ => (0, 0, s.width, s.height),
         }
     }
 
@@ -346,11 +439,22 @@ pub fn start(app: &AppHandle, add: bool, target: Target) -> Result<(), String> {
             std::mem::take(&mut *STOP_ASKED.lock().unwrap())
         };
         match started {
-            Ok(()) => {
+            Ok(true) => {
                 if asked {
                     stop(&app);
                 }
                 watch(app);
+            }
+            // Cancelled in the countdown: nothing recorded, nothing to say.
+            Ok(false) => {
+                logln!("[recording] cancelled in the countdown");
+                close_control(&app);
+                show_editor(&app);
+                let _ = RecordingChanged {
+                    recording: false,
+                    message: None,
+                }
+                .emit_to(&app, LABEL);
             }
             Err(message) => {
                 logln!("[recording] couldn't start: {message}");
@@ -367,47 +471,66 @@ pub fn start(app: &AppHandle, add: bool, target: Target) -> Result<(), String> {
     Ok(())
 }
 
-/// Puts the control up, and ffmpeg recording (the editor is aside already).
-fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<(), String> {
+/// Puts the control up, counts down, and starts ffmpeg recording (the editor is aside already).
+/// False if Stop (Cancel) was pressed in the countdown.
+fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
     let dir = folder(app);
     std::fs::create_dir_all(&dir).map_err(|e| format!("can't make {}: {e}", dir.display()))?;
     let name = file_name(&dir);
     let file = dir.join(format!("{name}.mp4"));
-    let part = dir.join(format!("{name}.part"));
+    let base = dir.join(&name);
 
     if let Some(editor) = app.get_webview_window(LABEL) {
         let _ = editor.minimize();
     }
+    let settings = app
+        .state::<AppState>()
+        .settings
+        .read()
+        .unwrap()
+        .recording
+        .clone();
     // The marks first: the control is shown after, so it's in front of their dimming.
     if let Some(area) = target.area {
-        let marks = app
-            .state::<AppState>()
-            .settings
-            .read()
-            .unwrap()
-            .recording
-            .clone();
-        if marks.corners || marks.dim {
-            open_outline(app, &target.screen, area, &marks);
+        if settings.corners || settings.dim {
+            open_outline(app, &target.screen, area, &settings);
         }
     }
-    let mic = sound_sources(app)
+    let mut sources = sound_sources(app);
+    let mic = sources
         .iter()
         .any(|s| matches!(s, audio::Source::Microphone(_)));
-    open_control(app, &target.screen, mic);
-    // The overlays and the editor out of the way before the first frame.
+    let count = settings.countdown;
+    open_control(app, &target.screen, mic, count);
+    if count > 0 {
+        open_countdown(app, target, count);
+        let until = Instant::now() + Duration::from_secs(u64::from(count));
+        while Instant::now() < until {
+            if *STOP_ASKED.lock().unwrap() {
+                close_countdown(app);
+                return Ok(false);
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        close_countdown(app);
+    }
+    // The overlays, the countdown and the editor out of the way before the first frame.
     std::thread::sleep(Duration::from_millis(250));
 
     let (w, h) = target.size();
+    let video = video(app);
     let mut why = String::from("no encoder worked");
-    let mut sources = sound_sources(app);
     let mut warning = None;
     for encoder in encoders(app) {
         loop {
-            match spawn(target, encoder, &part, &sources) {
-                Ok(running) => {
-                    logln!("[recording] {w}×{h} with {encoder:?}, sound {sources:?}");
-                    hold_mute_key(app, running.sound.iter().any(|c| c.microphone));
+            let part = segment_path(&base, 0);
+            match spawn(target, encoder, &part, &sources, video) {
+                Ok(seg) => {
+                    logln!(
+                        "[recording] {w}×{h} at {} fps with {encoder:?}, sound {sources:?}",
+                        video.fps
+                    );
+                    hold_keys(app, true, seg.sound.iter().any(|c| c.microphone));
                     // Said before it can be stopped, so "stopped" always comes after.
                     let _ = RecordingChanged {
                         recording: true,
@@ -415,12 +538,19 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<(), String> {
                     }
                     .emit_to(app, LABEL);
                     *NOW.lock().unwrap() = Some(Running {
+                        seg: Some(seg),
+                        parts: Vec::new(),
+                        base,
+                        target: target.clone(),
+                        encoder,
+                        sources,
+                        video,
                         file,
                         add,
                         warning,
-                        ..running
+                        muted: false,
                     });
-                    return Ok(());
+                    return Ok(true);
                 }
                 // The microphone chosen isn't there: the default one; a source not there at all:
                 // recorded without it, and it's said when done.
@@ -443,12 +573,12 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<(), String> {
                 Err(Failed::Ffmpeg(e)) => {
                     logln!("[recording] {encoder:?} didn't start: {e}");
                     why = e;
+                    let _ = std::fs::remove_file(&part);
                     break;
                 }
             }
         }
     }
-    let _ = std::fs::remove_file(&part);
     Err(why)
 }
 
@@ -465,8 +595,22 @@ fn file_name(dir: &std::path::Path) -> String {
     name
 }
 
-/// ffmpeg recording `target` with `encoder` to `part`, with sound from `source` if any, once
-/// it's running; its error if it stopped at once.
+/// The video's filters: the capture (`target`, the pointer or not, at most `fps`), stamped by
+/// the wall clock from `clock` when there's sound, made a steady `fps` from 0, and converted for
+/// the encoder (`pixels`).
+fn video_source(target: &Target, video: Video, stamp: Option<i64>, pixels: &str) -> String {
+    let stamp = stamp.map_or(String::new(), |us| {
+        format!("setpts=(RTCTIME-{us})/1000000/TB,")
+    });
+    let (fps, cursor) = (video.fps, u8::from(video.cursor));
+    format!(
+        "gfxcapture={}:max_framerate={fps}:capture_cursor={cursor},{stamp}hwdownload,format=bgra,fps={fps}:start_time=0,scale=out_color_matrix=bt709:out_range=tv,format={pixels}",
+        target.source()
+    )
+}
+
+/// ffmpeg recording `target` with `encoder` to `part`, with sound from `sources`, once it's
+/// running; why if it stopped at once.
 ///
 /// With sound, both are on one clock (audio.rs): the frames are stamped by the wall clock as
 /// they come, from the moment the sound starts, and the timestamps are kept as they are
@@ -476,7 +620,8 @@ fn spawn(
     encoder: Encoder,
     part: &PathBuf,
     sources: &[audio::Source],
-) -> Result<Running, Failed> {
+    video: Video,
+) -> Result<Segment, Failed> {
     let (w, h) = target.size();
     let clock = Clock::now();
     let mut sound = Vec::new();
@@ -489,18 +634,19 @@ fn spawn(
             }
         }
     }
-    let stamp = if !sound.is_empty() {
-        format!("setpts=(RTCTIME-{})/1000000/TB,", clock.unix_us)
-    } else {
-        String::new()
-    };
+    let stamp = (!sound.is_empty()).then_some(clock.unix_us);
     let mut cmd = sidecar::command(Tool::Ffmpeg).map_err(Failed::Ffmpeg)?;
-    cmd.args(["-hide_banner", "-nostats", "-loglevel", "error", "-y", "-f", "lavfi", "-i"])
-        .arg(format!(
-            "gfxcapture={}:max_framerate={FPS}:capture_cursor=1,{stamp}hwdownload,format=bgra,fps={FPS}:start_time=0,scale=out_color_matrix=bt709:out_range=tv,format={}",
-            target.source(),
-            encoder.pixels()
-        ));
+    cmd.args([
+        "-hide_banner",
+        "-nostats",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+    ])
+    .arg(video_source(target, video, stamp, encoder.pixels()));
     let inputs: Vec<SoundInput> = sound
         .iter()
         .map(|s| {
@@ -509,7 +655,7 @@ fn spawn(
         })
         .collect();
     cmd.args(sound_args(&inputs));
-    cmd.args(encoder.args(bitrate(w, h, f64::from(FPS))))
+    cmd.args(encoder.args(bitrate(w, h, f64::from(video.fps))))
         .args([
             "-colorspace",
             "bt709",
@@ -563,111 +709,245 @@ fn spawn(
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    Ok(Running {
+    Ok(Segment {
         child,
         stdin,
         part: part.clone(),
-        file: PathBuf::new(),
-        add: false,
         log,
         sound,
-        warning: None,
     })
 }
 
-/// Waits for a recording to end on its own (ffmpeg failing: a monitor unplugged), and ends it.
-fn watch(app: AppHandle) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_millis(500));
-        let mut now = NOW.lock().unwrap();
-        let Some(r) = now.as_mut() else {
-            return;
-        };
-        if let Ok(Some(_)) = r.child.try_wait() {
-            let r = now.take().unwrap();
-            drop(now);
-            finish(&app, r, true);
-            return;
-        }
-    });
-}
-
-/// Stops the recording (the control's Stop, or the editor's): its file finished and opened.
-pub fn stop(app: &AppHandle) {
-    let r = {
-        let starting = STARTING.lock().unwrap();
-        let r = NOW.lock().unwrap().take();
-        if r.is_none() && *starting {
-            *STOP_ASKED.lock().unwrap() = true;
-        }
-        r
-    };
-    let Some(r) = r else {
-        return;
-    };
-    let app = app.clone();
-    std::thread::spawn(move || finish(&app, r, false));
-}
-
-/// Ends recording `r`: asks ffmpeg to finish (unless it already has, `ended`), then opens the
-/// file, or says why there isn't one.
-fn finish(app: &AppHandle, mut r: Running, ended: bool) {
-    close_control(app);
-    hold_mute_key(app, false);
-    // The sound first: its pipe closing ends ffmpeg's sound, then `q` its video.
-    std::mem::take(&mut r.sound)
-        .into_iter()
-        .for_each(Capture::stop);
+/// Ends segment `seg`: its sound first (its pipe closing ends ffmpeg's sound), then `q` its
+/// video, unless ffmpeg already stopped (`ended`). Its file if whole; else gone.
+fn end_segment(mut seg: Segment, ended: bool) -> Option<PathBuf> {
+    seg.sound.into_iter().for_each(Capture::stop);
     if !ended {
-        let _ = r.stdin.write_all(b"q\n");
-        let _ = r.stdin.flush();
+        let _ = seg.stdin.write_all(b"q\n");
+        let _ = seg.stdin.flush();
     }
     let t0 = Instant::now();
     let status = loop {
-        match r.child.try_wait() {
+        match seg.child.try_wait() {
             Ok(Some(s)) => break Some(s),
             Ok(None) if t0.elapsed() < FINISHING => std::thread::sleep(Duration::from_millis(50)),
             _ => {
-                let _ = r.child.kill();
+                let _ = seg.child.kill();
                 break None;
             }
         }
     };
-    show_editor(app);
     let whole = status.is_some_and(|s| s.success())
-        && std::fs::metadata(&r.part).is_ok_and(|m| m.len() > 0)
-        && std::fs::rename(&r.part, &r.file).is_ok();
+        && std::fs::metadata(&seg.part).is_ok_and(|m| m.len() > 0);
     if whole {
-        logln!("[recording] done");
-        let _ = RecordingChanged {
-            recording: false,
-            message: r.warning.take(),
+        return Some(seg.part);
+    }
+    let said = seg.log.lock().unwrap().last().cloned().unwrap_or_default();
+    logln!("[recording] a segment failed ({status:?}): {said}");
+    let _ = std::fs::remove_file(&seg.part);
+    None
+}
+
+/// Waits for a recording to end on its own (ffmpeg failing: a monitor unplugged), and ends it,
+/// keeping what was recorded.
+fn watch(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(500));
+        // Not while a pause, resume or stop is under way: it has the segment.
+        let Ok(_switch) = SWITCH.try_lock() else {
+            continue;
+        };
+        let mut now = NOW.lock().unwrap();
+        let Some(r) = now.as_mut() else {
+            return;
+        };
+        if let Some(seg) = r.seg.as_mut() {
+            if let Ok(Some(_)) = seg.child.try_wait() {
+                let r = now.take().unwrap();
+                drop(now);
+                finish(&app, r, true);
+                return;
+            }
         }
-        .emit_to(app, LABEL);
-        crate::editor::request_open(app, r.file, r.add);
-        return;
+    });
+}
+
+/// Pauses the recording, or resumes it (the control's Pause, or [`PAUSE_KEY`]): the segment
+/// ends, and a new one starts on resuming. Says so to the control.
+pub fn pause(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let _switch = SWITCH.lock().unwrap();
+        let mut now = NOW.lock().unwrap();
+        let Some(r) = now.as_mut() else {
+            return;
+        };
+        if let Some(seg) = r.seg.take() {
+            drop(now);
+            let part = end_segment(seg, false);
+            if let Some(r) = NOW.lock().unwrap().as_mut() {
+                r.parts.extend(part);
+            }
+            logln!("[recording] paused");
+            let _ = RecordingPaused(true).emit_to(&app, RECORDER);
+            return;
+        }
+        // Resuming: a new segment, as the first was made.
+        let part = segment_path(&r.base, r.parts.len() + 1);
+        let (target, encoder, sources, video, muted) = (
+            r.target.clone(),
+            r.encoder,
+            r.sources.clone(),
+            r.video,
+            r.muted,
+        );
+        drop(now);
+        match spawn(&target, encoder, &part, &sources, video) {
+            Ok(seg) => {
+                if let Some(mic) = seg.sound.iter().find(|c| c.microphone) {
+                    mic.set_muted(muted);
+                }
+                if let Some(r) = NOW.lock().unwrap().as_mut() {
+                    r.seg = Some(seg);
+                }
+                logln!("[recording] resumed");
+                let _ = RecordingPaused(false).emit_to(&app, RECORDER);
+            }
+            Err(Failed::Sound(_, e) | Failed::Ffmpeg(e)) => {
+                logln!("[recording] couldn't resume: {e}");
+                let _ = std::fs::remove_file(&part);
+                let _ = RecordingPaused(true).emit_to(&app, RECORDER);
+            }
+        }
+    });
+}
+
+/// Stops the recording (the control's Stop, [`STOP_KEY`], or the editor's): its file finished and
+/// opened. While it starts, it's remembered (in the countdown, it cancels).
+pub fn stop(app: &AppHandle) {
+    {
+        let starting = STARTING.lock().unwrap();
+        if NOW.lock().unwrap().is_none() {
+            if *starting {
+                *STOP_ASKED.lock().unwrap() = true;
+            }
+            return;
+        }
     }
-    let said = r.log.lock().unwrap().last().cloned().unwrap_or_default();
-    logln!("[recording] failed ({status:?}): {said}");
-    let _ = std::fs::remove_file(&r.part);
-    let _ = RecordingChanged {
-        recording: false,
-        message: Some(if ended {
-            "The recording stopped on its own, and couldn't be kept.".into()
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let _switch = SWITCH.lock().unwrap();
+        let Some(r) = NOW.lock().unwrap().take() else {
+            return;
+        };
+        finish(&app, r, false);
+    });
+}
+
+/// Ends recording `r`: its segment finished (unless ffmpeg already stopped, `ended`), the
+/// segments joined into its file, opened; or says why there isn't one.
+fn finish(app: &AppHandle, mut r: Running, ended: bool) {
+    close_control(app);
+    hold_keys(app, false, false);
+    if let Some(seg) = r.seg.take() {
+        let part = end_segment(seg, ended);
+        if ended && part.is_some() && !r.parts.is_empty() {
+            r.warning = Some("The recording stopped on its own: what was recorded is kept.".into());
+        }
+        r.parts.extend(part);
+    }
+    show_editor(app);
+    let joined = match r.parts.len() {
+        0 => Err(if ended {
+            "The recording stopped on its own, and couldn't be kept.".to_string()
         } else {
-            "The recording couldn't be finished.".into()
+            "The recording couldn't be finished.".to_string()
         }),
+        1 => std::fs::rename(&r.parts[0], &r.file).map_err(|e| e.to_string()),
+        _ => join(&r.parts, &r.base, &r.file),
+    };
+    match joined {
+        Ok(()) => {
+            logln!("[recording] done ({} segments)", r.parts.len().max(1));
+            for p in &r.parts {
+                let _ = std::fs::remove_file(p);
+            }
+            let _ = RecordingChanged {
+                recording: false,
+                message: r.warning.take(),
+            }
+            .emit_to(app, LABEL);
+            crate::editor::request_open(app, r.file, r.add);
+        }
+        Err(message) => {
+            logln!("[recording] failed: {message}");
+            let _ = RecordingChanged {
+                recording: false,
+                message: Some(message),
+            }
+            .emit_to(app, LABEL);
+        }
     }
-    .emit_to(app, LABEL);
+}
+
+/// The concat demuxer's list of `parts`, in order (forward slashes; quotes escaped as it asks).
+fn concat_list(parts: &[PathBuf]) -> String {
+    parts
+        .iter()
+        .map(|p| {
+            let path = p
+                .to_string_lossy()
+                .replace('\\', "/")
+                .replace('\'', r"'\''");
+            format!("file '{path}'\n")
+        })
+        .collect()
+}
+
+/// Joins the segments into `file`, as they are (the same encoder and settings: no re-encoding).
+/// The segments are kept if it fails, so nothing's lost.
+fn join(parts: &[PathBuf], base: &std::path::Path, file: &PathBuf) -> Result<(), String> {
+    let mut list = base.as_os_str().to_owned();
+    list.push(".parts.txt");
+    let list = PathBuf::from(list);
+    std::fs::write(&list, concat_list(parts)).map_err(|e| e.to_string())?;
+    let mut cmd = sidecar::command(Tool::Ffmpeg)?;
+    cmd.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+    ])
+    .arg(&list)
+    .args(["-c", "copy", "-movflags", "+faststart", "-f", "mp4"])
+    .arg(file);
+    let out = cmd.output().map_err(|e| e.to_string());
+    let _ = std::fs::remove_file(&list);
+    match out {
+        Ok(o) if o.status.success() => Ok(()),
+        Ok(o) => Err(format!(
+            "The recording's {} parts couldn't be joined (they're kept in the recordings folder): {}",
+            parts.len(),
+            String::from_utf8_lossy(&o.stderr).trim()
+        )),
+        Err(e) => Err(e),
+    }
 }
 
 /// The control: a small window at the top of `screen`, over everything, not in the taskbar, and
 /// left out of the recording.
-fn open_control(app: &AppHandle, screen: &Screen, mic: bool) {
+fn open_control(app: &AppHandle, screen: &Screen, mic: bool, countdown: u32) {
     let width = CONTROL.0 + if mic { CONTROL_MIC } else { 0.0 };
     let builder = WebviewWindowBuilder::new(app, RECORDER, WebviewUrl::App("recorder.html".into()))
-        // The microphone's mute button, when it's recorded.
-        .initialization_script(format!("window.recordingMic = {mic};"));
+        // The microphone's mute button, when it's recorded; the countdown it shows first.
+        .initialization_script(format!(
+            "window.recordingMic = {mic}; window.recordingCountdown = {countdown};"
+        ));
     let built = crate::appearance::themed(app, builder)
         .title("Recording")
         .inner_size(width, CONTROL.1)
@@ -744,6 +1024,48 @@ fn open_outline(
     }
 }
 
+/// The countdown: big numbers over what's to be recorded, on all of its monitor, never taking
+/// the keys (the window picked stays active) or the pointer, and left out of the recording.
+fn open_countdown(app: &AppHandle, target: &Target, seconds: u32) {
+    let s = &target.screen;
+    let (x, y, w, h) = target.on_screen();
+    let built = WebviewWindowBuilder::new(
+        app,
+        COUNTDOWN_LABEL,
+        WebviewUrl::App("countdown.html".into()),
+    )
+    .initialization_script(format!(
+        "window.countdown = {{ seconds: {seconds}, x: {x}, y: {y}, width: {w}, height: {h} }};"
+    ))
+    .title("Countdown")
+    .decorations(false)
+    .resizable(false)
+    .shadow(false)
+    .transparent(true)
+    .background_color(tauri::webview::Color(0, 0, 0, 0))
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .visible(false)
+    .build();
+    match built {
+        Ok(window) => {
+            exclude_from_capture(&window);
+            let _ = window.set_ignore_cursor_events(true);
+            let _ = window.set_position(tauri::PhysicalPosition::new(s.x, s.y));
+            let _ = window.set_size(tauri::PhysicalSize::new(s.width, s.height));
+            let _ = window.show();
+        }
+        Err(e) => logln!("[recording] the countdown failed: {e}"),
+    }
+}
+
+fn close_countdown(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window(COUNTDOWN_LABEL) {
+        let _ = w.destroy();
+    }
+}
+
 /// Leaves `window` out of screen captures (Windows 10 2004 and later; earlier, it shows black).
 fn exclude_from_capture(window: &tauri::WebviewWindow) {
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -759,9 +1081,9 @@ fn exclude_from_capture(window: &tauri::WebviewWindow) {
     }
 }
 
-/// The control and the outline go.
+/// The control, the outline and the countdown go.
 fn close_control(app: &AppHandle) {
-    for label in [RECORDER, OUTLINE_LABEL] {
+    for label in [RECORDER, OUTLINE_LABEL, COUNTDOWN_LABEL] {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.destroy();
         }
@@ -820,11 +1142,62 @@ mod tests {
 
     #[test]
     fn a_window_is_recorded_by_its_handle_its_sides_even() {
-        let t = Target::window(screen(), 0x1234, 1001, 7);
+        let t = Target::window(screen(), 0x1234, (-1800, 40, 1001, 7));
         assert_eq!(t.size(), (1000, 16));
+        // Its place on the monitor at -1920: the countdown's.
+        assert_eq!(t.on_screen(), (120, 40, 1001, 16));
         assert_eq!(
             t.source(),
             "hwnd=4660:width=-2:height=-2:resize_mode=scale_aspect"
+        );
+    }
+
+    #[test]
+    fn the_countdown_goes_over_the_area_or_the_whole_screen() {
+        let t = Target::of(screen(), Some((100, 50, 800, 600)));
+        assert_eq!(t.on_screen(), (100, 50, 800, 600));
+        assert_eq!(Target::of(screen(), None).on_screen(), (0, 0, 1920, 1080));
+    }
+
+    #[test]
+    fn the_video_takes_the_rate_and_the_pointer_asked_for() {
+        let t = Target::of(screen(), None);
+        let v = video_source(
+            &t,
+            Video {
+                fps: 30,
+                cursor: false,
+            },
+            None,
+            "nv12",
+        );
+        assert!(v.contains(":max_framerate=30:capture_cursor=0,hwdownload"));
+        assert!(v.contains("fps=30:start_time=0") && v.ends_with("format=nv12"));
+        let v = video_source(
+            &t,
+            Video {
+                fps: 60,
+                cursor: true,
+            },
+            Some(1234),
+            "nv12",
+        );
+        assert!(v.contains(":capture_cursor=1,setpts=(RTCTIME-1234)/1000000/TB,hwdownload"));
+    }
+
+    #[test]
+    fn the_segments_are_listed_for_joining() {
+        let parts = [
+            PathBuf::from(r"C:\Rec\Recording 1.0.part"),
+            PathBuf::from(r"C:\Rec\Bob's.1.part"),
+        ];
+        assert_eq!(
+            concat_list(&parts),
+            "file 'C:/Rec/Recording 1.0.part'\nfile 'C:/Rec/Bob'\\''s.1.part'\n"
+        );
+        assert_eq!(
+            segment_path(std::path::Path::new(r"C:\Rec\Recording"), 2),
+            PathBuf::from(r"C:\Rec\Recording.2.part")
         );
     }
 

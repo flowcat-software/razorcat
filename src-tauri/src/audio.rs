@@ -232,15 +232,9 @@ impl Capture {
         })
     }
 
-    /// As last asked.
-    pub fn muted(&self) -> bool {
-        self.mutes.lock().unwrap().asked
-    }
-
     /// From now on the clock.
     pub fn set_muted(&self, muted: bool) {
         let mut m = self.mutes.lock().unwrap();
-        m.asked = muted;
         m.presses.push_back((qpc_now(), muted));
     }
 
@@ -450,8 +444,6 @@ unsafe fn format_of(mix: *const WAVEFORMATEX) -> Result<Format, String> {
 /// sound taken so far.
 #[derive(Debug, Default)]
 struct Mutes {
-    /// As last asked (what the control shows).
-    asked: bool,
     /// For the sound taken so far.
     now: bool,
     presses: VecDeque<(i64, bool)>,

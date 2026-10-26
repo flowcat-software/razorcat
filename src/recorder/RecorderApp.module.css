@@ -32,6 +32,12 @@
   animation: pulse 1.6s ease-in-out infinite;
 }
 
+/* Paused, or not started: the dot holds still, dimmed. */
+.still {
+  animation: none;
+  opacity: 0.4;
+}
+
 @keyframes pulse {
   50% {
     opacity: 0.35;
@@ -69,7 +75,11 @@
   color: inherit;
 }
 
-.mic:hover {
+.mic:disabled {
+  opacity: 0.45;
+}
+
+.mic:hover:not(:disabled) {
   background: rgb(127 127 127 / 0.26);
 }
 

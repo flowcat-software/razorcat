@@ -732,6 +732,46 @@ export const sections: Section[] = [
         ],
       },
       {
+        title: "Video",
+        items: [
+          {
+            id: "recordingCursor",
+            kind: "toggle",
+            path: "recording.cursor",
+            label: "Show the pointer",
+            description: "The mouse pointer is in the recording.",
+            keywords: ["pointer", "cursor", "mouse", "arrow", "hide"],
+          },
+          {
+            id: "recordingFps",
+            kind: "numberChoice",
+            path: "recording.fps",
+            label: "Frame rate",
+            description: "60 is smoother for scrolling and moving windows; 30 makes smaller files.",
+            options: [
+              { value: 30, label: "30 fps" },
+              { value: 60, label: "60 fps" },
+            ],
+            keywords: ["fps", "frame rate", "frames", "smooth", "size"],
+          },
+          {
+            id: "recordingCountdown",
+            kind: "numberChoice",
+            path: "recording.countdown",
+            label: "Countdown",
+            description:
+              "Seconds counted down before recording starts, over what's to be recorded. Stop cancels it.",
+            options: [
+              { value: 0, label: "Off" },
+              { value: 3, label: "3 s" },
+              { value: 5, label: "5 s" },
+              { value: 10, label: "10 s" },
+            ],
+            keywords: ["countdown", "delay", "timer", "wait", "start"],
+          },
+        ],
+      },
+      {
         title: "Sound",
         items: [
           {

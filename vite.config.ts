@@ -20,6 +20,7 @@ export default defineConfig(() => ({
         recorder: page("recorder"),
         picker: page("picker"),
         outline: page("outline"),
+        countdown: page("countdown"),
       },
     },
   },

@@ -308,6 +308,13 @@ pub fn set_record_sound(
     settings::update(&app, s).map(drop)
 }
 
+/// The control's Pause: pauses the recording, or resumes it.
+#[tauri::command]
+#[specta::specta]
+pub fn pause_recording(app: AppHandle) {
+    crate::recording::pause(&app);
+}
+
 /// The control's microphone button: muted or not.
 #[tauri::command]
 #[specta::specta]

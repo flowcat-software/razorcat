@@ -136,6 +136,8 @@ export const commands = {
 	setRecordSound: (microphone: boolean | null, system: boolean | null) => typedError<null, string>(__TAURI_INVOKE("set_record_sound", { microphone, system })),
 	/**  The control's microphone button: muted or not. */
 	muteRecording: (muted: boolean) => __TAURI_INVOKE<void>("mute_recording", { muted }),
+	/**  The control's Pause: pauses the recording, or resumes it. */
+	pauseRecording: () => __TAURI_INVOKE<void>("pause_recording"),
 	/**  The microphones connected now, and which is the default (Settings › Recording). */
 	microphones: () => __TAURI_INVOKE<Microphones>("microphones"),
 	/**  Window mode on or off, and the window under the pointer, on one overlay: all follow. */
@@ -207,6 +209,7 @@ export const events = {
 	proxyReady: makeEvent<ProxyReady>("proxy-ready"),
 	proxyStopped: makeEvent<ProxyStopped>("proxy-stopped"),
 	recordingChanged: makeEvent<RecordingChanged>("recording-changed"),
+	recordingPaused: makeEvent<RecordingPaused>("recording-paused"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	sourceAdded: makeEvent<SourceAdded>("source-added"),
 	sourceConverted: makeEvent<SourceConverted>("source-converted"),
@@ -694,6 +697,12 @@ export type Recording = {
 	microphoneDevice?: string,
 	/**  What the computer plays is recorded too, mixed with the microphone (PLAN 5b.4c). */
 	systemSound?: boolean,
+	/**  The pointer is in the recording (PLAN 5b.5a). */
+	cursor?: boolean,
+	/**  Frames per second, one of [`RECORD_RATES`]. */
+	fps?: number,
+	/**  Seconds counted down before recording starts, one of [`COUNTDOWNS`] (0: none; 5b.5b). */
+	countdown?: number,
 };
 
 /**
@@ -704,6 +713,9 @@ export type RecordingChanged = {
 	recording: boolean,
 	message: string | null,
 };
+
+/**  Rust → the control: the recording paused or going again (its button or [`PAUSE_KEY`]). */
+export type RecordingPaused = boolean;
 
 /**  How a redaction hides what's under it (Razorcat has no Solid: a filled rectangle does that). */
 export type RedactMode = "pixelate" | "blur";

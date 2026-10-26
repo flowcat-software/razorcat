@@ -1,0 +1,53 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* What's to be recorded: the number in its middle. */
+.place {
+  position: absolute;
+  display: grid;
+  place-items: center;
+}
+
+.number {
+  display: grid;
+  place-items: center;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: rgb(18 18 20 / 0.72);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.1),
+    0 12px 40px rgb(0 0 0 / 0.4);
+  color: #fff;
+  font:
+    600 72px "Segoe UI Variable Display",
+    "Segoe UI",
+    system-ui;
+  font-variant-numeric: tabular-nums;
+}
+
+.pop {
+  animation: pop 1s ease-out;
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+  15% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
+}

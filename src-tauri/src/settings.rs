@@ -95,7 +95,18 @@ pub struct Recording {
     pub microphone_device: String,
     /// What the computer plays is recorded too, mixed with the microphone (PLAN 5b.4c).
     pub system_sound: bool,
+    /// The pointer is in the recording (PLAN 5b.5a).
+    pub cursor: bool,
+    /// Frames per second, one of [`RECORD_RATES`].
+    pub fps: u32,
+    /// Seconds counted down before recording starts, one of [`COUNTDOWNS`] (0: none; 5b.5b).
+    pub countdown: u32,
 }
+
+/// The frame rates a recording can have.
+pub const RECORD_RATES: [u32; 2] = [30, 60];
+/// The countdowns a recording can start with (s).
+pub const COUNTDOWNS: [u32; 4] = [0, 3, 5, 10];
 
 /// How dark the dimming can be, either way.
 pub const DIM_RANGE: std::ops::RangeInclusive<f64> = 0.05..=0.9;
@@ -111,6 +122,9 @@ impl Default for Recording {
             microphone: true,
             microphone_device: String::new(),
             system_sound: false,
+            cursor: true,
+            fps: 60,
+            countdown: 3,
         }
     }
 }
@@ -545,6 +559,12 @@ pub fn validate(mut s: Settings) -> Result<Settings, String> {
     s.styles = s.styles.normalized();
     s.recording.corner_color = normalize_color(&s.recording.corner_color)
         .unwrap_or_else(|| Recording::default().corner_color);
+    if !RECORD_RATES.contains(&s.recording.fps) {
+        s.recording.fps = Recording::default().fps;
+    }
+    if !COUNTDOWNS.contains(&s.recording.countdown) {
+        s.recording.countdown = Recording::default().countdown;
+    }
     s.recording.dim_opacity = if s.recording.dim_opacity.is_finite() {
         s.recording
             .dim_opacity
@@ -773,6 +793,19 @@ mod tests {
         let (loaded, changed) = migrate(Some(serde_json::to_value(&s).unwrap()));
         assert_eq!(loaded, s);
         assert!(!changed);
+    }
+
+    #[test]
+    fn recording_rates_and_countdowns_are_ones_offered() {
+        let mut s = Settings::default();
+        s.recording.fps = 24;
+        s.recording.countdown = 7;
+        let v = validate(s.clone()).unwrap();
+        assert_eq!((v.recording.fps, v.recording.countdown), (60, 3));
+        s.recording.fps = 30;
+        s.recording.countdown = 0;
+        let v = validate(s).unwrap();
+        assert_eq!((v.recording.fps, v.recording.countdown), (30, 0));
     }
 
     #[test]

@@ -273,8 +273,7 @@ pub fn picked_window(app: &AppHandle, index: u32) -> Result<(), String> {
     let target = Target::window(
         screen,
         window.hwnd as u64,
-        r.width.max(0) as u32,
-        r.height.max(0) as u32,
+        (r.x, r.y, r.width.max(0) as u32, r.height.max(0) as u32),
     );
     crate::recording::start(app, p.add, target)
 }
