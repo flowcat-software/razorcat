@@ -24,6 +24,7 @@ use tauri_specta::Event;
 use crate::audio::{self, Capture, Clock};
 use crate::editor::LABEL;
 use crate::export::{bitrate, encoders, Encoder};
+use crate::input::{self, Press};
 use crate::sidecar::{self, Tool};
 use crate::state::AppState;
 
@@ -34,9 +35,9 @@ pub const RECORDER: &str = "recorder";
 const OUTLINE_LABEL: &str = "recording-outline";
 /// The countdown's window (countdown.html).
 const COUNTDOWN_LABEL: &str = "recording-countdown";
-/// The control's size (logical px) and its gap from the monitor's top: the dot, the time, Pause
-/// and Stop.
-const CONTROL: (f64, f64) = (232.0, 44.0);
+/// The control's size (logical px) and its gap from the monitor's top: the dot, the time, clicks,
+/// keys, Pause and Stop.
+const CONTROL: (f64, f64) = (304.0, 44.0);
 /// What the microphone's mute button adds to it (a button and a gap).
 const CONTROL_MIC: f64 = 36.0;
 /// While recording, wherever the keys are: mute and unmute the microphone (PLAN 5b.4d), pause
@@ -44,6 +45,9 @@ const CONTROL_MIC: f64 = 36.0;
 const MUTE_KEY: &str = "Ctrl+Alt+M";
 const PAUSE_KEY: &str = "Ctrl+Alt+P";
 const STOP_KEY: &str = "Ctrl+Alt+S";
+/// Clicks and keys noted or not, while recording (PLAN 5b.6).
+const CLICKS_KEY: &str = "Ctrl+Alt+C";
+const KEYS_KEY: &str = "Ctrl+Alt+K";
 const CONTROL_TOP: f64 = 8.0;
 /// How long ffmpeg must keep running for an encoder to count as working.
 const STARTED: Duration = Duration::from_millis(1500);
@@ -64,8 +68,16 @@ pub struct RecordingChanged {
 struct Running {
     /// The segment being recorded; None while paused.
     seg: Option<Segment>,
-    /// The segments done and whole, in order.
+    /// The segments done and whole, in order, and each one's start and end on the clock (100 ns):
+    /// where a press falls in the joined recording.
     parts: Vec<PathBuf>,
+    spans: Vec<(i64, i64)>,
+    /// Clicks and keys being noted (PLAN 5b.6), once either is on.
+    input: Option<input::Watch>,
+    /// Which are on, and the keys' mode when they're turned on.
+    clicks: bool,
+    keys: bool,
+    key_mode: input::KeyMode,
     /// Where the segments go: `{base}.{n}.part`.
     base: PathBuf,
     target: Target,
@@ -83,6 +95,8 @@ struct Running {
 
 /// One stretch of recording: ffmpeg into `part`, with its sound.
 struct Segment {
+    /// When it started (its video and sound count from here).
+    clock: Clock,
     child: Child,
     stdin: ChildStdin,
     part: PathBuf,
@@ -143,11 +157,167 @@ pub struct MicMuted(pub bool);
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct RecordingPaused(pub bool);
 
+/// Rust → the control: clicks and keys noted or not.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct InputNoted {
+    pub clicks: bool,
+    pub keys: bool,
+}
+
+/// Clicks and keys noted or not (the control's buttons, or [`CLICKS_KEY`] and [`KEYS_KEY`]):
+/// each `Some(Some(on))` as given, `Some(None)` the other way, `None` as it is. The hooks start
+/// when either is first on. Says so to the control.
+pub fn note(app: &AppHandle, clicks: Option<Option<bool>>, keys: Option<Option<bool>>) {
+    let mut now = NOW.lock().unwrap();
+    let Some(r) = now.as_mut() else {
+        drop(now);
+        let mut early = EARLY.lock().unwrap();
+        match early.as_mut() {
+            Some(e) => {
+                if let Some(on) = clicks {
+                    e.clicks = on.unwrap_or(!e.clicks);
+                }
+                if let Some(on) = keys {
+                    e.keys = on.unwrap_or(!e.keys);
+                }
+                let _ = InputNoted {
+                    clicks: e.clicks,
+                    keys: e.keys,
+                }
+                .emit_to(app, RECORDER);
+            }
+            // It got going meanwhile: to the recording.
+            None if NOW.lock().unwrap().is_some() => {
+                drop(early);
+                note(app, clicks, keys);
+            }
+            None => {}
+        }
+        return;
+    };
+    if let Some(on) = clicks {
+        r.clicks = on.unwrap_or(!r.clicks);
+    }
+    if let Some(on) = keys {
+        r.keys = on.unwrap_or(!r.keys);
+    }
+    if r.input.is_none() && (r.clicks || r.keys) {
+        let window = r.target.window.map(|w| w.0 as isize);
+        match input::Watch::start(false, r.key_mode, window) {
+            Ok(w) => r.input = Some(w),
+            Err(e) => {
+                logln!("[recording] clicks and keys: {e}");
+                r.clicks = false;
+                r.keys = false;
+            }
+        }
+    }
+    if let Some(w) = &r.input {
+        w.set_clicks(r.clicks);
+        w.set_keys(r.keys);
+    }
+    let shown = InputNoted {
+        clicks: r.clicks,
+        keys: r.keys,
+    };
+    drop(now);
+    logln!("[recording] clicks {}, keys {}", shown.clicks, shown.keys);
+    let _ = shown.emit_to(app, RECORDER);
+}
+
+/// A click where it lands on the recorded picture, and when (s).
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+pub struct RecordedClick {
+    pub time: f64,
+    pub x: f64,
+    pub y: f64,
+    pub button: input::Button,
+    pub double: bool,
+}
+
+/// Keys pressed together, and when (s).
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+pub struct RecordedKeys {
+    pub time: f64,
+    pub keys: Vec<String>,
+}
+
+/// The clicks and keys of a recording, on its picture and its time.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+pub struct RecordedInput {
+    pub clicks: Vec<RecordedClick>,
+    pub keys: Vec<RecordedKeys>,
+}
+
+/// Where `qpc` (100 ns) falls in the joined recording (s), given its segments' spans in order;
+/// None in a pause.
+fn recording_time(spans: &[(i64, i64)], qpc: i64) -> Option<f64> {
+    let mut before = 0;
+    for &(a, b) in spans {
+        if (a..b).contains(&qpc) {
+            return Some((before + qpc - a) as f64 / 1e7);
+        }
+        before += b - a;
+    }
+    None
+}
+
+/// The presses on the recording: each on its time (dropped in a pause) and its picture (a
+/// click off it dropped).
+fn recorded(presses: Vec<Press>, spans: &[(i64, i64)], target: &Target) -> RecordedInput {
+    let mut out = RecordedInput::default();
+    for p in presses {
+        match p {
+            Press::Click {
+                qpc,
+                x,
+                y,
+                button,
+                double,
+                window,
+            } => {
+                let (Some(time), Some((x, y))) =
+                    (recording_time(spans, qpc), target.on_picture(x, y, window))
+                else {
+                    continue;
+                };
+                out.clicks.push(RecordedClick {
+                    time,
+                    x,
+                    y,
+                    button,
+                    double,
+                });
+            }
+            Press::Keys { qpc, keys } => {
+                if let Some(time) = recording_time(spans, qpc) {
+                    out.keys.push(RecordedKeys { time, keys });
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Mutes the microphone being recorded, or unmutes it (`muted` None: the other way). Says so to
 /// the control.
 pub fn mute(app: &AppHandle, muted: Option<bool>) {
     let mut now = NOW.lock().unwrap();
     let Some(r) = now.as_mut() else {
+        drop(now);
+        let mut early = EARLY.lock().unwrap();
+        match early.as_mut() {
+            Some(e) if e.mic => {
+                e.muted = muted.unwrap_or(!e.muted);
+                let _ = MicMuted(e.muted).emit_to(app, RECORDER);
+            }
+            // It got going meanwhile: to the recording.
+            None if NOW.lock().unwrap().is_some() => {
+                drop(early);
+                mute(app, muted);
+            }
+            _ => {}
+        }
         return;
     };
     if !r
@@ -182,15 +352,17 @@ fn hold_keys(app: &AppHandle, on: bool, mic: bool) {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
     let keys = app.global_shortcut();
     if !on {
-        for key in [MUTE_KEY, PAUSE_KEY, STOP_KEY] {
+        for key in [MUTE_KEY, PAUSE_KEY, STOP_KEY, CLICKS_KEY, KEYS_KEY] {
             let _ = keys.unregister(key);
         }
         return;
     }
-    let held: [(&str, KeyAction); 3] = [
+    let held: [(&str, KeyAction); 5] = [
         (MUTE_KEY, |app| mute(app, None)),
         (PAUSE_KEY, pause),
         (STOP_KEY, stop),
+        (CLICKS_KEY, |app| note(app, Some(None), None)),
+        (KEYS_KEY, |app| note(app, None, Some(None))),
     ];
     for (key, action) in held {
         if key == MUTE_KEY && !mic {
@@ -230,7 +402,7 @@ fn sound_args(inputs: &[SoundInput]) -> Vec<String> {
     }
     a.extend(["-copyts", "-map", "0:v"].map(String::from));
     match inputs.len() {
-        0 => return Vec::new(),
+        0 => return vec!["-copyts".into()],
         1 => a.extend(["-map", "1:a"].map(String::from)),
         n => {
             let each: String = (1..=n)
@@ -257,6 +429,18 @@ static STOP_ASKED: Mutex<bool> = Mutex::new(false);
 /// Held while a segment ends or starts (pause, resume, stop), so they happen one at a time: a
 /// Stop mid-pause waits for the paused segment's file to be whole.
 static SWITCH: Mutex<()> = Mutex::new(());
+
+/// The control's toggles before there's a recording to change (the countdown, and ffmpeg
+/// starting): kept here, and the recording starts as they say. Taken under this lock as the
+/// recording is made `NOW`, so a toggle lands in one or the other.
+#[derive(Debug, Clone, Copy)]
+struct Early {
+    mic: bool,
+    muted: bool,
+    clicks: bool,
+    keys: bool,
+}
+static EARLY: Mutex<Option<Early>> = Mutex::new(None);
 
 /// Where recordings go: Settings › Recording › Folder, else the default.
 fn folder(app: &AppHandle) -> PathBuf {
@@ -374,6 +558,39 @@ impl Target {
         }
     }
 
+    /// Screen point (`x`, `y`; virtual-desktop px) on the recorded picture (px), if it's on it. A
+    /// window's picture is its frame as it was when clicked (`window`), fitted to the size it
+    /// started at as `gfxcapture` fits it (`scale_aspect`).
+    fn on_picture(
+        &self,
+        x: i32,
+        y: i32,
+        window: Option<(i32, i32, i32, i32)>,
+    ) -> Option<(f64, f64)> {
+        let (w, h) = self.size();
+        let (w, h) = (f64::from(w), f64::from(h));
+        let s = &self.screen;
+        let (px, py) = match (self.window, window, self.area) {
+            (Some(_), Some((fx, fy, fw, fh)), _) => {
+                if fw <= 0 || fh <= 0 {
+                    return None;
+                }
+                let k = (w / f64::from(fw)).min(h / f64::from(fh));
+                (
+                    (w - f64::from(fw) * k) / 2.0 + f64::from(x - fx) * k,
+                    (h - f64::from(fh) * k) / 2.0 + f64::from(y - fy) * k,
+                )
+            }
+            (Some(_), None, _) => return None,
+            (None, _, Some((ax, ay, _, _))) => (
+                f64::from(x - s.x - ax as i32),
+                f64::from(y - s.y - ay as i32),
+            ),
+            (None, _, None) => (f64::from(x - s.x), f64::from(y - s.y)),
+        };
+        (px >= 0.0 && py >= 0.0 && px < w && py < h).then_some((px, py))
+    }
+
     /// Where it is on its monitor, in the monitor's physical pixels (the countdown's place): the
     /// area, the window (as picked), or all of it.
     fn on_screen(&self) -> (i32, i32, u32, u32) {
@@ -447,6 +664,7 @@ pub fn start(app: &AppHandle, add: bool, target: Target) -> Result<(), String> {
             }
             // Cancelled in the countdown: nothing recorded, nothing to say.
             Ok(false) => {
+                EARLY.lock().unwrap().take();
                 logln!("[recording] cancelled in the countdown");
                 close_control(&app);
                 show_editor(&app);
@@ -457,6 +675,7 @@ pub fn start(app: &AppHandle, add: bool, target: Target) -> Result<(), String> {
                 .emit_to(&app, LABEL);
             }
             Err(message) => {
+                EARLY.lock().unwrap().take();
                 logln!("[recording] couldn't start: {message}");
                 close_control(&app);
                 show_editor(&app);
@@ -501,7 +720,19 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
         .iter()
         .any(|s| matches!(s, audio::Source::Microphone(_)));
     let count = settings.countdown;
-    open_control(app, &target.screen, mic, count);
+    *EARLY.lock().unwrap() = Some(Early {
+        mic,
+        muted: false,
+        clicks: settings.clicks,
+        keys: settings.keys != input::KeyMode::Off,
+    });
+    open_control(
+        app,
+        &target.screen,
+        mic,
+        count,
+        (settings.clicks, settings.keys != input::KeyMode::Off),
+    );
     if count > 0 {
         open_countdown(app, target, count);
         let until = Instant::now() + Duration::from_secs(u64::from(count));
@@ -537,9 +768,25 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
                         message: None,
                     }
                     .emit_to(app, LABEL);
+                    // As the control was set before it got going.
+                    let mut early = EARLY.lock().unwrap();
+                    let set = early.take();
+                    let muted = set.is_some_and(|e| e.muted);
+                    if let Some(mic) = seg.sound.iter().find(|c| c.microphone) {
+                        mic.set_muted(muted);
+                    }
                     *NOW.lock().unwrap() = Some(Running {
                         seg: Some(seg),
                         parts: Vec::new(),
+                        spans: Vec::new(),
+                        input: None,
+                        clicks: false,
+                        keys: false,
+                        key_mode: if settings.keys == input::KeyMode::Off {
+                            input::KeyMode::Shortcuts
+                        } else {
+                            settings.keys
+                        },
                         base,
                         target: target.clone(),
                         encoder,
@@ -548,8 +795,12 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
                         file,
                         add,
                         warning,
-                        muted: false,
+                        muted,
                     });
+                    drop(early);
+                    if let Some(e) = set.filter(|e| e.clicks || e.keys) {
+                        note(app, Some(Some(e.clicks)), Some(Some(e.keys)));
+                    }
                     return Ok(true);
                 }
                 // The microphone chosen isn't there: the default one; a source not there at all:
@@ -634,7 +885,8 @@ fn spawn(
             }
         }
     }
-    let stamp = (!sound.is_empty()).then_some(clock.unix_us);
+    // Always on the clock, sound or not, so a press's time is the picture's (PLAN 5b.6).
+    let stamp = Some(clock.unix_us);
     let mut cmd = sidecar::command(Tool::Ffmpeg).map_err(Failed::Ffmpeg)?;
     cmd.args([
         "-hide_banner",
@@ -710,6 +962,7 @@ fn spawn(
         std::thread::sleep(Duration::from_millis(50));
     }
     Ok(Segment {
+        clock,
         child,
         stdin,
         part: part.clone(),
@@ -719,8 +972,10 @@ fn spawn(
 }
 
 /// Ends segment `seg`: its sound first (its pipe closing ends ffmpeg's sound), then `q` its
-/// video, unless ffmpeg already stopped (`ended`). Its file if whole; else gone.
-fn end_segment(mut seg: Segment, ended: bool) -> Option<PathBuf> {
+/// video, unless ffmpeg already stopped (`ended`). Its file if whole, and its span on the clock;
+/// else gone.
+fn end_segment(mut seg: Segment, ended: bool) -> Option<(PathBuf, (i64, i64))> {
+    let span = (seg.clock.qpc, audio::qpc_now());
     seg.sound.into_iter().for_each(Capture::stop);
     if !ended {
         let _ = seg.stdin.write_all(b"q\n");
@@ -740,7 +995,7 @@ fn end_segment(mut seg: Segment, ended: bool) -> Option<PathBuf> {
     let whole = status.is_some_and(|s| s.success())
         && std::fs::metadata(&seg.part).is_ok_and(|m| m.len() > 0);
     if whole {
-        return Some(seg.part);
+        return Some((seg.part, span));
     }
     let said = seg.log.lock().unwrap().last().cloned().unwrap_or_default();
     logln!("[recording] a segment failed ({status:?}): {said}");
@@ -784,9 +1039,10 @@ pub fn pause(app: &AppHandle) {
         };
         if let Some(seg) = r.seg.take() {
             drop(now);
-            let part = end_segment(seg, false);
-            if let Some(r) = NOW.lock().unwrap().as_mut() {
-                r.parts.extend(part);
+            let done = end_segment(seg, false);
+            if let (Some(r), Some((part, span))) = (NOW.lock().unwrap().as_mut(), done) {
+                r.parts.push(part);
+                r.spans.push(span);
             }
             logln!("[recording] paused");
             let _ = RecordingPaused(true).emit_to(&app, RECORDER);
@@ -850,11 +1106,25 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
     close_control(app);
     hold_keys(app, false, false);
     if let Some(seg) = r.seg.take() {
-        let part = end_segment(seg, ended);
-        if ended && part.is_some() && !r.parts.is_empty() {
+        let done = end_segment(seg, ended);
+        if ended && done.is_some() && !r.parts.is_empty() {
             r.warning = Some("The recording stopped on its own: what was recorded is kept.".into());
         }
-        r.parts.extend(part);
+        if let Some((part, span)) = done {
+            r.parts.push(part);
+            r.spans.push(span);
+        }
+    }
+    // The clicks and keys, on the recording (5b.6b-c make markup of them). Their keys never go
+    // in the log: how many, only.
+    let presses = r.input.take().map(input::Watch::stop).unwrap_or_default();
+    let noted = recorded(presses, &r.spans, &r.target);
+    if !noted.clicks.is_empty() || !noted.keys.is_empty() {
+        logln!(
+            "[recording] {} clicks, {} keys noted",
+            noted.clicks.len(),
+            noted.keys.len()
+        );
     }
     show_editor(app);
     let joined = match r.parts.len() {
@@ -941,12 +1211,20 @@ fn join(parts: &[PathBuf], base: &std::path::Path, file: &PathBuf) -> Result<(),
 
 /// The control: a small window at the top of `screen`, over everything, not in the taskbar, and
 /// left out of the recording.
-fn open_control(app: &AppHandle, screen: &Screen, mic: bool, countdown: u32) {
+fn open_control(
+    app: &AppHandle,
+    screen: &Screen,
+    mic: bool,
+    countdown: u32,
+    (clicks, keys): (bool, bool),
+) {
     let width = CONTROL.0 + if mic { CONTROL_MIC } else { 0.0 };
     let builder = WebviewWindowBuilder::new(app, RECORDER, WebviewUrl::App("recorder.html".into()))
-        // The microphone's mute button, when it's recorded; the countdown it shows first.
+        // The microphone's mute button, when it's recorded; the countdown it shows first; the
+        // clicks and keys noted at the start.
         .initialization_script(format!(
-            "window.recordingMic = {mic}; window.recordingCountdown = {countdown};"
+            "window.recordingMic = {mic}; window.recordingCountdown = {countdown}; \
+             window.recordingInput = {{ clicks: {clicks}, keys: {keys} }};"
         ));
     let built = crate::appearance::themed(app, builder)
         .title("Recording")
@@ -1153,6 +1431,70 @@ mod tests {
     }
 
     #[test]
+    fn a_press_falls_where_it_was_in_the_joined_recording() {
+        // Two segments: 0-2 s and, after a pause, 5-6 s on the clock.
+        let spans = [(0, 20_000_000), (50_000_000, 60_000_000)];
+        assert_eq!(recording_time(&spans, 10_000_000), Some(1.0));
+        assert_eq!(recording_time(&spans, 30_000_000), None);
+        assert_eq!(recording_time(&spans, 55_000_000), Some(2.5));
+        assert_eq!(recording_time(&spans, 60_000_000), None);
+    }
+
+    #[test]
+    fn a_click_lands_on_the_picture_or_is_dropped() {
+        // The screen at x -1920; an area at (100, 50), 800 × 600.
+        let area = Target::of(screen(), Some((100, 50, 800, 600)));
+        assert_eq!(area.on_picture(-1920 + 150, 60, None), Some((50.0, 10.0)));
+        assert_eq!(area.on_picture(-1920 + 99, 60, None), None);
+        let whole = Target::of(screen(), None);
+        assert_eq!(whole.on_picture(-1, 1079, None), Some((1919.0, 1079.0)));
+        // A window picked 1000 × 600, now 500 × 600: fitted, centred (k = 1).
+        let w = Target::window(screen(), 1, (0, 0, 1000, 600));
+        assert_eq!(
+            w.on_picture(260, 100, Some((250, 0, 500, 600))),
+            Some((260.0, 100.0))
+        );
+        // Twice as big now: halved.
+        assert_eq!(
+            w.on_picture(400, 200, Some((0, 0, 2000, 1200))),
+            Some((200.0, 100.0))
+        );
+        assert_eq!(w.on_picture(400, 200, None), None);
+    }
+
+    #[test]
+    fn presses_in_a_pause_or_off_the_picture_are_left_out() {
+        let t = Target::of(screen(), None);
+        let spans = [(0, 20_000_000)];
+        let presses = vec![
+            Press::Click {
+                qpc: 5_000_000,
+                x: -1900,
+                y: 20,
+                button: input::Button::Left,
+                double: false,
+                window: None,
+            },
+            Press::Click {
+                qpc: 5_000_000,
+                x: 100,
+                y: 20,
+                button: input::Button::Left,
+                double: false,
+                window: None,
+            },
+            Press::Keys {
+                qpc: 30_000_000,
+                keys: vec!["Ctrl".into(), "S".into()],
+            },
+        ];
+        let r = recorded(presses, &spans, &t);
+        assert_eq!(r.clicks.len(), 1);
+        assert_eq!((r.clicks[0].x, r.clicks[0].time), (20.0, 0.5));
+        assert!(r.keys.is_empty());
+    }
+
+    #[test]
     fn the_countdown_goes_over_the_area_or_the_whole_screen() {
         let t = Target::of(screen(), Some((100, 50, 800, 600)));
         assert_eq!(t.on_screen(), (100, 50, 800, 600));
@@ -1203,7 +1545,7 @@ mod tests {
 
     #[test]
     fn one_sound_is_mapped_and_two_are_mixed() {
-        assert!(sound_args(&[]).is_empty());
+        assert_eq!(sound_args(&[]), ["-copyts"]);
         let one = sound_args(&[("f32le", 48000, 2, "P1")]).join(" ");
         assert!(one.contains("-f f32le -ar 48000 -ac 2 -i P1"));
         assert!(one.contains("-copyts -map 0:v -map 1:a -c:a aac"));

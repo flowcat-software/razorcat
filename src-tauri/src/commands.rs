@@ -308,6 +308,13 @@ pub fn set_record_sound(
     settings::update(&app, s).map(drop)
 }
 
+/// The control's clicks and keys buttons: each noted or not (None: as it is).
+#[tauri::command]
+#[specta::specta]
+pub fn note_recording_input(app: AppHandle, clicks: Option<bool>, keys: Option<bool>) {
+    crate::recording::note(&app, clicks.map(Some), keys.map(Some));
+}
+
 /// The control's Pause: pauses the recording, or resumes it.
 #[tauri::command]
 #[specta::specta]

@@ -138,6 +138,8 @@ export const commands = {
 	muteRecording: (muted: boolean) => __TAURI_INVOKE<void>("mute_recording", { muted }),
 	/**  The control's Pause: pauses the recording, or resumes it. */
 	pauseRecording: () => __TAURI_INVOKE<void>("pause_recording"),
+	/**  The control's clicks and keys buttons: each noted or not (None: as it is). */
+	noteRecordingInput: (clicks: boolean | null, keys: boolean | null) => __TAURI_INVOKE<void>("note_recording_input", { clicks, keys }),
 	/**  The microphones connected now, and which is the default (Settings › Recording). */
 	microphones: () => __TAURI_INVOKE<Microphones>("microphones"),
 	/**  Window mode on or off, and the window under the pointer, on one overlay: all follow. */
@@ -199,6 +201,7 @@ export const events = {
 	dropHover: makeEvent<DropHover>("drop-hover"),
 	exportEnded: makeEvent<ExportEnded>("export-ended"),
 	exportProgress: makeEvent<ExportProgress>("export-progress"),
+	inputNoted: makeEvent<InputNoted>("input-noted"),
 	micMuted: makeEvent<MicMuted>("mic-muted"),
 	openFailed: makeEvent<OpenFailed>("open-failed"),
 	openOffered: makeEvent<OpenOffered>("open-offered"),
@@ -500,6 +503,15 @@ export type GrowSide = {
  */
 export type GrowUnit = "px" | "percent";
 
+/**  Rust → the control: clicks and keys noted or not. */
+export type InputNoted = {
+	clicks: boolean,
+	keys: boolean,
+};
+
+/**  Which keys are noted (Settings › Recording). */
+export type KeyMode = "off" | "shortcuts" | "all";
+
 /**  What an item of markup is to the export, as the page names it. */
 export type MarkLayer = 
 /**  Laid over the frame. */
@@ -703,6 +715,10 @@ export type Recording = {
 	fps?: number,
 	/**  Seconds counted down before recording starts, one of [`COUNTDOWNS`] (0: none; 5b.5b). */
 	countdown?: number,
+	/**  Clicks noted while recording, to become markup (PLAN 5b.6); off until chosen. */
+	clicks?: boolean,
+	/**  Which keys are noted: none until chosen, shortcuts only, or all. */
+	keys?: KeyMode,
 };
 
 /**

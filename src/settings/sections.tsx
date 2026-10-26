@@ -804,6 +804,42 @@ export const sections: Section[] = [
         ],
       },
       {
+        title: "Clicks and keys",
+        items: [
+          {
+            id: "recordingClicks",
+            kind: "toggle",
+            path: "recording.clicks",
+            label: "Note clicks",
+            description:
+              "Where you click, to show on the timeline as markup you can move, restyle or delete. Also turned on or off as you record: the control's button, or Ctrl+Alt+C.",
+            keywords: ["clicks", "mouse", "pointer", "show clicks", "highlight", "tutorial"],
+          },
+          {
+            id: "recordingKeys",
+            kind: "choice",
+            path: "recording.keys",
+            label: "Note keys",
+            description:
+              "The keys you press, to show on the timeline as markup. Shortcuts only: combinations with Ctrl, Alt or Win, and keys like Enter and Esc, never ordinary typing. All keys shows everything typed, passwords included. Also turned on or off as you record: the control's button, or Ctrl+Alt+K.",
+            options: [
+              { value: "off", label: "Off" },
+              { value: "shortcuts", label: "Shortcuts only" },
+              { value: "all", label: "All keys" },
+            ],
+            keywords: [
+              "keys",
+              "keystrokes",
+              "keyboard",
+              "shortcuts",
+              "typing",
+              "show keys",
+              "tutorial",
+            ],
+          },
+        ],
+      },
+      {
         title: "While recording an area",
         items: [
           {

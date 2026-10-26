@@ -140,7 +140,7 @@ impl Clock {
 }
 
 /// The performance counter, in 100 ns units.
-fn qpc_now() -> i64 {
+pub(crate) fn qpc_now() -> i64 {
     let (mut count, mut freq) = (0i64, 0i64);
     unsafe {
         let _ = QueryPerformanceCounter(&mut count);

@@ -4,6 +4,8 @@
   inset: 0;
   overflow: hidden;
   touch-action: none;
+  /* Nothing on it is text to select: a double-click (Record) would select the size label. */
+  user-select: none;
   --dim: 0.4;
   --pick-accent: #4c9aff;
   font:
@@ -161,7 +163,8 @@
   color: rgb(255 255 255 / 0.9);
 }
 
-/* The microphone and system sound toggles: lit when they record. */
+/* The microphone and system sound toggles, as the recording control's: plain when on; red,
+   struck through, when off. */
 .mic {
   display: inline-grid;
   place-items: center;
@@ -171,15 +174,15 @@
   border: 0;
   border-radius: 6px;
   background: rgb(255 255 255 / 0.1);
-  color: rgb(255 255 255 / 0.55);
+  color: #fff;
 }
 
 .mic:hover {
   background: rgb(255 255 255 / 0.16);
 }
 
-.mic[aria-pressed="true"] {
-  color: #fff;
+.mic[aria-pressed="false"] {
+  color: #e5484d;
 }
 
 .mic svg {

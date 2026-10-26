@@ -14,6 +14,7 @@ mod export;
 mod ffmpeg;
 mod folders;
 mod fonts;
+mod input;
 mod markup;
 mod media;
 mod names;
@@ -82,6 +83,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::set_record_sound,
             commands::mute_recording,
             commands::pause_recording,
+            commands::note_recording_input,
             commands::microphones,
             commands::pick_window_changed,
             commands::pick_window,
@@ -116,6 +118,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             recording::RecordingChanged,
             recording::MicMuted,
             recording::RecordingPaused,
+            recording::InputNoted,
             picker::PickClear,
             picker::PickWindow,
             thumbs::ThumbsUpdate,

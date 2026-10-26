@@ -16,6 +16,7 @@ import {
 } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { commands, events, type PickLoad } from "../shared/ipc";
+import { Struck } from "../shared/Struck";
 import {
   arrowDelta,
   clampPoint,
@@ -511,24 +512,19 @@ function Hint({ keys, label }: { keys: string[]; label: string }) {
 /** A microphone; off, struck through. */
 function MicIcon({ on }: { on: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden>
+    <Struck off={!on}>
       <rect x="9" y="3" width="6" height="11" rx="3" />
       <path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" fill="none" />
-      {!on && <path d="M4 4l16 16" fill="none" />}
-    </svg>
+    </Struck>
   );
 }
 
-/** A speaker; off, struck through. */
+/** A speaker, its sound waves; off, struck through. */
 function SpeakerIcon({ on }: { on: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden>
+    <Struck off={!on}>
       <path d="M4 9h4l5-4v14l-5-4H4z" />
-      {on ? (
-        <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" fill="none" />
-      ) : (
-        <path d="M4 4l16 16" fill="none" />
-      )}
-    </svg>
+      <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" fill="none" />
+    </Struck>
   );
 }
