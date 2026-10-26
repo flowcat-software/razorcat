@@ -15,7 +15,7 @@ import { DEFAULT_STYLE_CONFIG } from "../markup/styles";
 import type { Settings } from "../shared/ipc";
 import type { Section } from "./schema";
 
-/** The colours a click's button can be: Settings › Markup › Clicks' (PLAN 5b.6d). */
+/** The colours a click's button can be: Settings › Markup › Click markers' (PLAN 5b.6d). */
 const clickColors = (s: Settings) =>
   (s.styles.tools.click?.palette ?? DEFAULT_STYLE_CONFIG.styles.tools.click?.palette ?? []).map(
     (color) => ({ color, name: color }),
@@ -505,6 +505,24 @@ export const sections: Section[] = [
       {
         title: "Step markers",
         items: [
+          // Its own colors with the rest of its options, as Clicks' (Richard, 2026-10-26).
+          {
+            id: "tool-style-step",
+            kind: "toolStyle",
+            tool: "step",
+            label: "Marker colors",
+            widths: false,
+            keywords: [
+              "own",
+              "custom",
+              "override",
+              "per tool",
+              "palette",
+              "color",
+              "step",
+              "marker",
+            ],
+          },
           {
             id: "styles-step-size",
             kind: "numberPicker",
@@ -527,7 +545,7 @@ export const sections: Section[] = [
         ],
       },
       {
-        title: "Clicks",
+        title: "Click markers",
         description:
           "Clicks placed with the Click tool, and a recording's. Settings › Recording picks each mouse button's color and the size from these. With Custom colors off, clicks have their own bright colors (not the palette above).",
         items: [
@@ -535,7 +553,7 @@ export const sections: Section[] = [
             id: "tool-style-click",
             kind: "toolStyle",
             tool: "click",
-            label: "Clicks",
+            label: "Click marker colors",
             widths: false,
             colorControl: false,
             freshPalette: true,
@@ -545,7 +563,7 @@ export const sections: Section[] = [
             id: "styles-click-size",
             kind: "numberPicker",
             path: "styles.clickSize",
-            label: "Click sizes",
+            label: "Click marker sizes",
             description:
               "The sizes a click mark can be, in pixels across: on the Click tool's options bar, where keys 1–9 and 0 pick them, and in Settings › Recording.",
             unit: "px",
@@ -621,14 +639,6 @@ export const sections: Section[] = [
             label: "Callout",
             widths: true,
             keywords: ["own", "custom", "override", "per tool", "palette", "color", "pointer"],
-          },
-          {
-            id: "tool-style-step",
-            kind: "toolStyle",
-            tool: "step",
-            label: "Step markers",
-            widths: false,
-            keywords: ["own", "custom", "override", "per tool", "palette", "color", "marker"],
           },
         ],
       },
@@ -893,7 +903,7 @@ export const sections: Section[] = [
             path: "recording.clickColor",
             label: "Left click color",
             description:
-              "Each click is drawn in its button's color: change one here and every click with that button changes too, recorded or placed. The colors offered are Settings › Markup › Clicks'.",
+              "Each click is drawn in its button's color: change one here and every click with that button changes too, recorded or placed. The colors offered are Settings › Markup › Click markers'.",
             presets: clickColors,
             keywords: ["click", "left", "color", "colour"],
           },
@@ -918,7 +928,7 @@ export const sections: Section[] = [
             kind: "pickedNumber",
             path: "recording.clickSize",
             label: "Size",
-            description: "The sizes offered are Settings › Markup › Clicks'.",
+            description: "The sizes offered are Settings › Markup › Click markers'.",
             // As the Click tool's options bar offers them (PLAN 5b.6d).
             picker: (s) => s.styles.clickSize ?? DEFAULT_STYLE_CONFIG.styles.clickSize,
             unit: "px",
