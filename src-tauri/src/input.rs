@@ -49,6 +49,8 @@ struct Sink {
     /// The window recorded, if it's one: its frame is noted with each click.
     window: Option<isize>,
     presses: Vec<Press>,
+    /// When the last click was (100 ns): a run of quick clicks joins the first.
+    last: i64,
 }
 
 static SINK: Mutex<Option<Sink>> = Mutex::new(None);
@@ -68,6 +70,7 @@ impl Watch {
             clicks: clicks.clone(),
             window,
             presses: Vec::new(),
+            last: 0,
         });
         let (tx, rx) = channel();
         let handle = std::thread::spawn(move || unsafe {
@@ -130,7 +133,15 @@ unsafe extern "system" fn on_mouse(code: i32, w: WPARAM, l: LPARAM) -> LRESULT {
                 if sink.clicks.load(Ordering::SeqCst) {
                     let window = sink.window.and_then(window_frame);
                     let qpc = crate::audio::qpc_now();
-                    note_click(&mut sink.presses, qpc, m.pt.x, m.pt.y, button, window);
+                    note_click(
+                        &mut sink.presses,
+                        &mut sink.last,
+                        qpc,
+                        m.pt.x,
+                        m.pt.y,
+                        button,
+                        window,
+                    );
                 }
             }
         }
@@ -139,9 +150,11 @@ unsafe extern "system" fn on_mouse(code: i32, w: WPARAM, l: LPARAM) -> LRESULT {
 }
 
 /// A click: a second one soon after, close by, with the same button, makes the first a
-/// double-click instead.
+/// double-click instead; a third and more as quick (a triple-click) are part of it too
+/// (Richard, 2026-10-26: no ×3 for now). `last` is when the click before it was.
 fn note_click(
     presses: &mut Vec<Press>,
+    last: &mut i64,
     qpc: i64,
     x: i32,
     y: i32,
@@ -158,16 +171,14 @@ fn note_click(
         ..
     }) = presses.last_mut()
     {
-        if *b0 == button
-            && !*double
-            && qpc - *then <= soon
-            && (x - *x0).abs() <= 8
-            && (y - *y0).abs() <= 8
-        {
+        let previous = if *double { *last } else { *then };
+        if *b0 == button && qpc - previous <= soon && (x - *x0).abs() <= 8 && (y - *y0).abs() <= 8 {
             *double = true;
+            *last = qpc;
             return;
         }
     }
+    *last = qpc;
     presses.push(Press::Click {
         qpc,
         x,
@@ -201,15 +212,44 @@ mod tests {
 
     #[test]
     fn a_quick_second_click_makes_a_double_click() {
-        let mut p = Vec::new();
-        note_click(&mut p, 0, 100, 100, Button::Left, None);
-        note_click(&mut p, 1_000_000, 103, 101, Button::Left, None);
+        let (mut p, mut last) = (Vec::new(), 0);
+        note_click(&mut p, &mut last, 0, 100, 100, Button::Left, None);
+        note_click(&mut p, &mut last, 1_000_000, 103, 101, Button::Left, None);
         assert_eq!(p.len(), 1);
         assert!(matches!(p[0], Press::Click { double: true, .. }));
-        // A third starts again; one far away, or with another button, is its own.
-        note_click(&mut p, 1_500_000, 103, 101, Button::Left, None);
-        note_click(&mut p, 1_600_000, 300, 101, Button::Left, None);
-        note_click(&mut p, 1_700_000, 300, 101, Button::Right, None);
-        assert_eq!(p.len(), 4);
+        // One far away, or with another button, is its own.
+        note_click(&mut p, &mut last, 1_600_000, 300, 101, Button::Left, None);
+        note_click(&mut p, &mut last, 1_700_000, 300, 101, Button::Right, None);
+        assert_eq!(p.len(), 3);
+    }
+
+    #[test]
+    fn a_triple_click_is_a_double_click() {
+        let soon = i64::from(unsafe { GetDoubleClickTime() }) * 10_000;
+        let (mut p, mut last) = (Vec::new(), 0);
+        // Each soon after the one before (the third later than that after the first).
+        for k in 0..3 {
+            note_click(
+                &mut p,
+                &mut last,
+                k * (soon - 1),
+                100,
+                100,
+                Button::Left,
+                None,
+            );
+        }
+        assert_eq!(p.len(), 1);
+        assert!(matches!(
+            p[0],
+            Press::Click {
+                qpc: 0,
+                double: true,
+                ..
+            }
+        ));
+        // A click after a pause is a new one.
+        note_click(&mut p, &mut last, 3 * soon, 100, 100, Button::Left, None);
+        assert_eq!(p.len(), 2);
     }
 }
