@@ -11,7 +11,9 @@
 // - each showing item's opacity at the playhead, as its fades make it (`opacity`); a
 //   spotlight's is its hole's, and the darkness has its own (`dark`; editor/spotlights.ts);
 // - step markers count up by their start times on the timeline, all of them, not only those
-//   showing (`labels`; Richard, 2026-10-21), where Vandal counts in creation order.
+//   showing (`labels`; Richard, 2026-10-21), where Vandal counts in creation order;
+// - a moving click mark (a ripple, PLAN 5b.6e) is drawn as it is so long after its click
+//   (`ages`).
 
 import { createStore, useStore } from "zustand";
 import {
@@ -62,6 +64,8 @@ export interface DocState {
   dark: { dim: number; level: number } | null;
   /** Every step marker's label (`timelineStepLabels`). */
   labels: Readonly<Record<AnnotationId, string>>;
+  /** How long ago (s) each showing ripple's click was: where its rings have spread to. */
+  ages: Readonly<Record<AnnotationId, number>>;
 
   /**
    * A fresh edit holding just `doc`'s annotations, from the start, as long as an edit with
@@ -157,7 +161,7 @@ export function stepsDoc(): Doc {
 
 function view(): Pick<
   DocState,
-  "doc" | "selection" | "gestureStart" | "opacity" | "dark" | "labels"
+  "doc" | "selection" | "gestureStart" | "opacity" | "dark" | "labels" | "ages"
 > {
   const edit = useEdit.getState();
   const frame = player?.getState().frame ?? 0;
@@ -179,7 +183,12 @@ function view(): Pick<
   const layer = darkLayer(edit.doc);
   const darkNow = layer && darkAt(layer, frame);
   const opacity: Record<AnnotationId, number> = {};
+  const ages: Record<AnnotationId, number> = {};
+  const fps = player?.fps ?? 30;
   for (const m of on) {
+    const o = objects.get(m.id);
+    if (o?.kind === "click" && o.look === "ripple")
+      ages[annotationId(m.id)] = (frame - m.start) / fps;
     const kept = edit.doc.marks.find((k) => k.id === m.id);
     const length = m.end - m.start;
     const a =
@@ -193,6 +202,7 @@ function view(): Pick<
   }
   return {
     opacity,
+    ages,
     dark: layer && darkNow ? { dim: layer.dim, level: darkNow.level } : null,
     labels: timelineStepLabels(edit.doc),
     doc,
@@ -225,18 +235,23 @@ function refresh() {
   const sameLabels =
     Object.keys(next.labels).length === Object.keys(s.labels).length &&
     Object.entries(next.labels).every(([id, l]) => s.labels[id] === l);
+  const sameAges =
+    Object.keys(next.ages).length === Object.keys(s.ages).length &&
+    Object.entries(next.ages).every(([id, t]) => s.ages[id] === t);
   if (
     same &&
     sameSelection &&
     sameOpacity &&
     sameDark &&
     sameLabels &&
+    sameAges &&
     !next.gestureStart === !s.gestureStart
   )
     return;
   docStore.setState({
     dark: sameDark ? s.dark : next.dark,
     labels: sameLabels ? s.labels : next.labels,
+    ages: sameAges ? s.ages : next.ages,
     opacity: sameOpacity ? s.opacity : next.opacity,
     doc: same ? s.doc : next.doc,
     selection: sameSelection ? s.selection : next.selection,
@@ -256,6 +271,7 @@ export const docStore = createStore<DocState>()(() => ({
   opacity: {},
   dark: null,
   labels: {},
+  ages: {},
 
   load: (doc) => {
     const edit = useEdit.getState();
@@ -268,7 +284,8 @@ export const docStore = createStore<DocState>()(() => ({
     const original = like && shownMarks(edit.doc).find((m) => m.id === markId(like));
     const frame = original ? original.start : (player?.getState().frame ?? 0);
     const fps = player?.fps ?? 30;
-    // A click is a moment, fading out, as a recording's are (PLAN 5b.6b).
+    // A click is a moment, as a recording's are (PLAN 5b.6b), and as Settings › Recording times
+    // them while placed clicks follow it (5b.6d).
     const click = !original && annotation.kind === "click" ? clickTiming(fps) : null;
     const length = original
       ? original.end - original.start
@@ -276,7 +293,8 @@ export const docStore = createStore<DocState>()(() => ({
     player?.pause();
     const id = edit.addMark(annotation, frame, length, freeLane(edit.doc, frame, frame + length));
     if (id === null) return "";
-    if (click && click.fadeOut > 0) useEdit.getState().setMarkFades(id, { fadeOut: click.fadeOut });
+    if (click?.fadeIn) useEdit.getState().setMarkFades(id, { fadeIn: click.fadeIn });
+    if (click?.fadeOut) useEdit.getState().setMarkFades(id, { fadeOut: click.fadeOut });
     const kept = original && edit.doc.marks.find((m) => m.id === original.id);
     if (kept && edit.options.copyFades) {
       const fades = markFades(kept, length);
@@ -369,6 +387,8 @@ useEdit.subscribe(refresh);
  */
 /** The playhead, whose markup shows. */
 export const playheadFrame = () => player?.getState().frame ?? 0;
+/** The timeline's frames a second (a ripple's frames, drawn for the export). */
+export const timelineFps = () => player?.fps ?? 30;
 
 export function connectMarkup(p: Player): () => void {
   player = p;

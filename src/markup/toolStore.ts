@@ -7,6 +7,7 @@ import type {
   AnnotationId,
   CalloutEnd,
   CalloutShape,
+  ClickButton,
   ClickLook,
   ArrowEnds,
   ArrowHead,
@@ -105,6 +106,10 @@ export interface ToolState {
   /** Click marks (PLAN 5b.6b): the next one's look, and its size once picked. */
   clickLook: ClickLook;
   clickSize: number | null;
+  /** The button the next one shows: its colour (PLAN 5b.6d). */
+  clickButton: ClickButton;
+  /** The next one is a double-click (whether styles are locked or not). */
+  clickDouble: boolean;
   /**
    * Callouts (PLAN 3E): their own font, size and text style once picked (else
    * the text tool's), and the text color (null: black or white, whichever
@@ -160,8 +165,10 @@ export const useToolStore = create<ToolState>((set) => ({
   stepFont: null,
   stepFormat: "numbers",
   stepStart: 1,
-  clickLook: "ring",
+  clickLook: "ripple",
   clickSize: null,
+  clickButton: "left",
+  clickDouble: false,
   calloutFont: null,
   calloutFontSize: null,
   calloutBold: false,

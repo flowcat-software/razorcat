@@ -24,6 +24,21 @@ pub enum NumberPicker {
 }
 
 impl NumberPicker {
+    /// The value it offers nearest `v`: one of its values, or `v` kept to the slider's range and
+    /// rounded.
+    pub fn nearest(&self, v: f64) -> f64 {
+        match self {
+            Self::Slider { min, max } => v.clamp(*min, *max).round(),
+            Self::Stepped { values } | Self::Dropdown { values } | Self::Buttons { values } => {
+                values
+                    .iter()
+                    .copied()
+                    .min_by(|a, b| (a - v).abs().total_cmp(&(b - v).abs()))
+                    .unwrap_or(v)
+            }
+        }
+    }
+
     /// [`Self::normalized`], with no value above `max` (a percentage's 100).
     fn normalized_up_to(self, max: f64) -> Option<Self> {
         let cap = |values: Vec<f64>| values.into_iter().map(|v| v.min(max)).collect();
@@ -291,10 +306,25 @@ impl Default for Styles {
                     },
                 ),
                 ("callout".to_string(), ToolStyles::callout_default()),
+                // Clicks' own colours (PLAN 5b.6d): Settings › Recording picks each button's
+                // from these.
+                (
+                    "click".to_string(),
+                    ToolStyles {
+                        palette: Some(colors(&CLICK_PALETTE)),
+                        width: None,
+                        color_control: None,
+                    },
+                ),
             ]),
         }
     }
 }
+
+/** The colours clicks come with: bright, to show on any screen. */
+pub const CLICK_PALETTE: [&str; 8] = [
+    "#ffd60a", "#ff8a00", "#ff2d2d", "#ff4fd8", "#4c9aff", "#00d5ff", "#00ff27", "#ffffff",
+];
 
 impl ToolStyles {
     /// The callout's default override: its own thickness range, 1 to 20 px

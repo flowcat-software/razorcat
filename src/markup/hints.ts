@@ -75,7 +75,14 @@ export const CONTROL_HINTS = {
     "A box around the text, filled or outlined, or a line under it (over it when the pointer points up)",
   dim: "[1…0] How dark outside · [`] the lightest · shared by every spotlight",
   "step.shape": "The marker's shape",
-  "click.look": "How the click mark looks",
+  "click.look": "How the click mark looks · the moving one, Ripple, spreads as it plays",
+  "click.button":
+    "[Alt+1…3] The button clicked: left, middle or right, each in its color from Settings › Recording",
+  "click.double": "A double-click: a second ring round it",
+  "click.doublesOff":
+    "Double-clicks are off in Settings › Recording · turn on “Show double-clicks” there, or off “Lock click styles in the editor”",
+  "click.locked":
+    "Locked to Settings › Recording, so placed clicks match recorded ones · turn off “Lock click styles in the editor” there to choose here",
   "step.format": "Numbers or letters · shared by every marker",
   "step.start": "The first marker's label · the others count up from it",
   "step.resetStyles": "Give every marker the style shown here · [Ctrl+Z] undoes it",
@@ -274,7 +281,7 @@ function toolHint(tool: Exclude<ToolId, "select">, twoColors: boolean): string {
     case "step":
       return `Click to place the next marker · [1…0] size · [Alt+1…0] font · ${colors}`;
     case "click":
-      return `Click to mark a click there · [1…0] size · ${colors}`;
+      return `Click to mark a click there · [Alt+1…3] left, middle, right · [1…0] size`;
     case "callout":
       return `Drag from what to point at to where the text goes · [1…0] size · [Shift+1…0] thickness · [Alt+1…0] font · ${colors}`;
   }

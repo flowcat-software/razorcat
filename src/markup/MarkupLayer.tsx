@@ -16,6 +16,7 @@ import {
 } from "react-konva";
 import { bendFromPoint, bendPoint } from "./bend";
 import { clickReach, drawClick } from "./click";
+import { buttonColor, doublesShown, useClickSettings } from "./clickSettings";
 import {
   calloutBox,
   calloutExtent,
@@ -248,6 +249,12 @@ export function MarkupLayer({
   const doc = useDoc((s) => s.doc);
   const selection = useDoc((s) => s.selection);
   const opacity = useDoc((s) => s.opacity);
+  /** Ripples' time since their clicks (PLAN 5b.6e). */
+  const ages = useDoc((s) => s.ages);
+  /** The buttons' colours clicks are drawn in (PLAN 5b.6d): a change redraws a faded one. */
+  const clickColors = useClickSettings(
+    (s) => `${s.color} ${s.colorRight} ${s.colorMiddle} ${doublesShown(s)}`,
+  );
   const dark = useDoc((s) => s.dark);
   const tool = useToolStore((s) => s.tool);
   const editing = useToolStore((s) => s.editing);
@@ -303,8 +310,9 @@ export function MarkupLayer({
   // faded uncached, so a drag or resize shows live. Opaque again, the cache goes.
   const cachedFor = useRef<unknown[]>([]);
   useLayoutEffect(() => {
-    // The markup, the selection or the zoom changed: what's cached may look different now.
-    const now = [doc, selection, scale];
+    // The markup, the selection or the zoom changed, or a ripple spread: what's cached may look
+    // different now.
+    const now = [doc, selection, scale, ages, clickColors];
     const stale = now.some((v, i) => v !== cachedFor.current[i]);
     cachedFor.current = now;
     for (const a of doc.annotations) {
@@ -325,7 +333,7 @@ export function MarkupLayer({
       }
       group.opacity(alpha);
     }
-  }, [doc, opacity, selection, scale]);
+  }, [doc, opacity, selection, scale, ages, clickColors]);
 
   useEffect(() => {
     registerAnnotationGroup("annotations", groupRef.current);
@@ -624,8 +632,7 @@ export function MarkupLayer({
       // A click marks a click there; dragging before letting go moves it (PLAN 5b.6b).
       store.select([]);
       store.beginGesture();
-      const { look, size, color } = toolClickStyle();
-      const id = store.add({ kind: "click", x: p.x, y: p.y, look, size, color, double: false });
+      const id = store.add({ kind: "click", x: p.x, y: p.y, ...toolClickStyle() });
       drag = { mode: "place", id };
     } else if (tool === "step") {
       // A click places the next marker; dragging before letting go moves it.
@@ -1149,6 +1156,7 @@ export function MarkupLayer({
                     hitSlop={HIT_SLOP / scale}
                     hidden={a.id === editing?.id || a.id === labelEditing}
                     label={labels[a.id]}
+                    age={ages[a.id]}
                   />
                 </Group>
               ))}
@@ -1402,6 +1410,7 @@ export function AnnotationShape({
   hitSlop,
   hidden = false,
   label = "",
+  age,
 }: {
   a: Annotation;
   hitSlop: number;
@@ -1409,9 +1418,11 @@ export function AnnotationShape({
   hidden?: boolean;
   /** A step marker's label. */
   label?: string;
+  /** A ripple's time since its click (s), as it spreads; none: drawn still. */
+  age?: number;
 }) {
   if (a.kind === "step") return <StepMarker a={a} label={label} hidden={hidden} />;
-  if (a.kind === "click") return <ClickMark a={a} />;
+  if (a.kind === "click") return <ClickMark a={a} age={age} />;
   if (a.kind === "callout") return <CalloutShape a={a} hitSlop={hitSlop} typing={hidden} />;
   if (a.kind === "text") {
     return (
@@ -1784,20 +1795,24 @@ function stepPath(c: CanvasRenderingContext2D, shape: StepShape, r: number): voi
  * centred, shrunk to fit when it's long. Positioned about its centre.
  */
 /** A click mark (PLAN 5b.6b), drawn by click.ts so the export matches. */
-function ClickMark({ a }: { a: ClickAnnotation }) {
+function ClickMark({ a, age }: { a: ClickAnnotation; age?: number }) {
   const reach = clickReach(a);
+  // Its button's colour as Settings › Recording has it now (PLAN 5b.6d): a change redraws it.
+  const color = useClickSettings((s) => buttonColor(a.button, s));
+  // Its second ring as the settings are now (click.ts reads them): a change redraws it.
+  useClickSettings(doublesShown);
   return (
     <Shape
       id={a.id}
       name="annotation"
       x={a.x}
       y={a.y}
-      // For the hit area only; the scene draws itself.
-      fill={a.color}
+      // For the hit area only; the scene draws itself (in `color`).
+      fill={color}
       perfectDrawEnabled={false}
       sceneFunc={(ctx) => {
         const c = (ctx as unknown as { _context: CanvasRenderingContext2D })._context;
-        drawClick(c, a);
+        drawClick(c, a, age);
       }}
       hitFunc={(ctx, shape) => {
         ctx.beginPath();

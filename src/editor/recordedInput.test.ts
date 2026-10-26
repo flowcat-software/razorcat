@@ -2,9 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { RecordedInput } from "../shared/ipc";
 import { addSource, wholeSource, type Doc } from "./doc";
 import { NO_GROW } from "./frame";
-import { CLICK_COLOURS, onFrame, withRecordedClicks } from "./recordedInput";
+import { onFrame, withRecordedClicks, type RecordedClickStyle } from "./recordedInput";
 
-const look = { look: "ring" as const, size: 44 };
+const look: RecordedClickStyle = {
+  look: "ring",
+  size: 44,
+  double: true,
+  seconds: 0.8,
+  fadeIn: 0,
+  fadeOut: 0.3,
+};
 const click = (time: number, x: number, y: number, button: "left" | "right" = "left") => ({
   time,
   x,
@@ -63,9 +70,9 @@ describe("withRecordedClicks", () => {
     expect(doc.marks).toHaveLength(2);
     const [a, b] = doc.marks;
     expect(a).toMatchObject({ clip: 1, at: 30, length: 24, fadeOut: 9 });
-    expect(a.object).toMatchObject({ kind: "click", x: 100, y: 50, color: CLICK_COLOURS.left });
+    expect(a.object).toMatchObject({ kind: "click", x: 100, y: 50, button: "left" });
     expect(b).toMatchObject({ at: 75 });
-    expect(b.object).toMatchObject({ color: CLICK_COLOURS.right, look: "ring", size: 44 });
+    expect(b.object).toMatchObject({ button: "right", look: "ring", size: 44 });
   });
 
   it("puts an added recording's clicks on its own clip, and leaves out any off its frames", () => {
@@ -86,5 +93,21 @@ describe("withRecordedClicks", () => {
   it("is the same document for a clip that isn't there", () => {
     const doc = wholeSource(300, { width: 1920, height: 1080 });
     expect(withRecordedClicks(doc, 9, input, 30, { width: 1920, height: 1080 }, look)).toBe(doc);
+  });
+});
+
+describe("withRecordedClicks, as Settings › Recording says", () => {
+  it("leaves out a double-click's second ring when they're not shown, and fades in", () => {
+    const input: RecordedInput = { clicks: [{ ...click(1, 10, 10), double: true }] };
+    const doc = withRecordedClicks(
+      wholeSource(300, { width: 1920, height: 1080 }),
+      1,
+      input,
+      30,
+      { width: 1920, height: 1080 },
+      { ...look, double: false, look: "ripple", seconds: 1, fadeIn: 0.2 },
+    );
+    expect(doc.marks[0]).toMatchObject({ length: 30, fadeIn: 6, fadeOut: 9 });
+    expect(doc.marks[0].object).toMatchObject({ look: "ripple", double: false });
   });
 });

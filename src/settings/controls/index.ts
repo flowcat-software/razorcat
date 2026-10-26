@@ -14,6 +14,7 @@ import { MicrophonePicker } from "./MicrophonePicker";
 import { NumberInput } from "./NumberInput";
 import { NumberPickerSetting } from "./NumberPickerEditor";
 import { PaletteSetting } from "./PaletteEditor";
+import { PickedNumber } from "./PickedNumber";
 import { ProxyLimit } from "./ProxyLimit";
 import { Slider } from "./Slider";
 import { TextInput } from "./TextInput";
@@ -43,6 +44,7 @@ export const controls: Registry = {
   choice: { component: Choice, layout: "inline" },
   numberChoice: { component: NumberChoice, layout: "inline" },
   number: { component: NumberInput, layout: "inline" },
+  pickedNumber: { component: PickedNumber, layout: "inline" },
   text: { component: TextInput, layout: "stacked" },
   accent: { component: AccentPicker, layout: "stacked" },
   color: { component: ColorSetting, layout: "stacked" },

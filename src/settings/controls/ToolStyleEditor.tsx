@@ -50,7 +50,8 @@ export function ToolStyleSetting({ item, id, disabled }: ControlProps<ToolStyleI
       setAside.set(item.tool, { ...setAside.get(item.tool), palette: own.palette });
       return update({ palette: null });
     }
-    const palette = setAside.get(item.tool)?.palette ?? shipped?.palette ?? settings.styles.palette;
+    const kept = item.freshPalette ? undefined : setAside.get(item.tool)?.palette;
+    const palette = kept ?? shipped?.palette ?? settings.styles.palette;
     update({ palette: [...palette] });
   };
 
@@ -65,16 +66,18 @@ export function ToolStyleSetting({ item, id, disabled }: ControlProps<ToolStyleI
 
   return (
     <div className={styles.overrides} id={id}>
-      <div className={styles.valueList}>
-        <span className={styles.help}>Show colors as</span>
-        <Segmented
-          label={`${item.label}: show colors as`}
-          options={COLOR_CONTROLS}
-          value={own.colorControl ?? "default"}
-          disabled={disabled}
-          onChange={(v) => update({ colorControl: v === "default" ? null : v })}
-        />
-      </div>
+      {item.colorControl !== false && (
+        <div className={styles.valueList}>
+          <span className={styles.help}>Show colors as</span>
+          <Segmented
+            label={`${item.label}: show colors as`}
+            options={COLOR_CONTROLS}
+            value={own.colorControl ?? "default"}
+            disabled={disabled}
+            onChange={(v) => update({ colorControl: v === "default" ? null : v })}
+          />
+        </div>
+      )}
       <div className={styles.override}>
         <label className={styles.overrideSwitch}>
           <span className={styles.overrideLabel}>Custom colors</span>

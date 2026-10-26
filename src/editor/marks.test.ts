@@ -176,6 +176,14 @@ describe("markup", () => {
   it("says on the timeline what it is", () => {
     expect(markLabel(text(" Hello\nthere"))).toBe("Hello");
     expect(markLabel(text(""))).toBe("Text");
+    // A click: which button, and if it was a double-click (PLAN 5b.6d).
+    const click = { kind: "click", x: 0, y: 0, size: 44, look: "ring" } as const;
+    expect(markLabel({ ...click, button: "left", double: false })).toBe("L click");
+    expect(markLabel({ ...click, button: "right", double: true })).toBe("R click ×2");
+    // Double-clicks not shown (Settings › Recording): no "×2".
+    expect(markLabel({ ...click, button: "right", double: true }, false)).toBe("R click");
+    // None (made before there was a choice): the left.
+    expect(markLabel({ ...click, double: true })).toBe("L click ×2");
   });
 
   it("goes in front: the top lane if it has room, else a new one above it", () => {

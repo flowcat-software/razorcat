@@ -24,6 +24,7 @@ import {
 } from "./pickerIcons";
 import { StepOptions } from "./StepOptions";
 import { ClickOptions } from "./ClickOptions";
+import { useClickSettings } from "./clickSettings";
 import {
   applyStyle,
   beginStyleDrag,
@@ -192,6 +193,7 @@ export function ToolOptions({ compact = false }: { compact?: boolean }) {
   // once were, and their pickers didn't follow).
   useToolStore();
   const config = useStyleConfig();
+  const followRecording = useClickSettings((s) => s.follow);
   const held = useHeldKeys();
   const hints = config.showShortcutHints;
 
@@ -429,7 +431,13 @@ export function ToolOptions({ compact = false }: { compact?: boolean }) {
         ))}
 
       {show.click && values.click && (
-        <ClickOptions click={values.click} hints={hints} showKeys={hints && held.digit} />
+        <ClickOptions
+          click={values.click}
+          locked={followRecording}
+          hints={hints}
+          showKeys={hints && held.digit}
+          showButtonKeys={hints && held.alt}
+        />
       )}
 
       {step && (

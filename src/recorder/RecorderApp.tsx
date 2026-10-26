@@ -107,8 +107,12 @@ export function RecorderApp() {
         className={styles.mic}
         aria-pressed={clicks}
         data-off={!clicks || undefined}
-        title={clicks ? "Clicks noted (Ctrl+Alt+C)" : "Clicks not noted (Ctrl+Alt+C)"}
-        aria-label="Note clicks"
+        title={
+          clicks
+            ? "Highlighting clicks in the video (Ctrl+Alt+C)"
+            : "Not highlighting clicks (Ctrl+Alt+C)"
+        }
+        aria-label="Highlight clicks in video"
         onClick={() => void commands.noteRecordingClicks(!clicks)}
       >
         {/* A mouse, upright: the slash crosses it, never runs along it. */}

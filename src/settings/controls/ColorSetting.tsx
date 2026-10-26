@@ -4,7 +4,7 @@ import { boxOf, useMenuPlacement } from "../../markup/menuPlacement";
 import { usePopover } from "../../markup/usePopover";
 import markup from "../../markup/options.module.css";
 import type { ColorItem } from "../schema";
-import { useSetting } from "../store";
+import { useSetting, useSettingsStore } from "../store";
 import type { ControlProps } from "./index";
 import styles from "./controls.module.css";
 
@@ -13,14 +13,16 @@ export function ColorSetting({ item, id, disabled }: ControlProps<ColorItem>) {
   const [color, setColor] = useSetting(item.path);
   const [editing, setEditing] = useState<string | null>(null);
   const customRef = useRef<HTMLButtonElement>(null);
+  const settings = useSettingsStore((s) => s.settings!);
+  const presets = typeof item.presets === "function" ? item.presets(settings) : item.presets;
 
-  const preset = item.presets.find((p) => p.color === color);
+  const preset = presets.find((p) => p.color === color);
   const custom = preset ? null : color;
 
   return (
     <div className={styles.controlGroup}>
       <div id={id} className={styles.palette} role="radiogroup" aria-label={item.label}>
-        {item.presets.map((p) => (
+        {presets.map((p) => (
           <button
             key={p.color}
             type="button"

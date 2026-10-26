@@ -4,7 +4,7 @@ import { sayWhy, useHintSources } from "../markup/hints";
 import { annotationId, docStore as markupDoc } from "../markup/model/store";
 import { startToolStylesSync } from "../markup/toolStylesSync";
 import { useMarkupKeys } from "../markup/useMarkupKeys";
-import { toolClickStyle } from "../markup/styles";
+import { clickSettingsOf, useClickSettings } from "../markup/clickSettings";
 import { applyStyleSettings, loadFonts } from "../markup/useStyleSettings";
 import { ConfirmDialog } from "../settings/controls/ConfirmDialog";
 import { isTyping } from "../shared/dom";
@@ -96,6 +96,7 @@ const PLAYBACK_SAVE_MS = 600;
 const applySettings = (s: Settings) => {
   rangeOptions(s);
   applyStyleSettings(s);
+  useClickSettings.setState(clickSettingsOf(s.recording));
   useTool.getState().setDragSpeed(s.editing.numberDragSpeed);
 };
 
@@ -193,7 +194,8 @@ function transportKey(e: KeyboardEvent, player: Player, audio: boolean): boolean
 function addRecordedInput(s: SourceInfo, clip: number, first: SourceInfo): void {
   void commands.takeRecordedInput(s.path).then((input) => {
     if (!input?.clicks.length) return;
-    const { look, size } = toolClickStyle();
+    // Settings › Recording's look and timing (PLAN 5b.6d).
+    const style = useClickSettings.getState();
     useDoc
       .getState()
       .addRecordedClicks(
@@ -201,7 +203,7 @@ function addRecordedInput(s: SourceInfo, clip: number, first: SourceInfo): void 
         input,
         first.rateNum / first.rateDen,
         { width: s.width, height: s.height },
-        { look, size },
+        style,
       );
   });
 }

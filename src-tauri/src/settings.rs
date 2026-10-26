@@ -103,6 +103,76 @@ pub struct Recording {
     pub countdown: u32,
     /// Clicks noted while recording, to become markup (PLAN 5b.6); off until chosen.
     pub clicks: bool,
+    /// How a recording's clicks look (PLAN 5b.6d): the look; the left, right and middle buttons'
+    /// colours; the size (px across); how long each shows and fades in and out over (s); and a
+    /// double-click's second ring.
+    pub click_look: ClickLook,
+    pub click_color: String,
+    pub click_color_right: String,
+    pub click_color_middle: String,
+    pub click_size: f64,
+    pub click_seconds: f64,
+    pub click_fade_in: f64,
+    pub click_fade_out: f64,
+    pub click_double: bool,
+    /// Clicks placed by hand in the editor look and last as recorded ones (Richard, 2026-10-26):
+    /// the click tool's look, colour (the left button's) and size follow these, and its options
+    /// bar's are locked.
+    pub placed_clicks_follow: bool,
+}
+
+/// How a click mark looks (the markup's `ClickLook`): a ring round a dot, a soft glow, crosshair
+/// ticks round a ring, or rings spreading out.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ClickLook {
+    Ring,
+    Halo,
+    Target,
+    /// The default (Richard, 2026-10-26): it draws the eye to where the click was.
+    #[default]
+    Ripple,
+}
+
+/// How big a recorded click can be (px across).
+pub const CLICK_SIZE_RANGE: std::ops::RangeInclusive<f64> = 16.0..=160.0;
+/// How long a recorded click can show, and fade over (s).
+pub const CLICK_SECONDS_RANGE: std::ops::RangeInclusive<f64> = 0.2..=5.0;
+pub const CLICK_FADE_RANGE: std::ops::RangeInclusive<f64> = 0.0..=2.0;
+
+/// The colours clicks are picked from: their custom palette (Settings › Markup › Clicks), or,
+/// with that off, the ones they come with (not the shared palette: Richard, 2026-10-26).
+pub fn click_palette(s: &Settings) -> Vec<String> {
+    s.styles
+        .tools
+        .get("click")
+        .and_then(|t| t.palette.clone())
+        .unwrap_or_else(|| crate::styles::CLICK_PALETTE.map(String::from).to_vec())
+}
+
+/// A colour of the clicks' palette changed (Settings › Markup): each button's colour that was it
+/// becomes the new one, and so every click with that button (PLAN 5b.6d). Not when the button's
+/// colour was itself being changed.
+pub fn follow_click_palette(old: &Settings, new: &mut Settings) {
+    let (before, after) = (click_palette(old), click_palette(new));
+    if before == after {
+        return;
+    }
+    let r = &mut new.recording;
+    let was = &old.recording;
+    for (colour, then) in [
+        (&mut r.click_color, &was.click_color),
+        (&mut r.click_color_right, &was.click_color_right),
+        (&mut r.click_color_middle, &was.click_color_middle),
+    ] {
+        if colour != then {
+            continue;
+        }
+        let at = before.iter().position(|c| c.eq_ignore_ascii_case(colour));
+        if let Some(c) = at.and_then(|i| after.get(i)) {
+            colour.clone_from(c);
+        }
+    }
 }
 
 /// The frame rates a recording can have.
@@ -128,6 +198,16 @@ impl Default for Recording {
             fps: 60,
             countdown: 3,
             clicks: false,
+            click_look: ClickLook::Ripple,
+            click_color: "#ffd60a".into(),
+            click_color_right: "#ff4fd8".into(),
+            click_color_middle: "#4c9aff".into(),
+            click_size: 44.0,
+            click_seconds: 0.8,
+            click_fade_in: 0.0,
+            click_fade_out: 0.3,
+            click_double: true,
+            placed_clicks_follow: true,
         }
     }
 }
@@ -568,6 +648,38 @@ pub fn validate(mut s: Settings) -> Result<Settings, String> {
     if !COUNTDOWNS.contains(&s.recording.countdown) {
         s.recording.countdown = Recording::default().countdown;
     }
+    let d = Recording::default();
+    s.recording.click_color =
+        normalize_color(&s.recording.click_color).unwrap_or_else(|| d.click_color.clone());
+    s.recording.click_color_right = normalize_color(&s.recording.click_color_right)
+        .unwrap_or_else(|| d.click_color_right.clone());
+    s.recording.click_color_middle = normalize_color(&s.recording.click_color_middle)
+        .unwrap_or_else(|| d.click_color_middle.clone());
+    let within = |v: f64, range: &std::ops::RangeInclusive<f64>, default: f64| {
+        if v.is_finite() {
+            v.clamp(*range.start(), *range.end())
+        } else {
+            default
+        }
+    };
+    s.recording.click_size = within(s.recording.click_size, &CLICK_SIZE_RANGE, d.click_size);
+    // One of the sizes the click tool offers (Settings › Markup), as its options bar has them.
+    s.recording.click_size = s.styles.click_size.nearest(s.recording.click_size);
+    s.recording.click_seconds = within(
+        s.recording.click_seconds,
+        &CLICK_SECONDS_RANGE,
+        d.click_seconds,
+    );
+    s.recording.click_fade_in = within(
+        s.recording.click_fade_in,
+        &CLICK_FADE_RANGE,
+        d.click_fade_in,
+    );
+    s.recording.click_fade_out = within(
+        s.recording.click_fade_out,
+        &CLICK_FADE_RANGE,
+        d.click_fade_out,
+    );
     s.recording.dim_opacity = if s.recording.dim_opacity.is_finite() {
         s.recording
             .dim_opacity
@@ -608,10 +720,11 @@ pub fn validate(mut s: Settings) -> Result<Settings, String> {
 
 /// Validate, persist, apply live and broadcast. Returns the stored settings.
 pub fn update(app: &AppHandle<Wry>, new: Settings) -> Result<Settings, String> {
-    let new = validate(new)?;
+    let mut new = validate(new)?;
     let state = app.state::<AppState>();
     let old = {
         let mut current = state.settings.write().unwrap();
+        follow_click_palette(&current, &mut new);
         if *current == new {
             return Ok(new);
         }
@@ -796,6 +909,70 @@ mod tests {
         let (loaded, changed) = migrate(Some(serde_json::to_value(&s).unwrap()));
         assert_eq!(loaded, s);
         assert!(!changed);
+    }
+
+    #[test]
+    fn a_click_palette_colour_changed_changes_the_buttons_that_were_it() {
+        let old = Settings::default();
+        let mut new = old.clone();
+        let palette = new
+            .styles
+            .tools
+            .get_mut("click")
+            .and_then(|t| t.palette.as_mut())
+            .unwrap();
+        // The left button's yellow and the right's pink, both changed.
+        palette[0] = "#111111".into();
+        palette[3] = "#222222".into();
+        new.recording.click_color_right = "#ffffff".into();
+        follow_click_palette(&old, &mut new);
+        assert_eq!(new.recording.click_color, "#111111");
+        // The right button's was being set itself: kept.
+        assert_eq!(new.recording.click_color_right, "#ffffff");
+        assert_eq!(new.recording.click_color_middle, "#4c9aff");
+    }
+
+    #[test]
+    fn custom_click_colours_turned_off_bring_back_the_ones_clicks_come_with() {
+        let mut old = Settings::default();
+        let custom = old.styles.tools.get_mut("click").unwrap();
+        custom.palette = Some(vec!["#111111".into(), "#222222".into()]);
+        old.recording.click_color = "#222222".into();
+        let mut new = old.clone();
+        new.styles.tools.get_mut("click").unwrap().palette = None;
+        follow_click_palette(&old, &mut new);
+        // The second colour then is the second they come with: orange.
+        assert_eq!(new.recording.click_color, "#ff8a00");
+    }
+
+    #[test]
+    fn a_recorded_click_is_a_size_the_click_tool_offers() {
+        let mut s = Settings::default();
+        s.recording.click_size = 50.0;
+        assert_eq!(validate(s.clone()).unwrap().recording.click_size, 44.0);
+        s.styles.click_size = crate::styles::NumberPicker::Slider {
+            min: 20.0,
+            max: 40.0,
+        };
+        assert_eq!(validate(s).unwrap().recording.click_size, 40.0);
+    }
+
+    #[test]
+    fn recorded_clicks_last_and_fade_within_reason() {
+        let mut s = Settings::default();
+        s.recording.click_seconds = 60.0;
+        s.recording.click_fade_in = -1.0;
+        s.recording.click_fade_out = f64::NAN;
+        s.recording.click_color = "nope".into();
+        s.recording.click_size = 2.0;
+        let v = validate(s).unwrap().recording;
+        // Kept to the range, then one of the click tool's sizes (its smallest).
+        assert_eq!(v.click_size, 24.0);
+        assert_eq!(
+            (v.click_seconds, v.click_fade_in, v.click_fade_out),
+            (5.0, 0.0, 0.3)
+        );
+        assert_eq!(v.click_color, "#ffd60a");
     }
 
     #[test]

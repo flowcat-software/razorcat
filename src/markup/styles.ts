@@ -17,8 +17,10 @@ import type {
   StepFormat,
   StrokeStyle,
   TextAlign,
+  ClickButton,
   ClickLook,
 } from "./model/types";
+import { doublesShown, useClickSettings } from "./clickSettings";
 import { nearestValue } from "./pickers";
 import type { ColorKey } from "./restyle";
 import { contrastingText, stepsOf, type StepStyle } from "./steps";
@@ -75,6 +77,21 @@ export const DEFAULT_STYLE_CONFIG: StyleConfig = {
       callout: {
         palette: null,
         width: { control: "slider", min: 1, max: 20 },
+        colorControl: null,
+      },
+      // Clicks' own colours (PLAN 5b.6d), as Rust's (styles.rs `CLICK_PALETTE`).
+      click: {
+        palette: [
+          "#ffd60a",
+          "#ff8a00",
+          "#ff2d2d",
+          "#ff4fd8",
+          "#4c9aff",
+          "#00d5ff",
+          "#00ff27",
+          "#ffffff",
+        ],
+        width: null,
         colorControl: null,
       },
     },
@@ -333,20 +350,34 @@ export function rememberWidth(tool: ToolId, width: number): void {
 
 const PREFERRED_STEP_SIZE = 32;
 
-/** The next step marker's style. */
-/** The click tool's next mark (PLAN 5b.6b): its look, size and colour. */
-export function toolClickStyle(): { look: ClickLook; size: number; color: string } {
+/**
+ * The click tool's next mark (PLAN 5b.6b): its look, size, button (its colour) and whether it's a
+ * double-click. While click styles are locked to Settings › Recording (5b.6d), the look and size
+ * are that's.
+ */
+export function toolClickStyle(): {
+  look: ClickLook;
+  size: number;
+  button: ClickButton;
+  double: boolean;
+} {
   const t = useToolStore.getState();
   const cfg = useStyleConfig.getState();
+  const recorded = useClickSettings.getState();
   return {
-    look: t.clickLook,
-    size: t.clickSize ?? nearestValue(cfg.styles.clickSize, PREFERRED_CLICK_SIZE),
-    color: toolColor("click"),
+    look: recorded.follow ? recorded.look : t.clickLook,
+    size: recorded.follow
+      ? recorded.size
+      : (t.clickSize ?? nearestValue(cfg.styles.clickSize, PREFERRED_CLICK_SIZE)),
+    button: t.clickButton,
+    double: t.clickDouble && doublesShown(recorded),
   };
 }
 
 /** The size a click mark starts at before one's picked. */
 const PREFERRED_CLICK_SIZE = 44;
+
+/** The next step marker's style. */
 
 export function toolStepStyle(): StepStyle {
   const t = useToolStore.getState();

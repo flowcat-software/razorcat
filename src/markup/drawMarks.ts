@@ -3,18 +3,24 @@
 // shows. The preview's layer holds only the playhead's markup, so MarkupDrawing.tsx keeps every
 // item drawn, out of sight, for this. Rust overlays them on the frame between their frames. A
 // spotlight is its hole, drawn by the preview's path (PLAN 4.5g): Rust cuts it out of the dark.
+// A ripple moves (PLAN 5b.6e): it's drawn again for each of its frames, by click.ts as the
+// preview's is, each picture its own item for that frame, its fade drawn into it.
 
 import type Konva from "konva";
-import { shownMarks, type Doc, type MarkId } from "../editor/doc";
+import { markFades, markOpacity, shownMarks, type Doc, type MarkId } from "../editor/doc";
 import type { Rect } from "../editor/fit";
 import { outputSize } from "../editor/frame";
 import { annotationBounds } from "./geometry";
-import { annotationId, annotationOf } from "./model/store";
-import type { Annotation } from "./model/types";
+import { clickReach, drawClick } from "./click";
+import { annotationId, annotationOf, timelineFps } from "./model/store";
+import type { Annotation, ClickAnnotation } from "./model/types";
 import { fillSpotlight } from "./spotlightHole";
 
 export interface DrawnMark {
+  /** The markup's id; a ripple's frames each have their own (from {@link FRAME_IDS}). */
   id: MarkId;
+  /** Its fades drawn in already (a ripple's frame): none for Rust to add. */
+  faded?: boolean;
   /** What it covers of the output frame, in its pixels. */
   x: number;
   y: number;
@@ -31,6 +37,9 @@ export interface DrawnMark {
    */
   layer: "item" | "highlight" | "hole";
 }
+
+/** Where the ids of a ripple's frame pictures start: past any markup's. */
+const FRAME_IDS = 1 << 30;
 
 /** The longest the drawing waits for fonts to load (ms). */
 const FONTS_WAIT = 2000;
@@ -83,6 +92,7 @@ export async function drawMarks(doc: Doc): Promise<DrawnMark[]> {
   await Promise.race([document.fonts.ready, new Promise((done) => setTimeout(done, FONTS_WAIT))]);
   const frame = outputSize(doc.frame);
   const drawn: DrawnMark[] = [];
+  let frameId = FRAME_IDS;
   for (const m of shown.sort((a, b) => b.lane - a.lane || a.start - b.start || a.id - b.id)) {
     const kept = doc.marks.find((k) => k.id === m.id);
     // Redactions work on the video: Rust makes them (PLAN 4.8b).
@@ -92,6 +102,19 @@ export async function drawMarks(doc: Doc): Promise<DrawnMark[]> {
     if (kept.object.kind === "spotlight") {
       const hole = drawHole(kept.object, frame);
       if (hole) drawn.push({ id: m.id, ...hole, start: m.start, end: m.end, layer: "hole" });
+      continue;
+    }
+    if (kept.object.kind === "click" && kept.object.look === "ripple") {
+      const a = annotationOf(m.id, kept.object);
+      if (a.kind !== "click") continue;
+      const length = m.end - m.start;
+      const fades = markFades(kept, length);
+      for (let f = m.start; f < m.end; f++) {
+        const alpha = markOpacity(fades, length, f - m.start);
+        const pic = drawRipple(a, (f - m.start) / timelineFps(), alpha, frame);
+        if (pic)
+          drawn.push({ id: frameId++, ...pic, start: f, end: f + 1, layer: "item", faded: true });
+      }
       continue;
     }
     const box = drawnBox(
@@ -122,6 +145,31 @@ export async function drawMarks(doc: Doc): Promise<DrawnMark[]> {
     });
   }
   return drawn;
+}
+
+/** Ripple `a` as it is `age` s after its click, at opacity `alpha`, cut to `frame`: null if off. */
+function drawRipple(
+  a: ClickAnnotation,
+  age: number,
+  alpha: number,
+  frame: { width: number; height: number },
+): ReturnType<typeof trim> {
+  const reach = clickReach(a) + 4;
+  const x0 = Math.max(0, Math.floor(a.x - reach));
+  const y0 = Math.max(0, Math.floor(a.y - reach));
+  const x1 = Math.min(frame.width, Math.ceil(a.x + reach));
+  const y1 = Math.min(frame.height, Math.ceil(a.y + reach));
+  if (x1 <= x0 || y1 <= y0 || alpha <= 0) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = x1 - x0;
+  canvas.height = y1 - y0;
+  const g = canvas.getContext("2d");
+  if (!g) throw new Error("No 2D canvas context.");
+  g.translate(a.x - x0, a.y - y0);
+  g.globalAlpha = alpha;
+  drawClick(g, a, age);
+  const cut = trim(g.getImageData(0, 0, x1 - x0, y1 - y0));
+  return cut && { ...cut, x: x0 + cut.x, y: y0 + cut.y };
 }
 
 /** Spotlight `spot`'s hole on a `frame`-sized picture, as the preview cuts it: null if it's off. */

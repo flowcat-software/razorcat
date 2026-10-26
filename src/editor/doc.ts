@@ -375,9 +375,16 @@ export const MARK_NAMES: Record<MarkObject["kind"], string> = {
 };
 
 /** What markup's bar on the timeline says: its text's first line, else what it is. */
-export function markLabel(o: MarkObject): string {
+export function markLabel(o: MarkObject, doubles = true): string {
+  if (o.kind === "click") return clickLabel(o.button, o.double && doubles);
   const text = o.kind === "text" || o.kind === "callout" ? o.text.trim().split("\n")[0] : "";
   return text || MARK_NAMES[o.kind];
+}
+
+/** A click's bar, short as it is (PLAN 5b.6d): "L click", "R click ×2" (none: the left). */
+function clickLabel(button: string | undefined, double: boolean): string {
+  const name = `${button === "middle" ? "M" : button === "right" ? "R" : "L"} click`;
+  return double ? `${name} ×2` : name;
 }
 
 export interface Doc {

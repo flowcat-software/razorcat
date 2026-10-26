@@ -73,7 +73,6 @@ describe("the markup's view of the edit", () => {
       y: 10,
       size: 44,
       look: "ring",
-      color: "#ffd60a",
       double: false,
     });
     // No player: at 30 fps, 0.8 s and 0.3 s.

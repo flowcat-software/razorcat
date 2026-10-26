@@ -8,6 +8,7 @@
 // a line its colour). A text's background is a fill, and goes as one. Never the text, the shape drawn or
 // the place. Written for Vandal to take back too: it needs only the annotations.
 
+import { buttonColor } from "./clickSettings";
 import type { Annotation } from "./model/types";
 import type { StylePatch } from "./restyle";
 
@@ -47,7 +48,8 @@ function styleOf(a: Annotation): Style {
     case "step":
       return { fill: a.color, text: a.textColor, font: { fontFamily: a.fontFamily } };
     case "click":
-      return { fill: a.color };
+      // Its button's colour, which it gives but never takes (PLAN 5b.6d).
+      return { fill: buttonColor(a.button) };
     case "rect":
     case "ellipse":
       // Solid: no border, the shape's colour its fill.
@@ -79,7 +81,12 @@ function ownOf(a: Annotation): StylePatch {
       // Not the labels' format and start: every marker shares those.
       return { stepShape: a.shape, stepSize: a.size };
     case "click":
-      return { clickLook: a.look, clickSize: a.size };
+      return {
+        clickLook: a.look,
+        clickSize: a.size,
+        clickButton: a.button ?? "left",
+        clickDouble: a.double,
+      };
     case "rect":
     case "ellipse":
       return { fill: a.fill, fillColor: a.fillColor };
@@ -112,7 +119,9 @@ export function stylePatchFor(source: Annotation, target: Annotation): StylePatc
       patch.background = true;
       patch.backgroundColor = s.fill;
     }
-  } else if (t === "callout" || t === "step" || t === "click") {
+  } else if (t === "click") {
+    // In its button's colour: no other.
+  } else if (t === "callout" || t === "step") {
     color = s.fill ?? s.line;
     if (s.text !== undefined) patch.textColor = s.text;
   } else if (target.kind === "rect" || target.kind === "ellipse") {

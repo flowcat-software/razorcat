@@ -11,7 +11,18 @@ import {
   RecordIcon,
   TimelineIcon,
 } from "./icons";
+import { DEFAULT_STYLE_CONFIG } from "../markup/styles";
+import type { Settings } from "../shared/ipc";
 import type { Section } from "./schema";
+
+/** The colours a click's button can be: Settings › Markup › Clicks' (PLAN 5b.6d). */
+const clickColors = (s: Settings) =>
+  (s.styles.tools.click?.palette ?? DEFAULT_STYLE_CONFIG.styles.tools.click?.palette ?? []).map(
+    (color) => ({ color, name: color }),
+  );
+
+/** A slider's seconds: "0.8 s", "0 s". */
+const seconds = (v: number) => `${Math.round(v * 100) / 100} s`;
 
 export const sections: Section[] = [
   {
@@ -516,6 +527,33 @@ export const sections: Section[] = [
         ],
       },
       {
+        title: "Clicks",
+        description:
+          "Clicks placed with the Click tool, and a recording's. Settings › Recording picks each mouse button's color and the size from these. With Custom colors off, clicks have their own bright colors (not the palette above).",
+        items: [
+          {
+            id: "tool-style-click",
+            kind: "toolStyle",
+            tool: "click",
+            label: "Clicks",
+            widths: false,
+            colorControl: false,
+            freshPalette: true,
+            keywords: ["click", "mouse", "color", "colour", "palette", "own"],
+          },
+          {
+            id: "styles-click-size",
+            kind: "numberPicker",
+            path: "styles.clickSize",
+            label: "Click sizes",
+            description:
+              "The sizes a click mark can be, in pixels across: on the Click tool's options bar, where keys 1–9 and 0 pick them, and in Settings › Recording.",
+            unit: "px",
+            keywords: ["click", "mouse", "size", "ripple", "ring"],
+          },
+        ],
+      },
+      {
         title: "Per-tool styles",
         description:
           "Give a tool its own colors, widths or way of showing colors instead of the ones above. The highlighter comes with its own colors.",
@@ -810,10 +848,111 @@ export const sections: Section[] = [
             id: "recordingClicks",
             kind: "toggle",
             path: "recording.clicks",
-            label: "Note clicks",
+            label: "Highlight clicks in video",
             description:
               "Where you click, to show on the timeline as markup you can move, restyle or delete. Also turned on or off as you record: the control's button, or Ctrl+Alt+C.",
             keywords: ["clicks", "mouse", "pointer", "show clicks", "highlight", "tutorial"],
+          },
+          {
+            id: "recordingClickLook",
+            kind: "choice",
+            path: "recording.clickLook",
+            label: "Click style",
+            description: "How each click shows. Ripple's rings spread out from where you clicked.",
+            options: [
+              { value: "ring", label: "Ring and dot" },
+              { value: "halo", label: "Halo" },
+              { value: "target", label: "Target" },
+              { value: "ripple", label: "Ripple" },
+            ],
+            keywords: ["click", "look", "style", "ring", "halo", "target", "ripple"],
+          },
+          {
+            id: "recordingClickColor",
+            kind: "color",
+            path: "recording.clickColor",
+            label: "Left click color",
+            description:
+              "Each click is drawn in its button's color: change one here and every click with that button changes too, recorded or placed. The colors offered are Settings › Markup › Clicks'.",
+            presets: clickColors,
+            keywords: ["click", "left", "color", "colour"],
+          },
+          {
+            id: "recordingClickColorRight",
+            kind: "color",
+            path: "recording.clickColorRight",
+            label: "Right click color",
+            presets: clickColors,
+            keywords: ["click", "right", "color", "colour"],
+          },
+          {
+            id: "recordingClickColorMiddle",
+            kind: "color",
+            path: "recording.clickColorMiddle",
+            label: "Middle click color",
+            presets: clickColors,
+            keywords: ["click", "middle", "wheel", "color", "colour"],
+          },
+          {
+            id: "recordingClickSize",
+            kind: "pickedNumber",
+            path: "recording.clickSize",
+            label: "Size",
+            description: "The sizes offered are Settings › Markup › Clicks'.",
+            // As the Click tool's options bar offers them (PLAN 5b.6d).
+            picker: (s) => s.styles.clickSize ?? DEFAULT_STYLE_CONFIG.styles.clickSize,
+            unit: "px",
+            keywords: ["click", "size", "big", "small"],
+          },
+          {
+            id: "recordingClickSeconds",
+            kind: "slider",
+            path: "recording.clickSeconds",
+            label: "Shows for",
+            min: 0.2,
+            max: 5,
+            step: 0.1,
+            format: seconds,
+            keywords: ["click", "duration", "length", "how long", "time"],
+          },
+          {
+            id: "recordingClickFadeIn",
+            kind: "slider",
+            path: "recording.clickFadeIn",
+            label: "Fades in over",
+            min: 0,
+            max: 2,
+            step: 0.05,
+            format: seconds,
+            keywords: ["click", "fade", "fade in", "appear"],
+          },
+          {
+            id: "recordingClickFadeOut",
+            kind: "slider",
+            path: "recording.clickFadeOut",
+            label: "Fades out over",
+            min: 0,
+            max: 2,
+            step: 0.05,
+            format: seconds,
+            keywords: ["click", "fade", "fade out", "disappear"],
+          },
+          {
+            id: "recordingClickDouble",
+            kind: "toggle",
+            path: "recording.clickDouble",
+            label: "Show double-clicks",
+            description: "A double-click gets a second ring around it.",
+            keywords: ["double click", "double-click", "ring"],
+          },
+          {
+            id: "recordingPlacedClicksFollow",
+            kind: "toggle",
+            path: "recording.placedClicksFollow",
+            label: "Lock click styles in the editor",
+            description:
+              "Clicks you place in the editor with the Click tool look and last as these, so they match the recorded ones: their style and size are set here, not on the options bar. Off, the Click tool has its own. Either way, every click is in its button's color from here, and changing a color here changes the clicks already in your videos.",
+            keywords: ["click", "tool", "match", "sync", "follow", "editor", "same", "placed"],
           },
         ],
       },

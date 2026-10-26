@@ -1071,3 +1071,14 @@
     0 0 0 2px var(--surface),
     0 0 0 4px var(--accent);
 }
+
+/* Controls that follow a setting elsewhere (a click's look and colour, Settings › Recording):
+   shown, dimmed, not changed here. */
+.locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.locked button:disabled {
+  cursor: not-allowed;
+}

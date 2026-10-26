@@ -10,6 +10,7 @@ import type {
   AnnotationKind,
   CalloutEnd,
   CalloutShape,
+  ClickButton,
   ClickLook,
   ArrowEnds,
   ArrowHead,
@@ -22,6 +23,7 @@ import type {
   TextAlign,
 } from "./model/types";
 import { growCallout } from "./callout";
+import { buttonColor, doublesShown } from "./clickSettings";
 import { textPx } from "./geometry";
 import { measureTextWidth } from "./textMeasure";
 import {
@@ -111,7 +113,7 @@ export interface TargetValues {
   /** Callouts only (`color` is the box's, `width` the pointer's). */
   callout: { textColor: string; end: CalloutEnd; shape: CalloutShape } | null;
   /** Click marks only (PLAN 5b.6b; `color` is the mark's). */
-  click: { look: ClickLook; size: number } | null;
+  click: { look: ClickLook; size: number; button: ClickButton; double: boolean } | null;
 }
 
 /** What the controls show: the first object's style, or the tool's. */
@@ -154,10 +156,16 @@ export function targetValues(target: StyleTarget, doc: Doc): TargetValues {
 
 /** A click mark's look and size, or the click tool's. */
 function clickValue(target: StyleTarget, a: Annotation | undefined): TargetValues["click"] {
-  if (a?.kind === "click") return { look: a.look, size: a.size };
+  if (a?.kind === "click")
+    return {
+      look: a.look,
+      size: a.size,
+      button: a.button ?? "left",
+      double: a.double && doublesShown(),
+    };
   if (!a && target.tool === "click") {
     const t = toolClickStyle();
-    return { look: t.look, size: t.size };
+    return { look: t.look, size: t.size, button: t.button, double: t.double };
   }
   return null;
 }
@@ -231,7 +239,8 @@ function styleValues(
   }
   if (a.kind === "click") {
     return {
-      color: a.color,
+      // Its button's (PLAN 5b.6d): not shown, nor picked.
+      color: buttonColor(a.button),
       width: null,
       fill: null,
       fillColor: null,
@@ -300,7 +309,8 @@ function styleValues(
 export function targetSections(target: StyleTarget) {
   const all = (pred: (k: AnnotationKind) => boolean) => target.kinds.every(pred);
   return {
-    color: target.kinds.some((k) => k !== "redact" && k !== "spotlight"),
+    // A click is in its button's colour, from Settings › Recording (PLAN 5b.6d).
+    color: target.kinds.some((k) => k !== "redact" && k !== "spotlight" && k !== "click"),
     width: target.kinds.some((k) => widthTool(TOOL_FOR_KIND[k])),
     fill: all((k) => k === "rect" || k === "ellipse"),
     head: all((k) => k === "arrow"),
@@ -417,9 +427,12 @@ export interface StylePatch {
   pointerEnd?: CalloutEnd;
   /** A callout's shape (PLAN 3E.3). */
   calloutShape?: CalloutShape;
-  /** A click mark's look and size (PLAN 5b.6b). */
+  /** A click mark's look and size (PLAN 5b.6b), and its button (5b.6d). */
   clickLook?: ClickLook;
   clickSize?: number;
+  clickButton?: ClickButton;
+  /** A double-click's second ring. */
+  clickDouble?: boolean;
 }
 
 /** Tools whose corners round. */
@@ -482,7 +495,8 @@ export function patchAnnotation(a: Annotation, p: StylePatch): Annotation {
       ...a,
       look: p.clickLook ?? a.look,
       size: p.clickSize ?? a.size,
-      color: p.color ?? a.color,
+      button: p.clickButton ?? a.button,
+      double: p.clickDouble ?? a.double,
     };
   }
   if (a.kind === "redact") {
@@ -583,6 +597,8 @@ export function applyStyle(patch: StylePatch, target = styleTarget()): void {
       useToolStore.setState({
         clickLook: patch.clickLook ?? t.clickLook,
         clickSize: patch.clickSize ?? t.clickSize,
+        clickButton: patch.clickButton ?? t.clickButton,
+        clickDouble: patch.clickDouble ?? t.clickDouble,
       });
     }
     if (tool === "spotlight") {

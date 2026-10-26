@@ -28,6 +28,8 @@ import { editStepLabel } from "./stepEditing";
 import { editText } from "./textEditing";
 import { duplicateSelection } from "./objectActions";
 import { shortcutOf } from "./shortcuts";
+import { useClickSettings } from "./clickSettings";
+import { BUTTONS } from "./ClickOptions";
 import styles from "./markup.module.css";
 
 /**
@@ -117,6 +119,8 @@ function pickWidth(slot: number): boolean {
     return true;
   }
   if (sections.click) {
+    // Locked to Settings › Recording (PLAN 5b.6d): the digit does nothing.
+    if (useClickSettings.getState().follow) return true;
     const clickSize = pickByDigit(useStyleConfig.getState().styles.clickSize, slot);
     if (clickSize !== null) applyStyle({ clickSize });
     return true;
@@ -152,6 +156,12 @@ function pickAlt(slot: number): boolean {
     if (targetValues(target, docStore.getState().doc).corner === null) return false;
     const cornerRadius = pickByDigit(useStyleConfig.getState().styles.cornerRadius, slot);
     if (cornerRadius !== null) applyStyle({ cornerRadius });
+    return true;
+  }
+  if (sections.click) {
+    // Alt+1–3: left, middle, right (PLAN 5b.6d).
+    const button = BUTTONS[slot - 1]?.id;
+    if (button) applyStyle({ clickButton: button });
     return true;
   }
   if (!sections.text && !sections.step) return false;

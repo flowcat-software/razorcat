@@ -257,6 +257,14 @@ export type CheckFrames = {
 	layout: boolean,
 };
 
+/**
+ *  How a click mark looks (the markup's `ClickLook`): a ring round a dot, a soft glow, crosshair
+ *  ticks round a ring, or rings spreading out.
+ */
+export type ClickLook = "ring" | "halo" | "target" | 
+/**  The default (Richard, 2026-10-26): it draws the eye to where the click was. */
+"ripple";
+
 /**  Rust → the control: clicks noted or not. */
 export type ClicksNoted = boolean;
 
@@ -731,6 +739,26 @@ export type Recording = {
 	countdown?: number,
 	/**  Clicks noted while recording, to become markup (PLAN 5b.6); off until chosen. */
 	clicks?: boolean,
+	/**
+	 *  How a recording's clicks look (PLAN 5b.6d): the look; the left, right and middle buttons'
+	 *  colours; the size (px across); how long each shows and fades in and out over (s); and a
+	 *  double-click's second ring.
+	 */
+	clickLook?: ClickLook,
+	clickColor?: string,
+	clickColorRight?: string,
+	clickColorMiddle?: string,
+	clickSize?: number | null,
+	clickSeconds?: number | null,
+	clickFadeIn?: number | null,
+	clickFadeOut?: number | null,
+	clickDouble?: boolean,
+	/**
+	 *  Clicks placed by hand in the editor look and last as recorded ones (Richard, 2026-10-26):
+	 *  the click tool's look, colour (the left button's) and size follow these, and its options
+	 *  bar's are locked.
+	 */
+	placedClicksFollow?: boolean,
 };
 
 /**

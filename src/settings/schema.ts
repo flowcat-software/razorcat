@@ -6,7 +6,7 @@
 // when a setting needs one.
 import type { ComponentType } from "react";
 import type { ToolId } from "../markup/toolStore";
-import type { Settings } from "../shared/ipc";
+import type { Settings, NumberPicker } from "../shared/ipc";
 import type { PathOf } from "./path";
 
 interface BaseItem {
@@ -59,7 +59,19 @@ export interface AccentItem extends BaseItem {
 export interface ColorItem extends BaseItem {
   kind: "color";
   path: PathOf<Settings, string>;
-  presets: readonly { color: string; name: string }[];
+  /** Fixed, or from the settings (a tool's palette). */
+  presets:
+    | readonly { color: string; name: string }[]
+    | ((s: Settings) => readonly { color: string; name: string }[]);
+}
+
+/** A number picked as a markup tool's options bar picks it: the control and values `picker`
+ *  says (Settings › Markup's). */
+export interface PickedNumberItem extends BaseItem {
+  kind: "pickedNumber";
+  path: PathOf<Settings, number>;
+  picker: (s: Settings) => NumberPicker;
+  unit: string;
 }
 
 /** Which microphone records (Settings › Recording): the default, or one connected. */
@@ -138,6 +150,7 @@ export interface NumberPickerItem extends BaseItem {
     | "styles.blur"
     | "styles.spotlight"
     | "styles.stepSize"
+    | "styles.clickSize"
     | "styles.cornerRadius";
   unit: "px" | "pt" | "%";
   /** 0 is always a choice, first in the list or the slider's start. */
@@ -162,6 +175,11 @@ export interface ToolStyleItem extends BaseItem {
   tool: ToolId;
   /** The tool draws lines, so a width override applies. */
   widths: boolean;
+  /** How it shows its colors can be chosen (default: yes). */
+  colorControl?: boolean;
+  /** Custom colors turned on start from the tool's own, not the ones set aside when they
+   *  were turned off (clicks: off, their own are what they use). */
+  freshPalette?: boolean;
 }
 
 /** A tool's fonts (Vandal's): the text tool's, or the step markers'. */
@@ -171,6 +189,7 @@ export interface FontPickerItem extends BaseItem {
 }
 
 export type Item =
+  | PickedNumberItem
   | NumberItem
   | ToggleItem
   | ChoiceItem

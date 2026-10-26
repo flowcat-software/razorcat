@@ -1,3 +1,4 @@
+import { doublesShown, useClickSettings } from "../markup/clickSettings";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { setDragHint, setHoverHint, type ControlHint, type DragHint } from "../markup/hints";
 import { annotationId, docStore as markupDoc } from "../markup/model/store";
@@ -1346,7 +1347,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
         g.fillStyle = "#fff";
         g.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
         g.fillText(
-          mark ? markLabel(mark.object) : "",
+          mark ? markLabel(mark.object, doublesShown()) : "",
           Math.max(fx0, HEADER) + 8,
           y0 + LANE_H / 2 + 1,
         );
@@ -1403,7 +1404,11 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
         const kept = marks.get(p.id);
         g.fillStyle = "rgb(255 255 255 / 0.8)";
         g.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
-        g.fillText(kept ? markLabel(kept.object) : "", Math.max(x0, HEADER) + 8, y0 + L.h / 2 + 1);
+        g.fillText(
+          kept ? markLabel(kept.object, doublesShown()) : "",
+          Math.max(x0, HEADER) + 8,
+          y0 + L.h / 2 + 1,
+        );
       }
       // The selection box being dragged.
       const box = boxing.current;
@@ -1551,6 +1556,8 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
     draw.current();
     const stopView = useTimeline.subscribe(draw.current);
     const stopDoc = useDoc.subscribe(draw.current);
+    // Clicks' labels say "×2" as the click settings show double-clicks (PLAN 5b.6d).
+    const stopClicks = useClickSettings.subscribe(draw.current);
     let last = player.getState().frame;
     const stopPlayer = player.subscribe(() => {
       // Playing: the view follows the playhead, a page at a time. Paused, a jump out of view
@@ -1566,6 +1573,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
       cancelAnimationFrame(queued);
       stopView();
       stopDoc();
+      stopClicks();
       stopPlayer();
     };
   }, [colours, source, sources, audio, player, frames, inFrames]);
