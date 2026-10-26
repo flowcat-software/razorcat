@@ -582,3 +582,30 @@ describe("callouts", () => {
     expect(translateAnnotation(a, 5, 5, true)).toMatchObject({ x: 105, y: 105 });
   });
 });
+
+describe("markup selected on the timeline, off the playhead", () => {
+  beforeEach(() => {
+    docStore.getState().load(emptyDoc({ width: 100, height: 100 }));
+    useToolStore.setState({ tool: "select" });
+  });
+
+  it("shows its style on the options bar, and takes a change (Razorcat)", () => {
+    // At frame 500; the playhead is at 0.
+    const id = useEdit
+      .getState()
+      .addMark(
+        { kind: "click", x: 5, y: 5, look: "ring", size: 44, double: false, button: "left" },
+        500,
+        24,
+        0,
+      )!;
+    useEdit.getState().selectMarks([id]);
+    expect(docStore.getState().selection).toEqual([]);
+    const target = styleTarget()!;
+    expect(target.tool).toBe("click");
+    expect(targetValues(target, docStore.getState().doc).click).toMatchObject({ size: 44 });
+    applyStyle({ clickSize: 60, clickLook: "halo" });
+    const m = useEdit.getState().doc.marks.find((k) => k.id === id)!;
+    expect(m.object).toMatchObject({ size: 60, look: "halo" });
+  });
+});

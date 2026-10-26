@@ -55,10 +55,12 @@ export function HintLine({ scroll = false }: { scroll?: boolean }) {
   // For naming the second color only when there is one.
   const doc = useDoc((s) => s.doc);
   const selection = useDoc((s) => s.selection);
+  // Selected on the timeline, off the playhead: styled here too.
+  const offstage = useDoc((s) => s.offstage);
   const editing = useToolStore((s) => s.editing?.id ?? null);
   useToolStore((s) => s.fills);
   useToolStore((s) => s.textBackground);
-  const target = styleTarget(doc, selection, tool, editing);
+  const target = styleTarget(doc, selection, tool, editing, offstage);
   const values = target && targetValues(target, doc);
   const twoColors =
     !!target && !!values && colorSlots(values, targetSections(target)).second !== null;

@@ -55,15 +55,24 @@ export interface StyleTarget {
   kinds: AnnotationKind[];
 }
 
+/**
+ * The markup a style change reaches: `doc`'s (showing at the playhead), and what's selected on
+ * the timeline off it (Razorcat: restyled there, it kept its old style).
+ */
+function reachable(doc: Doc, offstage = docStore.getState().offstage): Annotation[] {
+  return offstage.length ? [...doc.annotations, ...offstage] : doc.annotations;
+}
+
 /** The target for the current state, or null (Select tool, nothing selected). */
 export function styleTarget(
   doc: Doc = docStore.getState().doc,
   selection: readonly AnnotationId[] = docStore.getState().selection,
   tool: ToolId = useToolStore.getState().tool,
   editing: AnnotationId | null = useToolStore.getState().editing?.id ?? null,
+  offstage: readonly Annotation[] = docStore.getState().offstage,
 ): StyleTarget | null {
-  const ids = editing ? [editing] : [...selection];
-  const picked = doc.annotations.filter((a) => ids.includes(a.id));
+  const ids = editing ? [editing] : [...selection, ...offstage.map((a) => a.id)];
+  const picked = reachable(doc, [...offstage]).filter((a) => ids.includes(a.id));
   if (picked.length) {
     const kinds = [...new Set(picked.map((a) => a.kind))];
     // A mixed selection shows the pickers of the first kind that draws
@@ -118,7 +127,7 @@ export interface TargetValues {
 
 /** What the controls show: the first object's style, or the tool's. */
 export function targetValues(target: StyleTarget, doc: Doc): TargetValues {
-  const a = doc.annotations.find((x) => x.id === target.ids[0]);
+  const a = reachable(doc).find((x) => x.id === target.ids[0]);
   if (a?.kind === "callout" || (!a && target.tool === "callout")) {
     const c = a?.kind === "callout" ? a : toolCalloutStyle();
     return {
@@ -172,7 +181,7 @@ function clickValue(target: StyleTarget, a: Annotation | undefined): TargetValue
 
 /** The corner radius on show, or null where corners don't apply (ellipses, round spotlights). */
 function cornerValue(target: StyleTarget, doc: Doc): number | null {
-  const a = doc.annotations.find((x) => x.id === target.ids[0]);
+  const a = reachable(doc).find((x) => x.id === target.ids[0]);
   if (!a) {
     if (target.tool === "rect") return toolCornerRadius("rect");
     if (target.tool === "spotlight" && useToolStore.getState().spotlightShape === "rect")
@@ -685,7 +694,7 @@ export function swapColors(): boolean {
   // remember its result, as they would for any restyle.
   const each = target.ids
     .map((id) => {
-      const kind = doc.annotations.find((a) => a.id === id)?.kind;
+      const kind = reachable(doc).find((a) => a.id === id)?.kind;
       if (!kind) return null;
       const one: StyleTarget = { tool: TOOL_FOR_KIND[kind], ids: [id], kinds: [kind] };
       const patch = swapped(one);
@@ -747,7 +756,7 @@ export function resetStepStyles(style: StepStyle): void {
 
 /** Redact remembers its mode, and the strength for the mode it applies to. */
 function rememberRedact(target: StyleTarget, patch: StylePatch): void {
-  const first = docStore.getState().doc.annotations.find((a) => target.ids.includes(a.id));
+  const first = reachable(docStore.getState().doc).find((a) => target.ids.includes(a.id));
   const mode =
     patch.redactMode ??
     (first?.kind === "redact" ? first.mode : useToolStore.getState().redactMode);

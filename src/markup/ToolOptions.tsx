@@ -183,6 +183,8 @@ const POINTER_ENDS: { id: CalloutEnd; label: string; icon: ReactNode }[] = [
 export function ToolOptions({ compact = false }: { compact?: boolean }) {
   const doc = useDoc((s) => s.doc);
   const selection = useDoc((s) => s.selection);
+  // Selected on the timeline, off the playhead: styled here too.
+  const offstage = useDoc((s) => s.offstage);
   const tool = useToolStore((s) => s.tool);
   const editing = useToolStore((s) => s.editing?.id ?? null);
   // The groups wrap to more rows when the bar is narrow (PLAN 2C).
@@ -197,7 +199,7 @@ export function ToolOptions({ compact = false }: { compact?: boolean }) {
   const held = useHeldKeys();
   const hints = config.showShortcutHints;
 
-  const target = styleTarget(doc, selection, tool, editing);
+  const target = styleTarget(doc, selection, tool, editing, offstage);
   if (!target) {
     // Nothing to style: the status bar's hint line says what to do.
     return <div className={styles.options} />;

@@ -66,6 +66,11 @@ export interface DocState {
   labels: Readonly<Record<AnnotationId, string>>;
   /** How long ago (s) each showing ripple's click was: where its rings have spread to. */
   ages: Readonly<Record<AnnotationId, number>>;
+  /**
+   * The selected markup that isn't showing at the playhead (selected on the timeline): not
+   * drawn, but the options bar shows and changes its style too.
+   */
+  offstage: Annotation[];
 
   /**
    * A fresh edit holding just `doc`'s annotations, from the start, as long as an edit with
@@ -161,7 +166,7 @@ export function stepsDoc(): Doc {
 
 function view(): Pick<
   DocState,
-  "doc" | "selection" | "gestureStart" | "opacity" | "dark" | "labels" | "ages"
+  "doc" | "selection" | "gestureStart" | "opacity" | "dark" | "labels" | "ages" | "offstage"
 > {
   const edit = useEdit.getState();
   const frame = player?.getState().frame ?? 0;
@@ -207,6 +212,9 @@ function view(): Pick<
     labels: timelineStepLabels(edit.doc),
     doc,
     selection: edit.selectedMarks.filter((id) => showing.has(id)).map(annotationId),
+    offstage: edit.selectedMarks
+      .filter((id) => !showing.has(id) && objects.has(id))
+      .map((id) => annotationOf(id, objects.get(id)!)),
     gestureStart: edit.gestureStart ? doc : null,
   };
 }
@@ -235,6 +243,9 @@ function refresh() {
   const sameLabels =
     Object.keys(next.labels).length === Object.keys(s.labels).length &&
     Object.entries(next.labels).every(([id, l]) => s.labels[id] === l);
+  const sameOffstage =
+    next.offstage.length === s.offstage.length &&
+    next.offstage.every((a, i) => a === s.offstage[i]);
   const sameAges =
     Object.keys(next.ages).length === Object.keys(s.ages).length &&
     Object.entries(next.ages).every(([id, t]) => s.ages[id] === t);
@@ -245,6 +256,7 @@ function refresh() {
     sameDark &&
     sameLabels &&
     sameAges &&
+    sameOffstage &&
     !next.gestureStart === !s.gestureStart
   )
     return;
@@ -252,6 +264,7 @@ function refresh() {
     dark: sameDark ? s.dark : next.dark,
     labels: sameLabels ? s.labels : next.labels,
     ages: sameAges ? s.ages : next.ages,
+    offstage: sameOffstage ? s.offstage : next.offstage,
     opacity: sameOpacity ? s.opacity : next.opacity,
     doc: same ? s.doc : next.doc,
     selection: sameSelection ? s.selection : next.selection,
@@ -272,6 +285,7 @@ export const docStore = createStore<DocState>()(() => ({
   dark: null,
   labels: {},
   ages: {},
+  offstage: [],
 
   load: (doc) => {
     const edit = useEdit.getState();
