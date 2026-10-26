@@ -56,6 +56,36 @@
   font: inherit;
 }
 
+/* The microphone's mute button: struck through and red while muted. */
+.mic {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgb(127 127 127 / 0.16);
+  color: inherit;
+}
+
+.mic:hover {
+  background: rgb(127 127 127 / 0.26);
+}
+
+.mic[aria-pressed="true"] {
+  color: #e5484d;
+}
+
+.mic svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
 .stop:hover:not(:disabled) {
   background: #d13a40;
 }

@@ -80,6 +80,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::pick_cancel,
             commands::pick_load,
             commands::set_record_sound,
+            commands::mute_recording,
             commands::microphones,
             commands::pick_window_changed,
             commands::pick_window,
@@ -112,6 +113,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             proxy::ProxyStopped,
             proxy::ProxyFailed,
             recording::RecordingChanged,
+            recording::MicMuted,
             picker::PickClear,
             picker::PickWindow,
             thumbs::ThumbsUpdate,
@@ -186,6 +188,7 @@ pub fn run() {
             open_from_args(app, &args, Path::new(&cwd));
         }))
         .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .register_asynchronous_uri_scheme_protocol(protocol::SCHEME, protocol::handle)
         .invoke_handler(specta.invoke_handler())

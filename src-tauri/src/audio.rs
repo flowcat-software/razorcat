@@ -8,11 +8,12 @@
 //! before with silence, one early is cut. Loopback sends nothing while nothing plays, so silence
 //! fills those gaps as the clock goes on.
 
+use std::collections::VecDeque;
 use std::fs::File;
 use std::os::windows::io::FromRawHandle;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -166,7 +167,13 @@ pub struct Capture {
     pub format: Format,
     /// The pipe ffmpeg reads (`-i`).
     pub pipe: String,
+    /// It's the microphone (it can be muted).
+    pub microphone: bool,
     stop: Arc<AtomicBool>,
+    /// Muting and unmuting, each when it was asked on the clock: silence goes in place of the
+    /// sound captured from then (not read from then: it comes a little after), and the clock
+    /// goes on, so sync holds.
+    mutes: Arc<Mutex<Mutes>>,
     threads: Vec<JoinHandle<()>>,
 }
 
@@ -196,12 +203,14 @@ impl Capture {
         // SAFETY: a new, valid handle, owned by this File from here.
         let file = unsafe { File::from_raw_handle(handle.0) };
 
+        let microphone = matches!(source, Source::Microphone(_));
         let stop = Arc::new(AtomicBool::new(false));
+        let mutes = Arc::new(Mutex::new(Mutes::default()));
         let (chunks, rx) = channel::<Vec<u8>>();
         let (ready, started) = channel::<Result<Format, String>>();
         let taking = {
-            let stop = stop.clone();
-            std::thread::spawn(move || take(source, clock, &stop, &ready, &chunks))
+            let (stop, mutes) = (stop.clone(), mutes.clone());
+            std::thread::spawn(move || take(source, clock, &stop, &mutes, &ready, &chunks))
         };
         let format = match started.recv() {
             Ok(Ok(f)) => f,
@@ -216,9 +225,23 @@ impl Capture {
         Ok(Capture {
             format,
             pipe,
+            microphone,
             stop,
+            mutes,
             threads: vec![taking, writing],
         })
+    }
+
+    /// As last asked.
+    pub fn muted(&self) -> bool {
+        self.mutes.lock().unwrap().asked
+    }
+
+    /// From now on the clock.
+    pub fn set_muted(&self, muted: bool) {
+        let mut m = self.mutes.lock().unwrap();
+        m.asked = muted;
+        m.presses.push_back((qpc_now(), muted));
     }
 
     /// Stops taking; the pipe closes, which ends ffmpeg's sound.
@@ -270,13 +293,14 @@ fn take(
     source: Source,
     clock: Clock,
     stop: &AtomicBool,
+    mutes: &Mutex<Mutes>,
     ready: &Sender<Result<Format, String>>,
     chunks: &Sender<Vec<u8>>,
 ) {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
     }
-    let opened = unsafe { open(source) };
+    let opened = unsafe { open(source.clone()) };
     let (client, capture, format) = match opened {
         Ok(o) => o,
         Err(e) => {
@@ -290,6 +314,8 @@ fn take(
     let rate = i64::from(format.rate);
     let mut line = Timeline::new((TOLERANCE * rate as f64) as i64);
     let silence = |frames: i64| vec![0u8; frames.max(0) as usize * format.block];
+    // How long after capture the sound reaches us (100 ns), the most seen: the log says.
+    let mut late = 0i64;
     while !stop.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(10));
         let mut got = false;
@@ -311,7 +337,9 @@ fn take(
             let place = line.place(start, i64::from(frames));
             let mut out = silence(place.pad);
             let kept = (i64::from(frames) - place.skip).max(0) as usize * format.block;
-            if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 || data.is_null() {
+            let silent = flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0;
+            let at = out.len();
+            if silent || data.is_null() {
                 out.resize(out.len() + kept, 0);
             } else {
                 let from = place.skip as usize * format.block;
@@ -319,6 +347,13 @@ fn take(
                 let all =
                     unsafe { std::slice::from_raw_parts(data, frames as usize * format.block) };
                 out.extend_from_slice(&all[from..from + kept]);
+            }
+            late = late.max(qpc_now() - qpc as i64);
+            // Muted where it was captured while muted.
+            let first = qpc as i64 + place.skip * 10_000_000 / rate;
+            let n = kept / format.block;
+            for (a, b) in mutes.lock().unwrap().spans(first, n, format.rate) {
+                out[at + a * format.block..at + b * format.block].fill(0);
             }
             let _ = unsafe { capture.ReleaseBuffer(frames) };
             got = true;
@@ -334,6 +369,10 @@ fn take(
             }
         }
     }
+    logln!(
+        "[audio] {source:?}: sound came up to {} ms after it was captured",
+        late / 10_000
+    );
     unsafe {
         let _ = client.Stop();
         CoUninitialize();
@@ -405,6 +444,47 @@ unsafe fn format_of(mix: *const WAVEFORMATEX) -> Result<Format, String> {
         channels: wf.nChannels,
         block: usize::from(wf.nBlockAlign),
     })
+}
+
+/// Muting asked for, in order, each stamped on the clock (100 ns), and how it stands for the
+/// sound taken so far.
+#[derive(Debug, Default)]
+struct Mutes {
+    /// As last asked (what the control shows).
+    asked: bool,
+    /// For the sound taken so far.
+    now: bool,
+    presses: VecDeque<(i64, bool)>,
+}
+
+impl Mutes {
+    /// Which of `frames` frames, the first captured at `first` (100 ns) at `rate`, are muted:
+    /// spans [from, to) of them. Presses at or before a frame's time apply to it.
+    fn spans(&mut self, first: i64, frames: usize, rate: u32) -> Vec<(usize, usize)> {
+        let mut spans = Vec::new();
+        let mut from = 0;
+        let at = |i: usize| first + i as i64 * 10_000_000 / i64::from(rate);
+        while from < frames {
+            // Presses up to this frame change how it stands.
+            while let Some(&(t, m)) = self.presses.front() {
+                if t > at(from) {
+                    break;
+                }
+                self.now = m;
+                self.presses.pop_front();
+            }
+            // As it stands until the next press, or the end.
+            let to = match self.presses.front() {
+                Some(&(t, _)) => (from + 1..frames).find(|&i| at(i) >= t).unwrap_or(frames),
+                None => frames,
+            };
+            if self.now {
+                spans.push((from, to));
+            }
+            from = to;
+        }
+        spans
+    }
 }
 
 /// Where the sound is up to on the clock's line, in frames, and what each packet needs to land
@@ -486,6 +566,23 @@ mod tests {
         assert_eq!(t.written, 0);
         assert_eq!(t.place(-300, 480), Place { pad: 0, skip: 300 });
         assert_eq!(t.written, 180);
+    }
+
+    #[test]
+    fn muting_falls_where_the_sound_was_captured_when_asked() {
+        // 1000 frames a second: a frame each 10_000 (100 ns).
+        let mut m = Mutes::default();
+        assert!(m.spans(0, 10, 1000).is_empty());
+        // Muted at frame 15's time, unmuted at 18's: a packet of 10 from frame 10.
+        m.presses.push_back((150_000, true));
+        m.presses.push_back((180_000, false));
+        assert_eq!(m.spans(100_000, 10, 1000), vec![(5, 8)]);
+        // Muted from before a packet: all of it, until unmuted.
+        m.presses.push_back((190_000, true));
+        assert_eq!(m.spans(200_000, 4, 1000), vec![(0, 4)]);
+        m.presses.push_back((260_000, false));
+        assert_eq!(m.spans(240_000, 4, 1000), vec![(0, 2)]);
+        assert!(m.spans(280_000, 4, 1000).is_empty());
     }
 
     #[test]

@@ -134,6 +134,8 @@ export const commands = {
 	 *  given, or as it is.
 	 */
 	setRecordSound: (microphone: boolean | null, system: boolean | null) => typedError<null, string>(__TAURI_INVOKE("set_record_sound", { microphone, system })),
+	/**  The control's microphone button: muted or not. */
+	muteRecording: (muted: boolean) => __TAURI_INVOKE<void>("mute_recording", { muted }),
 	/**  The microphones connected now, and which is the default (Settings › Recording). */
 	microphones: () => __TAURI_INVOKE<Microphones>("microphones"),
 	/**  Window mode on or off, and the window under the pointer, on one overlay: all follow. */
@@ -195,6 +197,7 @@ export const events = {
 	dropHover: makeEvent<DropHover>("drop-hover"),
 	exportEnded: makeEvent<ExportEnded>("export-ended"),
 	exportProgress: makeEvent<ExportProgress>("export-progress"),
+	micMuted: makeEvent<MicMuted>("mic-muted"),
 	openFailed: makeEvent<OpenFailed>("open-failed"),
 	openOffered: makeEvent<OpenOffered>("open-offered"),
 	pickClear: makeEvent<PickClear>("pick-clear"),
@@ -541,6 +544,9 @@ export type MediaTools = {
 	ffmpeg: string | null,
 	gifski: string | null,
 };
+
+/**  Rust → the control: the microphone muted or not (by its button or [`MUTE_KEY`]). */
+export type MicMuted = boolean;
 
 /**  A microphone Windows has connected. */
 export type Microphone = {

@@ -308,6 +308,13 @@ pub fn set_record_sound(
     settings::update(&app, s).map(drop)
 }
 
+/// The control's microphone button: muted or not.
+#[tauri::command]
+#[specta::specta]
+pub fn mute_recording(app: AppHandle, muted: bool) {
+    crate::recording::mute(&app, Some(muted));
+}
+
 /// The microphones connected now, and which is the default (Settings › Recording).
 #[tauri::command]
 #[specta::specta]

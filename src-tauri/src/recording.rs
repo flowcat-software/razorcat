@@ -36,6 +36,10 @@ const OUTLINE_LABEL: &str = "recording-outline";
 const FPS: u32 = 60;
 /// The control's size (logical px) and its gap from the monitor's top.
 const CONTROL: (f64, f64) = (196.0, 44.0);
+/// What the microphone's mute button adds to it (a button and a gap).
+const CONTROL_MIC: f64 = 36.0;
+/// Mutes and unmutes the microphone while recording, wherever the keys are (PLAN 5b.4d).
+const MUTE_KEY: &str = "Ctrl+Alt+M";
 const CONTROL_TOP: f64 = 8.0;
 /// How long ffmpeg must keep running for an encoder to count as working.
 const STARTED: Duration = Duration::from_millis(1500);
@@ -85,6 +89,49 @@ fn sound_sources(app: &AppHandle) -> Vec<audio::Source> {
         sources.push(audio::Source::System);
     }
     sources
+}
+
+/// Rust → the control: the microphone muted or not (by its button or [`MUTE_KEY`]).
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct MicMuted(pub bool);
+
+/// Mutes the microphone being recorded, or unmutes it (`muted` None: the other way). Says so to
+/// the control.
+pub fn mute(app: &AppHandle, muted: Option<bool>) {
+    let now = NOW.lock().unwrap();
+    let Some(mic) = now
+        .as_ref()
+        .and_then(|r| r.sound.iter().find(|c| c.microphone))
+    else {
+        return;
+    };
+    let muted = muted.unwrap_or(!mic.muted());
+    mic.set_muted(muted);
+    drop(now);
+    logln!(
+        "[recording] microphone {}",
+        if muted { "muted" } else { "on" }
+    );
+    let _ = MicMuted(muted).emit_to(app, RECORDER);
+}
+
+/// [`MUTE_KEY`] held while a recording has the microphone; let go when it's done.
+fn hold_mute_key(app: &AppHandle, on: bool) {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+    let keys = app.global_shortcut();
+    if !on {
+        let _ = keys.unregister(MUTE_KEY);
+        return;
+    }
+    let registered = keys.on_shortcut(MUTE_KEY, |app, _, event| {
+        if event.state == ShortcutState::Pressed {
+            mute(app, None);
+        }
+    });
+    if let Err(e) = registered {
+        // Another app has it: the control's button still mutes.
+        logln!("[recording] {MUTE_KEY} not available: {e}");
+    }
 }
 
 /// Why ffmpeg didn't start: source `n` couldn't be had (record without it), or ffmpeg itself
@@ -344,7 +391,10 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<(), String> {
             open_outline(app, &target.screen, area, &marks);
         }
     }
-    open_control(app, &target.screen);
+    let mic = sound_sources(app)
+        .iter()
+        .any(|s| matches!(s, audio::Source::Microphone(_)));
+    open_control(app, &target.screen, mic);
     // The overlays and the editor out of the way before the first frame.
     std::thread::sleep(Duration::from_millis(250));
 
@@ -357,6 +407,7 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<(), String> {
             match spawn(target, encoder, &part, &sources) {
                 Ok(running) => {
                     logln!("[recording] {w}×{h} with {encoder:?}, sound {sources:?}");
+                    hold_mute_key(app, running.sound.iter().any(|c| c.microphone));
                     // Said before it can be stopped, so "stopped" always comes after.
                     let _ = RecordingChanged {
                         recording: true,
@@ -562,6 +613,7 @@ pub fn stop(app: &AppHandle) {
 /// file, or says why there isn't one.
 fn finish(app: &AppHandle, mut r: Running, ended: bool) {
     close_control(app);
+    hold_mute_key(app, false);
     // The sound first: its pipe closing ends ffmpeg's sound, then `q` its video.
     std::mem::take(&mut r.sound)
         .into_iter()
@@ -611,11 +663,14 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
 
 /// The control: a small window at the top of `screen`, over everything, not in the taskbar, and
 /// left out of the recording.
-fn open_control(app: &AppHandle, screen: &Screen) {
-    let builder = WebviewWindowBuilder::new(app, RECORDER, WebviewUrl::App("recorder.html".into()));
+fn open_control(app: &AppHandle, screen: &Screen, mic: bool) {
+    let width = CONTROL.0 + if mic { CONTROL_MIC } else { 0.0 };
+    let builder = WebviewWindowBuilder::new(app, RECORDER, WebviewUrl::App("recorder.html".into()))
+        // The microphone's mute button, when it's recorded.
+        .initialization_script(format!("window.recordingMic = {mic};"));
     let built = crate::appearance::themed(app, builder)
         .title("Recording")
-        .inner_size(CONTROL.0, CONTROL.1)
+        .inner_size(width, CONTROL.1)
         .decorations(false)
         // With a shadow, resizing a window with no frame adds the frame's size back.
         .shadow(false)
@@ -633,11 +688,11 @@ fn open_control(app: &AppHandle, screen: &Screen) {
             exclude_from_capture(&window);
             crate::webview_crash::watch(&window);
             // Placed in physical pixels on its monitor, then sized there (its scale).
-            let width = (CONTROL.0 * screen.scale).round() as i32;
-            let x = screen.x + (screen.width as i32 - width) / 2;
+            let wide = (width * screen.scale).round() as i32;
+            let x = screen.x + (screen.width as i32 - wide) / 2;
             let y = screen.y + (CONTROL_TOP * screen.scale).round() as i32;
             let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-            let _ = window.set_size(tauri::LogicalSize::new(CONTROL.0, CONTROL.1));
+            let _ = window.set_size(tauri::LogicalSize::new(width, CONTROL.1));
             let _ = window.show();
         }
         Err(e) => logln!("[recording] the control failed: {e}"),
