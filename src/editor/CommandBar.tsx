@@ -162,8 +162,9 @@ export function CommandBar({
   onRecord,
 }: Props) {
   const tool = useTool((s) => s.tool);
-  /** Narrow windows: the buttons drop their labels, then the tools close up (two steps). */
-  const bar = useSqueeze(3);
+  /** Narrow windows: the buttons drop their labels one at a time, Record first, then Open, Add
+   *  Video and Export (labels stay while they fit: Richard), then the tools close up (two steps). */
+  const bar = useSqueeze(6);
   const undoable = useDoc(canUndo);
   const redoable = useDoc(canRedo);
   const selected = useDoc((s) => s.selected);
@@ -291,7 +292,7 @@ export function CommandBar({
       <span className={styles.spacer} />
       <button
         type="button"
-        className={styles.button}
+        className={`${styles.button} ${styles.squeeze1}`}
         aria-label={recording ? "Stop recording" : "Record the screen"}
         title={recording ? "Stop recording and open it" : "Record the screen this window is on"}
         {...hint(recording ? "recordStop" : "record")}
@@ -311,7 +312,7 @@ export function CommandBar({
       </button>
       <button
         type="button"
-        className={styles.button}
+        className={`${styles.button} ${styles.squeeze2}`}
         aria-label="Open (Ctrl+O)"
         title="Open (Ctrl+O)"
         {...hint("open")}
@@ -325,7 +326,7 @@ export function CommandBar({
       {!empty && (
         <button
           type="button"
-          className={styles.button}
+          className={`${styles.button} ${styles.squeeze3}`}
           aria-label="Add Video (Ctrl+Shift+O)"
           title="Add a video to the end of the timeline (Ctrl+Shift+O)"
           {...hint("addVideo")}
@@ -341,7 +342,7 @@ export function CommandBar({
       <div className={styles.split}>
         <button
           type="button"
-          className={styles.splitMain}
+          className={`${styles.splitMain} ${styles.squeeze4}`}
           aria-label="Export the timeline as MP4 (Ctrl+E)"
           title={exporting ? "An export is under way" : "Export the timeline as MP4 (Ctrl+E)"}
           {...hint("export")}
