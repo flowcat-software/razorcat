@@ -120,6 +120,27 @@ pub fn get_settings(app: AppHandle) -> Settings {
     app.state::<AppState>().settings.read().unwrap().clone()
 }
 
+/// Settings › About's resets: every setting as installed, or with `styles_only` only the styles
+/// (Settings › Markup and Recording's clicks); either way the tools' remembered styles are
+/// forgotten. Returns the settings as stored.
+#[tauri::command]
+#[specta::specta]
+pub fn reset_settings(app: AppHandle, styles_only: bool) -> Result<Settings, String> {
+    let now = get_settings(app.clone());
+    let reset = if styles_only {
+        settings::styles_reset(&now)
+    } else {
+        Settings::default()
+    };
+    let stored = settings::update(&app, reset)?;
+    crate::tool_styles::forget(&app);
+    logln!(
+        "[settings] reset ({})",
+        if styles_only { "styles" } else { "all" }
+    );
+    Ok(stored)
+}
+
 /// Validate, save and apply new settings; returns them as stored (normalized).
 #[tauri::command]
 #[specta::specta]

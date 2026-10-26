@@ -53,6 +53,12 @@ export const commands = {
 	previewExportName: (template: string, clip: boolean) => __TAURI_INVOKE<string>("preview_export_name", { template, clip }),
 	/**  Settings › Recording › File name: the name `template` gives a recording now. */
 	previewRecordingName: (template: string) => __TAURI_INVOKE<string>("preview_recording_name", { template }),
+	/**
+	 *  Settings › About's resets: every setting as installed, or with `styles_only` only the styles
+	 *  (Settings › Markup and Recording's clicks); either way the tools' remembered styles are
+	 *  forgotten. Returns the settings as stored.
+	 */
+	resetSettings: (stylesOnly: boolean) => typedError<Settings, string>(__TAURI_INVOKE("reset_settings", { stylesOnly })),
 	/**  Flowcat Software's website, the maker (Settings › About). A fixed address. */
 	openFlowcatSite: () => __TAURI_INVOKE<void>("open_flowcat_site"),
 	/**  The current settings. */
@@ -224,6 +230,7 @@ export const events = {
 	sourceConverted: makeEvent<SourceConverted>("source-converted"),
 	sourceOpened: makeEvent<SourceOpened>("source-opened"),
 	thumbsUpdate: makeEvent<ThumbsUpdate>("thumbs-update"),
+	toolStylesReset: makeEvent<ToolStylesReset>("tool-styles-reset"),
 	waveReady: makeEvent<WaveReady>("wave-ready"),
 	windowsAccentChanged: makeEvent<WindowsAccentChanged>("windows-accent-changed"),
 };
@@ -750,7 +757,7 @@ export type Recording = {
 	clicks?: boolean,
 	/**
 	 *  While clicks are noted, each shows on the screen as it's made, as it'll look (PLAN
-	 *  5b.6f): left out of the recording. On by default: it shows they're being caught.
+	 *  5b.6f): left out of the recording. Off until chosen (Richard, 2026-10-26).
 	 */
 	liveClicks?: boolean,
 	/**
@@ -994,6 +1001,12 @@ export type ToolStyles = {
 	width?: NumberPicker | null,
 	colorControl?: ColorControl | null,
 };
+
+/**
+ *  Rust → the editor: the remembered styles were forgotten (Settings › About's resets): its
+ *  tools go back to theirs as installed.
+ */
+export type ToolStylesReset = null;
 
 /**  Rust → editor: a source's waveform is ready. */
 export type WaveReady = {

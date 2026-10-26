@@ -142,6 +142,11 @@ export interface LogsItem extends BaseItem {
   kind: "logs";
 }
 
+/** Settings › About › Reset: every setting, or the styles, as installed (asked first). */
+export interface ResetItem extends BaseItem {
+  kind: "reset";
+}
+
 /** A number picker spec (Vandal's): its control type and values. */
 export interface NumberPickerItem extends BaseItem {
   kind: "numberPicker";
@@ -210,7 +215,8 @@ export type Item =
   | ToolStyleItem
   | FontPickerItem
   | AboutItem
-  | LogsItem;
+  | LogsItem
+  | ResetItem;
 export type ItemKind = Item["kind"];
 
 export interface Group {

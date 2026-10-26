@@ -59,6 +59,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::logs_size,
             commands::preview_export_name,
             commands::preview_recording_name,
+            commands::reset_settings,
             commands::open_flowcat_site,
             commands::get_settings,
             commands::update_settings,
@@ -128,6 +129,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             check::CheckFrames,
             appearance::WindowsAccentChanged,
             settings::SettingsChanged,
+            tool_styles::ToolStylesReset,
         ])
 }
 

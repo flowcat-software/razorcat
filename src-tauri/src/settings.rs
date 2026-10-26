@@ -109,7 +109,7 @@ pub struct Recording {
     /// Clicks noted while recording, to become markup (PLAN 5b.6); off until chosen.
     pub clicks: bool,
     /// While clicks are noted, each shows on the screen as it's made, as it'll look (PLAN
-    /// 5b.6f): left out of the recording. On by default: it shows they're being caught.
+    /// 5b.6f): left out of the recording. Off until chosen (Richard, 2026-10-26).
     pub live_clicks: bool,
     /// How a recording's clicks look (PLAN 5b.6d): the look; the left, right and middle buttons'
     /// colours; the size (px across); how long each shows and fades in and out over (s); and a
@@ -208,7 +208,7 @@ impl Default for Recording {
             fps: 60,
             countdown: 3,
             clicks: false,
-            live_clicks: true,
+            live_clicks: false,
             click_look: ClickLook::Ripple,
             click_color: "#ffd60a".into(),
             click_color_right: "#ff4fd8".into(),
@@ -632,6 +632,30 @@ pub fn normalize_color(c: &str) -> Option<String> {
                 }),
         ),
         _ => None,
+    }
+}
+
+/// `s` with its styles as installed (Settings › About › Reset all styles, Richard 2026-10-26):
+/// Settings › Markup's pickers (not its Behavior), and how Settings › Recording's clicks look
+/// and last (not whether they're noted, shown live or locked). The rest is left as it is.
+pub fn styles_reset(s: &Settings) -> Settings {
+    let d = Settings::default();
+    let r = d.recording;
+    Settings {
+        styles: d.styles,
+        recording: Recording {
+            click_look: r.click_look,
+            click_color: r.click_color,
+            click_color_right: r.click_color_right,
+            click_color_middle: r.click_color_middle,
+            click_size: r.click_size,
+            click_seconds: r.click_seconds,
+            click_fade_in: r.click_fade_in,
+            click_fade_out: r.click_fade_out,
+            click_double: r.click_double,
+            ..s.recording.clone()
+        },
+        ..s.clone()
     }
 }
 
@@ -1186,6 +1210,36 @@ mod tests {
         assert_eq!(ok.export.clip_name, "{name} part {n}");
         s.export.clip_name = "{name}/{n}".into();
         assert!(validate(s).unwrap_err().contains("can't contain /"));
+    }
+
+    #[test]
+    fn resetting_the_styles_leaves_the_rest() {
+        let mut s = Settings::default();
+        s.styles.palette = vec!["#123456".into()];
+        s.recording.click_size = 60.0;
+        // Behavior, not style: kept.
+        s.markup.remember_tool_styles = !s.markup.remember_tool_styles;
+        s.recording.clicks = !s.recording.clicks;
+        s.recording.live_clicks = !s.recording.live_clicks;
+        s.recording.placed_clicks_follow = !s.recording.placed_clicks_follow;
+        s.recording.folder = r"D:\Takes".into();
+        s.export.timeline_name = "{name}".into();
+        let r = styles_reset(&s);
+        let d = Settings::default();
+        assert_eq!(r.styles, d.styles);
+        assert_eq!(r.recording.click_size, d.recording.click_size);
+        assert_eq!(r.markup, s.markup);
+        assert_eq!(r.export, s.export);
+        let kept = |x: &Settings| {
+            let r = &x.recording;
+            (
+                r.clicks,
+                r.live_clicks,
+                r.placed_clicks_follow,
+                r.folder.clone(),
+            )
+        };
+        assert_eq!(kept(&r), kept(&s));
     }
 
     #[test]

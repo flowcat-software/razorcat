@@ -3,6 +3,7 @@ import { hint } from "../markup/HintLine";
 import { sayWhy, useHintSources } from "../markup/hints";
 import { clickTiming } from "../markup/click";
 import { annotationId, docStore as markupDoc, timelineFps } from "../markup/model/store";
+import { forgetToolMemory } from "../markup/toolMemory";
 import { startToolStylesSync } from "../markup/toolStylesSync";
 import { useMarkupKeys } from "../markup/useMarkupKeys";
 import { clickSettingsOf, useClickSettings, type ClickSettings } from "../markup/clickSettings";
@@ -544,6 +545,8 @@ export function EditorApp() {
         setWaves((w) => ({ ...w, [payload.source]: payload.url })),
       ),
       events.checkFrames.listen(({ payload }) => setCheckFor(payload)),
+      // Settings › About's resets: the tools as installed too.
+      events.toolStylesReset.listen(forgetToolMemory),
       events.settingsChanged.listen(({ payload }) => {
         setShowThumbs(thumbsOn(payload as Settings));
         setShowWave((payload as Settings).timeline.waveform);

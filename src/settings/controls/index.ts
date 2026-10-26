@@ -16,6 +16,7 @@ import { NumberPickerSetting } from "./NumberPickerEditor";
 import { PaletteSetting } from "./PaletteEditor";
 import { PickedNumber } from "./PickedNumber";
 import { ProxyLimit } from "./ProxyLimit";
+import { ResetButtons } from "./ResetButtons";
 import { Slider } from "./Slider";
 import { TextInput } from "./TextInput";
 import { Toggle } from "./Toggle";
@@ -59,4 +60,5 @@ export const controls: Registry = {
   fontPicker: { component: FontPickerSetting, layout: "stacked" },
   about: { component: AboutCard, layout: "bare" },
   logs: { component: LogButtons, layout: "stacked" },
+  reset: { component: ResetButtons, layout: "stacked" },
 };

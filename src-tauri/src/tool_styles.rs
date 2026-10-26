@@ -6,8 +6,11 @@
 //! recognize, so adding a tool option needs no change here. `markup.rememberToolStyles` off:
 //! nothing is handed out or kept.
 
+use serde::Serialize;
+use specta::Type;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_store::StoreExt;
+use tauri_specta::Event;
 
 use crate::state::AppState;
 
@@ -30,6 +33,22 @@ pub fn load(app: &AppHandle) -> Option<String> {
     }
     let value = app.store(FILE).ok()?.get(KEY)?;
     Some(value.to_string())
+}
+
+/// Rust → the editor: the remembered styles were forgotten (Settings › About's resets): its
+/// tools go back to theirs as installed.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ToolStylesReset;
+
+/// Forgets the remembered styles, and tells the editor to (Settings › About's resets).
+pub fn forget(app: &AppHandle) {
+    if let Ok(store) = app.store(FILE) {
+        store.delete(KEY);
+        if let Err(e) = store.save() {
+            logln!("[tool-styles] cannot save: {e}");
+        }
+    }
+    let _ = ToolStylesReset.emit(app);
 }
 
 /// Remember `json` for the next window. Ignored when the setting is off or it
