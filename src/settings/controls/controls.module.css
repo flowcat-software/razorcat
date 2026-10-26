@@ -160,6 +160,14 @@
   line-height: 18px;
 }
 
+/* Under a folder field: the stack's gap is its space. */
+.folderSize {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 /* "Made by Flowcat Software": a link in the line's text (Vandal's). */
 .aboutLink {
   padding: 0;

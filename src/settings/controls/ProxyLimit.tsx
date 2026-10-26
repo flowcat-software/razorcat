@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { commands } from "../../shared/ipc";
-import { formatBytes } from "../../editor/format";
+import { fileSize } from "../../shared/fileSize";
 import type { ProxyLimitItem } from "../schema";
 import { useSetting } from "../store";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -53,7 +53,9 @@ export function ProxyLimit({ item, id, disabled }: ControlProps<ProxyLimitItem>)
   const pct = ((draft - item.min) / (item.max - item.min)) * 100;
   return (
     <div className={styles.sliderWrap}>
-      {used !== null && <span className={styles.help}>{formatBytes(used)} used</span>}
+      {used !== null && (
+        <span className={styles.help}>{used > 0 ? `${fileSize(used)} used` : "None used"}</span>
+      )}
       <span className={styles.sliderValue}>{draft} GB</span>
       <input
         id={id}
@@ -82,8 +84,8 @@ export function ProxyLimit({ item, id, disabled }: ControlProps<ProxyLimitItem>)
         >
           <p>
             {asking.files === 1
-              ? `This deletes 1 proxy (${formatBytes(asking.bytes)}), the one used longest ago.`
-              : `This deletes ${asking.files} proxies (${formatBytes(asking.bytes)}), the ones used longest ago.`}
+              ? `This deletes 1 proxy (${fileSize(asking.bytes)}), the one used longest ago.`
+              : `This deletes ${asking.files} proxies (${fileSize(asking.bytes)}), the ones used longest ago.`}
           </p>
           <p>Your videos aren't touched. A proxy is made again when its video is next opened.</p>
         </ConfirmDialog>

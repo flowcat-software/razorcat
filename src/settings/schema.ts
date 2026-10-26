@@ -93,6 +93,8 @@ export interface FolderItem extends BaseItem {
   path: PathOf<Settings, string>;
   /** What an empty setting means: the field shows it, and storing it stores empty. */
   defaultFolder?: () => Promise<string>;
+  /** Say how much the folder holds, under the field. */
+  showSize?: boolean;
 }
 
 /** The proxy cache's size limit: asks before a lower limit deletes proxies. */

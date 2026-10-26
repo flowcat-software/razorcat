@@ -194,6 +194,24 @@ pub fn open_folder(path: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// The bytes in the files directly in a folder setting's folder (may contain `%VARS%`); 0 if
+/// it isn't there. Off the main thread: the folder may be a big one.
+#[tauri::command]
+#[specta::specta]
+pub async fn folder_size(path: String) -> f64 {
+    let dir = crate::paths::resolve_dir(&path);
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|e| e.metadata().ok())
+                .filter(|m| m.is_file())
+                .map(|m| m.len())
+                .sum::<u64>()
+        })
+        .unwrap_or(0) as f64
+}
+
 /// Where proxies go when Settings › Proxies › Folder is empty, as the field shows it.
 #[tauri::command]
 #[specta::specta]

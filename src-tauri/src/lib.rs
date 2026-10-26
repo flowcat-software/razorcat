@@ -63,6 +63,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::media_tools,
             commands::pick_folder,
             commands::open_folder,
+            commands::folder_size,
             commands::default_proxy_folder,
             commands::default_export_folder,
             commands::default_grow_presets,

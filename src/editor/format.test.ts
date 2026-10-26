@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SourceInfo } from "../shared/ipc";
-import { fileInfo, formatBytes, formatDuration, formatRate, sourceFacts } from "./format";
+import { fileInfo, formatDuration, formatRate, sourceFacts } from "./format";
 
 describe("formatRate", () => {
   it("drops trailing zeros and rounds NTSC rates", () => {
@@ -17,14 +17,6 @@ describe("formatDuration", () => {
     expect(formatDuration(232.67)).toBe("3:53");
     expect(formatDuration(1873.3)).toBe("31:13");
     expect(formatDuration(3723)).toBe("1:02:03");
-  });
-});
-
-describe("formatBytes", () => {
-  it("picks a unit", () => {
-    expect(formatBytes(552_510_642)).toBe("553 MB");
-    expect(formatBytes(5_902_612_343)).toBe("5.9 GB");
-    expect(formatBytes(120)).toBe("1 KB");
   });
 });
 
@@ -58,7 +50,7 @@ describe("sourceFacts", () => {
       "29.97 fps (variable)",
       "0:26",
       "H.264",
-      "59 MB",
+      "56.0 MB",
     ]);
   });
 

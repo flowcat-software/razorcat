@@ -1,5 +1,6 @@
 // How the editor writes a source's facts: "1920 × 1080 · 29.97 fps · 3:52 · H.264 · 527 MB".
 
+import { fileSize } from "../shared/fileSize";
 import type { SourceInfo } from "../shared/ipc";
 
 /** Frames per second, to two decimals without trailing zeros: 30, 29.97, 23.98. */
@@ -16,13 +17,6 @@ export function formatDuration(seconds: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
 }
 
-/** A file size in KB, MB or GB (1000s, as Explorer's "size" column isn't; close enough). */
-export function formatBytes(bytes: number): string {
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
-  if (bytes >= 1e6) return `${Math.round(bytes / 1e6)} MB`;
-  return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
-}
-
 /** The facts the options bar shows for an open source. */
 export function sourceFacts(s: SourceInfo): string[] {
   const facts = [
@@ -33,7 +27,7 @@ export function sourceFacts(s: SourceInfo): string[] {
   ];
   if (s.audioTracks === 0) facts.push("No audio");
   else if (s.audioTracks > 1) facts.push(`${s.audioTracks} audio tracks`);
-  facts.push(formatBytes(s.bytes));
+  facts.push(fileSize(s.bytes));
   if (s.converted) facts.push("Converted to play here");
   return facts;
 }

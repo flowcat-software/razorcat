@@ -71,6 +71,11 @@ export const commands = {
 	 *  button always does something.
 	 */
 	openFolder: (path: string) => typedError<null, string>(__TAURI_INVOKE("open_folder", { path })),
+	/**
+	 *  The bytes in the files directly in a folder setting's folder (may contain `%VARS%`); 0 if
+	 *  it isn't there. Off the main thread: the folder may be a big one.
+	 */
+	folderSize: (path: string) => __TAURI_INVOKE<number | null>("folder_size", { path }),
 	/**  Where proxies go when Settings › Proxies › Folder is empty, as the field shows it. */
 	defaultProxyFolder: () => __TAURI_INVOKE<string>("default_proxy_folder"),
 	/**  Where exports go when Settings › Export › Folder is empty, as the field shows it. */

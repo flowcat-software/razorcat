@@ -100,8 +100,11 @@ pub fn folder(app: &AppHandle) -> Option<PathBuf> {
     folder_for(app, &settings(app))
 }
 
+/// A GB, as Explorer counts it (and Settings shows sizes).
+const GB: u64 = 1 << 30;
+
 pub fn limit(app: &AppHandle) -> u64 {
-    u64::from(settings(app).limit_gb) * 1_000_000_000
+    u64::from(settings(app).limit_gb) * GB
 }
 
 /// Settings › Proxies changed: a new folder gets the proxies already made (so none are lost),
@@ -537,11 +540,7 @@ pub struct CacheReport {
 
 pub fn report(app: &AppHandle, limit_gb: u32) -> CacheReport {
     let files = folder(app).map(|f| cached_files(&f)).unwrap_or_default();
-    let drop = to_drop(
-        files.clone(),
-        u64::from(limit_gb) * 1_000_000_000,
-        &in_use(app),
-    );
+    let drop = to_drop(files.clone(), u64::from(limit_gb) * GB, &in_use(app));
     let size = |p: &PathBuf| files.iter().find(|f| &f.0 == p).map_or(0, |f| f.1);
     CacheReport {
         bytes: files.iter().map(|f| f.1).sum::<u64>() as f64,

@@ -621,6 +621,7 @@ export const sections: Section[] = [
             label: "Default folder",
             description: "Where exports go with Save to the default folder on.",
             defaultFolder: commands.defaultExportFolder,
+            showSize: true,
             keywords: ["folder", "export", "save", "location", "path"],
           },
           {
@@ -724,6 +725,7 @@ export const sections: Section[] = [
             description:
               "Where screen recordings are saved, named by the date and time they were made. They open in Razorcat when you stop.",
             defaultFolder: commands.defaultRecordingFolder,
+            showSize: true,
             keywords: ["recording", "record", "screen", "capture", "folder", "location", "path"],
           },
         ],

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { fileSize } from "../../shared/fileSize";
 import { commands } from "../../shared/ipc";
 import type { FolderItem } from "../schema";
 import { useSetting, useSettingsStore } from "../store";
@@ -17,6 +18,20 @@ export function FolderInput({ item, id, disabled }: ControlProps<FolderItem>) {
   /** Why the folder was refused (or couldn't be opened), shown under the field. */
   const [error, setError] = useState<string | null>(null);
   const trySet = useSettingsStore((s) => s.trySet);
+  /** What the folder holds (with `showSize`): measured when it changes, and when the window
+   *  comes back (a recording may have been made meanwhile). */
+  const [bytes, setBytes] = useState<number | null>(null);
+  useEffect(() => {
+    if (!item.showSize || !value) return;
+    let gone = false;
+    const measure = () => void commands.folderSize(value).then((b) => !gone && setBytes(b));
+    measure();
+    window.addEventListener("focus", measure);
+    return () => {
+      gone = true;
+      window.removeEventListener("focus", measure);
+    };
+  }, [item.showSize, value]);
 
   useEffect(() => {
     let gone = false;
@@ -73,6 +88,11 @@ export function FolderInput({ item, id, disabled }: ControlProps<FolderItem>) {
           Open
         </button>
       </div>
+      {item.showSize && bytes !== null && (
+        <p className={styles.folderSize}>
+          {bytes > 0 ? `The folder holds ${fileSize(bytes)}.` : "The folder is empty."}
+        </p>
+      )}
       {error && <Alert tone="error">{error}</Alert>}
     </div>
   );
