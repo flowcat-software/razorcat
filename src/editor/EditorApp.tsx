@@ -236,10 +236,32 @@ export function EditorApp() {
   /** A screen recording is under way (PLAN 5b; recording.rs). */
   const [recording, setRecording] = useState(false);
   /** Records the screen: the recording goes on the timeline's end (`add`) or replaces it. */
-  const record = (add: boolean) =>
+  const startRecording = (add: boolean) =>
     void commands.startRecording(add).then((r) => {
       if (r.status === "error") setNotice({ text: r.error, error: true });
     });
+  /** As `startRecording`, the first recording ever asking where recordings go (PLAN 5b.7). */
+  const record = (add: boolean) => {
+    const s = settingsNow.current;
+    if (!s || s.recording.askedFolder) return startRecording(add);
+    void commands
+      .defaultRecordingFolder()
+      .then((fallback) => setAsking({ recordFolder: s.recording.folder || fallback, add }));
+  };
+  /**
+   * The recordings folder question's answer: `folder` (null: as it is) from now on; never asked
+   * again. The recording starts once it's stored.
+   */
+  const answerRecordingFolder = (add: boolean, folder: string | null) => {
+    setAsking(null);
+    const s = settingsNow.current;
+    if (!s) return startRecording(add);
+    const recording = { ...s.recording, askedFolder: true, ...(folder ? { folder } : {}) };
+    void commands
+      .updateSettings({ ...s, recording })
+      .catch((e: unknown) => console.error("[recording] folder:", e))
+      .finally(() => startRecording(add));
+  };
   /**
    * A question before the timeline is replaced (PLAN 4.5e3): Open with edits on it, or a file
    * dropped on it (add or replace).
@@ -251,6 +273,8 @@ export function EditorApp() {
     | { record: true }
     /** The first export: save to a default folder? `folder` as the setting holds it. */
     | { folder: string; go: () => void }
+    /** The first recording: save recordings to `recordFolder`? Then it starts (`add`). */
+    | { recordFolder: string; add: boolean }
     | null
   >(null);
   /**
@@ -881,6 +905,27 @@ export function EditorApp() {
             <strong>{folderLabel(asking.folder)}</strong>
           </p>
           <p>Settings › Export changes this later. Not now keeps the Save dialog.</p>
+        </ConfirmDialog>
+      )}
+      {asking && "recordFolder" in asking && (
+        <ConfirmDialog
+          title="Save recordings to this folder?"
+          confirm="Use this folder"
+          onConfirm={() => answerRecordingFolder(asking.add, null)}
+          onCancel={() => setAsking(null)}
+          other={{
+            label: "Change…",
+            onClick: () =>
+              void commands.pickFolder(asking.recordFolder).then((picked) => {
+                if (picked) answerRecordingFolder(asking.add, picked);
+              }),
+          }}
+        >
+          <p>Your screen recordings will be saved here, and open in Razorcat when you stop:</p>
+          <p>
+            <strong>{folderLabel(asking.recordFolder)}</strong>
+          </p>
+          <p>Settings › Recording changes this later.</p>
         </ConfirmDialog>
       )}
       {asking && "record" in asking && (

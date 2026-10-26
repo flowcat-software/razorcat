@@ -63,7 +63,7 @@ export function TextInput({ item, id, disabled }: ControlProps<TextItem>) {
               </>
             )}
           </p>
-          {item.tags && <TagReference />}
+          {item.tags && <TagReference recording={item.tags === "recording"} />}
         </div>
       )}
       {error && <Alert tone="error">{error}</Alert>}

@@ -419,6 +419,12 @@ struct Early {
 static EARLY: Mutex<Option<Early>> = Mutex::new(None);
 
 /// Where recordings go: Settings › Recording › Folder, else the default.
+/// Settings › Recording's preview of a name template: the file a recording would get now, `{n}`
+/// counted in the recordings folder.
+pub fn preview_name(app: &AppHandle, template: &str) -> String {
+    format!("{}.mp4", file_name(&folder(app), template))
+}
+
 fn folder(app: &AppHandle) -> PathBuf {
     let setting = app
         .state::<AppState>()
@@ -671,7 +677,15 @@ pub fn start(app: &AppHandle, add: bool, target: Target) -> Result<(), String> {
 fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
     let dir = folder(app);
     std::fs::create_dir_all(&dir).map_err(|e| format!("can't make {}: {e}", dir.display()))?;
-    let name = file_name(&dir);
+    let template = app
+        .state::<AppState>()
+        .settings
+        .read()
+        .unwrap()
+        .recording
+        .file_name
+        .clone();
+    let name = file_name(&dir, &template);
     let file = dir.join(format!("{name}.mp4"));
     let base = dir.join(&name);
 
@@ -819,9 +833,10 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
 }
 
 /// The file's name: "Recording 2026-10-25 14-03-22", a number added if it's taken.
-fn file_name(dir: &std::path::Path) -> String {
+fn file_name(dir: &std::path::Path, template: &str) -> String {
     let t = crate::names::Timestamp::now_local();
-    let base = crate::names::render("Recording {yyyy}-{MM}-{dd} {HH}-{mm}-{ss}", "", None, &t);
+    let rendered = crate::names::render(template, "", None, &t);
+    let base = crate::names::number(&rendered, crate::names::taken_in(dir));
     let mut name = base.clone();
     let mut n = 2;
     while dir.join(format!("{name}.mp4")).exists() {

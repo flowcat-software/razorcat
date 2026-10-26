@@ -51,6 +51,8 @@ export const commands = {
 	 *  `clip`), as Vandal's preview.
 	 */
 	previewExportName: (template: string, clip: boolean) => __TAURI_INVOKE<string>("preview_export_name", { template, clip }),
+	/**  Settings › Recording › File name: the name `template` gives a recording now. */
+	previewRecordingName: (template: string) => __TAURI_INVOKE<string>("preview_recording_name", { template }),
 	/**  Flowcat Software's website, the maker (Settings › About). A fixed address. */
 	openFlowcatSite: () => __TAURI_INVOKE<void>("open_flowcat_site"),
 	/**  The current settings. */
@@ -717,6 +719,13 @@ export type RecordedInput = {
 export type Recording = {
 	/**  Where recordings go, `%VARS%` allowed; empty: the Videos folder's Razorcat\Recordings. */
 	folder?: string,
+	/**
+	 *  A recording's file name, without the extension (PLAN 5b.7): Export's tags (names.rs) but
+	 *  `{name}` and `{c}`, which a recording hasn't got.
+	 */
+	fileName?: string,
+	/**  The first recording has asked whether to save to `folder` (it asks once, ever). */
+	askedFolder?: boolean,
 	/**  While an area records, its corners are marked (PLAN 5b.3d), in `corner_color`. */
 	corners?: boolean,
 	cornerColor?: string,

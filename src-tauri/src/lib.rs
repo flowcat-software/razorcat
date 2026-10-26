@@ -58,6 +58,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::clear_logs,
             commands::logs_size,
             commands::preview_export_name,
+            commands::preview_recording_name,
             commands::open_flowcat_site,
             commands::get_settings,
             commands::update_settings,

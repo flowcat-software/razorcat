@@ -2,8 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import styles from "./controls.module.css";
 
 /** The file-name tags (names.rs), one guide for every template field. */
-const TAGS: readonly { tags: string; gives: string; example: string; clipOnly?: boolean }[] = [
-  { tags: "{name}", gives: "The video's name", example: "trip" },
+const TAGS: readonly {
+  tags: string;
+  gives: string;
+  example: string;
+  clipOnly?: boolean;
+  /** Not for recordings: they haven't a video name or clips. */
+  videoOnly?: boolean;
+}[] = [
+  { tags: "{name}", gives: "The video's name", example: "trip", videoOnly: true },
   { tags: "{yyyy} {MM} {dd}", gives: "Today's year, month and day", example: "2026 10 24" },
   {
     tags: "{HH} {mm} {ss}",
@@ -16,32 +23,39 @@ const TAGS: readonly { tags: string; gives: string; example: string; clipOnly?: 
     example: "1, 2, 3…",
   },
   { tags: "{nn} {nnn}…", gives: "The same, with zeros in front", example: "01, 001" },
-  { tags: "{c}", gives: "The clip's number", example: "1, 2, 3…", clipOnly: true },
+  {
+    tags: "{c}",
+    gives: "The clip's number",
+    example: "1, 2, 3…",
+    clipOnly: true,
+    videoOnly: true,
+  },
   {
     tags: "{cc} {ccc}…",
     gives: "The same, with zeros in front",
     example: "01, 001",
     clipOnly: true,
+    videoOnly: true,
   },
 ];
 
 /**
  * A "Tag reference" link that opens the guide to file-name tags over the window (a native modal
- * `<dialog>`: Esc or a click outside closes it).
+ * `<dialog>`: Esc or a click outside closes it). A recording's (`recording`) has fewer.
  */
-export function TagReference() {
+export function TagReference({ recording = false }: { recording?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button type="button" className={styles.linkButton} onClick={() => setOpen(true)}>
         Tag reference
       </button>
-      {open && <TagDialog onClose={() => setOpen(false)} />}
+      {open && <TagDialog recording={recording} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function TagDialog({ onClose }: { onClose: () => void }) {
+function TagDialog({ recording, onClose }: { recording: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -73,8 +87,8 @@ function TagDialog({ onClose }: { onClose: () => void }) {
       </h2>
       <div className={styles.dialogBody}>
         <p>
-          Tags in a file name template are filled in when you export. Everything else is kept as
-          typed.
+          Tags in a file name template are filled in when you {recording ? "record" : "export"}.
+          Everything else is kept as typed.
         </p>
         <table className={styles.tagTable}>
           <thead>
@@ -85,7 +99,7 @@ function TagDialog({ onClose }: { onClose: () => void }) {
             </tr>
           </thead>
           <tbody>
-            {TAGS.map((t) => (
+            {TAGS.filter((t) => !(recording && t.videoOnly)).map((t) => (
               <tr key={t.tags}>
                 <td>
                   <code>{t.tags}</code>
@@ -100,7 +114,16 @@ function TagDialog({ onClose }: { onClose: () => void }) {
           </tbody>
         </table>
         <p>
-          For example, <code>{"{name}-edit-{nn}"}</code> gives trip-edit-01, then trip-edit-02.{" "}
+          For example,{" "}
+          {recording ? (
+            <>
+              <code>{"Take {nn}"}</code> gives Take 01, then Take 02.
+            </>
+          ) : (
+            <>
+              <code>{"{name}-edit-{nn}"}</code> gives trip-edit-01, then trip-edit-02.
+            </>
+          )}{" "}
           <code>{"{n}"}</code> counts only files whose names fit the template, so with the date in
           it, each day starts counting again at 1.
         </p>

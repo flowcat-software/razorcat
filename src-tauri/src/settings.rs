@@ -83,6 +83,11 @@ pub struct Playback {
 pub struct Recording {
     /// Where recordings go, `%VARS%` allowed; empty: the Videos folder's Razorcat\Recordings.
     pub folder: String,
+    /// A recording's file name, without the extension (PLAN 5b.7): Export's tags (names.rs) but
+    /// `{name}` and `{c}`, which a recording hasn't got.
+    pub file_name: String,
+    /// The first recording has asked whether to save to `folder` (it asks once, ever).
+    pub asked_folder: bool,
     /// While an area records, its corners are marked (PLAN 5b.3d), in `corner_color`.
     pub corners: bool,
     pub corner_color: String,
@@ -190,6 +195,8 @@ impl Default for Recording {
     fn default() -> Self {
         Self {
             folder: String::new(),
+            file_name: RECORDING_NAME.into(),
+            asked_folder: false,
             corners: true,
             corner_color: "#00ff27".into(),
             dim: true,
@@ -269,6 +276,7 @@ pub struct Export {
 }
 
 pub const TIMELINE_NAME: &str = "{name}-edit-{nn}";
+pub const RECORDING_NAME: &str = "Recording {yyyy}-{MM}-{dd} {HH}-{mm}-{ss}";
 pub const CLIP_NAME: &str = "{name}-clip-{cc}";
 
 impl Default for Export {
@@ -284,6 +292,14 @@ impl Default for Export {
             gif_size: 640,
         }
     }
+}
+
+/// Whether `template` has a tag of `letter`s (`{c}`, `{cc}`...).
+fn has_tag(template: &str, letter: char) -> bool {
+    template.split('{').skip(1).any(|rest| {
+        rest.split_once('}')
+            .is_some_and(|(tag, _)| !tag.is_empty() && tag.chars().all(|c| c == letter))
+    })
 }
 
 /// A file-name template, trimmed (empty: `default`); an error for characters Windows doesn't
@@ -703,6 +719,17 @@ pub fn validate(mut s: Settings) -> Result<Settings, String> {
         "timeline's file name",
     )?;
     s.export.clip_name = file_template(&s.export.clip_name, CLIP_NAME, "clips' file names")?;
+    s.recording.file_name = file_template(
+        &s.recording.file_name,
+        RECORDING_NAME,
+        "recordings' file name",
+    )?;
+    if s.recording.file_name.contains("{name}") || has_tag(&s.recording.file_name, 'c') {
+        return Err(
+            "A recording has no video name or clips yet: its file name can't use {name} or {c}."
+                .into(),
+        );
+    }
     s.export.folder = s.export.folder.trim().to_string();
     let folder = &s.export.folder;
     if !folder.is_empty() && !crate::paths::resolve_dir(folder).is_absolute() {
@@ -1159,6 +1186,31 @@ mod tests {
         assert_eq!(ok.export.clip_name, "{name} part {n}");
         s.export.clip_name = "{name}/{n}".into();
         assert!(validate(s).unwrap_err().contains("can't contain /"));
+    }
+
+    #[test]
+    fn recording_file_names_have_no_video_name_or_clips() {
+        let mut s = Settings::default();
+        s.recording.file_name = " ".into();
+        assert_eq!(
+            validate(s.clone()).unwrap().recording.file_name,
+            RECORDING_NAME
+        );
+        s.recording.file_name = "Take {nn} {yyyy}".into();
+        assert_eq!(
+            validate(s.clone()).unwrap().recording.file_name,
+            "Take {nn} {yyyy}"
+        );
+        for bad in ["{name} take", "Take {c}", "Take {ccc}"] {
+            s.recording.file_name = bad.into();
+            assert!(
+                validate(s.clone()).unwrap_err().contains("{name} or {c}"),
+                "{bad}"
+            );
+        }
+        // Braces that aren't a tag are kept.
+        s.recording.file_name = "Take {cat} {}".into();
+        assert!(validate(s).is_ok());
     }
 
     #[test]

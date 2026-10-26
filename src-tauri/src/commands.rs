@@ -97,6 +97,13 @@ pub fn preview_export_name(app: AppHandle, template: String, clip: bool) -> Stri
     crate::export::preview_name(&app, &template, clip)
 }
 
+/// Settings › Recording › File name: the name `template` gives a recording now.
+#[tauri::command]
+#[specta::specta]
+pub fn preview_recording_name(app: AppHandle, template: String) -> String {
+    crate::recording::preview_name(&app, &template)
+}
+
 /// Flowcat Software's website, the maker (Settings › About). A fixed address.
 #[tauri::command]
 #[specta::specta]

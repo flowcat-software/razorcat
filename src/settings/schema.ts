@@ -38,8 +38,9 @@ export interface TextItem extends BaseItem {
   placeholder?: string;
   /** What the text gives, shown under the field as it's typed (a file name template's). */
   preview?: (text: string) => Promise<string>;
-  /** A file name template: a "Tag reference" link under the field opens the guide to its tags. */
-  tags?: boolean;
+  /** A file name template: a "Tag reference" link under the field opens the guide to its tags
+   *  (a recording's: without the video's name and clips, which it hasn't got). */
+  tags?: boolean | "recording";
 }
 
 /** One of a fixed set of numbers, as joined buttons. */
