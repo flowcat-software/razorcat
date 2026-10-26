@@ -140,6 +140,11 @@ export const commands = {
 	pauseRecording: () => __TAURI_INVOKE<void>("pause_recording"),
 	/**  The control's clicks and keys buttons: each noted or not (None: as it is). */
 	noteRecordingInput: (clicks: boolean | null, keys: boolean | null) => __TAURI_INVOKE<void>("note_recording_input", { clicks, keys }),
+	/**  The clicks and keys noted while the file at `path` was recorded, once (PLAN 5b.6b). */
+	takeRecordedInput: (path: string) => __TAURI_INVOKE<{
+	clicks: RecordedClick[],
+	keys: RecordedKeys[],
+} | null>("take_recorded_input", { path }),
 	/**  The microphones connected now, and which is the default (Settings › Recording). */
 	microphones: () => __TAURI_INVOKE<Microphones>("microphones"),
 	/**  Window mode on or off, and the window under the pointer, on one overlay: all follow. */
@@ -230,6 +235,8 @@ export type Appearance = {
 	/**  A status-bar hint too long to fit glides to show the rest when the pointer rests. */
 	scrollHints?: boolean,
 };
+
+export type Button = "left" | "right" | "middle";
 
 /**  The cache's size, and what a limit would drop (Settings asks before lowering it). */
 export type CacheReport = {
@@ -691,6 +698,27 @@ export type ProxyStopped = {
 	source: string,
 };
 
+/**  A click where it lands on the recorded picture, and when (s). */
+export type RecordedClick = {
+	time: number | null,
+	x: number | null,
+	y: number | null,
+	button: Button,
+	double: boolean,
+};
+
+/**  The clicks and keys of a recording, on its picture and its time. */
+export type RecordedInput = {
+	clicks: RecordedClick[],
+	keys: RecordedKeys[],
+};
+
+/**  Keys pressed together, and when (s). */
+export type RecordedKeys = {
+	time: number | null,
+	keys: string[],
+};
+
 /**  Settings › Recording (PLAN 5b). */
 export type Recording = {
 	/**  Where recordings go, `%VARS%` allowed; empty: the Videos folder's Razorcat\Recordings. */
@@ -838,6 +866,8 @@ export type Styles = {
 	spotlight?: NumberPicker,
 	/**  Step markers' size in source px (PLAN 3D.13). */
 	stepSize?: NumberPicker,
+	/**  Click marks' size in source px (PLAN 5b.6b). */
+	clickSize?: NumberPicker,
 	/**
 	 *  Rounded corners (rectangles, Spotlight's rectangle) in source px (PLAN
 	 *  3D.17): 0 is always a choice, and never buttons.

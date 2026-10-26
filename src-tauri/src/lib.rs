@@ -84,6 +84,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::mute_recording,
             commands::pause_recording,
             commands::note_recording_input,
+            commands::take_recorded_input,
             commands::microphones,
             commands::pick_window_changed,
             commands::pick_window,

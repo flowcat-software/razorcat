@@ -18,6 +18,7 @@ export type Tool =
   | "rect"
   | "ellipse"
   | "step"
+  | "click"
   | "callout"
   | "highlighter"
   | "redact"
@@ -31,6 +32,7 @@ type MarkupTool =
   | "rect"
   | "ellipse"
   | "step"
+  | "click"
   | "callout"
   | "highlighter"
   | "pen"
@@ -45,6 +47,7 @@ export const MARKUP_TOOLS: readonly Tool[] = [
   "rect",
   "ellipse",
   "step",
+  "click",
   "callout",
   "highlighter",
   "pen",

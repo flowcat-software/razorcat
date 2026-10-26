@@ -138,6 +138,16 @@ const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
       </>
     ),
   },
+  {
+    id: "click",
+    label: "Click (D)",
+    icon: (
+      <>
+        <circle cx="12" cy="12" r="8.5" />
+        <circle cx="12" cy="12" r="2.5" fill="currentColor" />
+      </>
+    ),
+  },
 ];
 
 /** The editor's top row: the picture's tools on the left, file actions on the right. */

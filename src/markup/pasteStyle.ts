@@ -46,6 +46,8 @@ function styleOf(a: Annotation): Style {
       };
     case "step":
       return { fill: a.color, text: a.textColor, font: { fontFamily: a.fontFamily } };
+    case "click":
+      return { fill: a.color };
     case "rect":
     case "ellipse":
       // Solid: no border, the shape's colour its fill.
@@ -76,6 +78,8 @@ function ownOf(a: Annotation): StylePatch {
     case "step":
       // Not the labels' format and start: every marker shares those.
       return { stepShape: a.shape, stepSize: a.size };
+    case "click":
+      return { clickLook: a.look, clickSize: a.size };
     case "rect":
     case "ellipse":
       return { fill: a.fill, fillColor: a.fillColor };
@@ -108,7 +112,7 @@ export function stylePatchFor(source: Annotation, target: Annotation): StylePatc
       patch.background = true;
       patch.backgroundColor = s.fill;
     }
-  } else if (t === "callout" || t === "step") {
+  } else if (t === "callout" || t === "step" || t === "click") {
     color = s.fill ?? s.line;
     if (s.text !== undefined) patch.textColor = s.text;
   } else if (target.kind === "rect" || target.kind === "ellipse") {
@@ -123,7 +127,14 @@ export function stylePatchFor(source: Annotation, target: Annotation): StylePatc
     }
   } else color = s.line ?? s.fill;
   if (color !== undefined) patch.color = color;
-  if (s.width !== undefined && t !== "text" && t !== "step" && t !== "redact" && t !== "spotlight")
+  if (
+    s.width !== undefined &&
+    t !== "text" &&
+    t !== "step" &&
+    t !== "click" &&
+    t !== "redact" &&
+    t !== "spotlight"
+  )
     patch.width = s.width;
   if (s.font && (textual || t === "step")) {
     patch.fontFamily = s.font.fontFamily;

@@ -1,5 +1,6 @@
 // Pure geometry for the markup tools, in source-image pixels.
 
+import { clickReach } from "./click";
 import {
   bentCurve,
   cubicPoint,
@@ -64,6 +65,10 @@ export function annotationBounds(a: Annotation): Rect {
       return a.rect;
     case "step":
       return { x: a.x - a.size / 2, y: a.y - a.size / 2, width: a.size, height: a.size };
+    case "click": {
+      const r = clickReach(a);
+      return { x: a.x - r, y: a.y - r, width: 2 * r, height: 2 * r };
+    }
     case "line":
     case "arrow": {
       const curve = bentCurve(a.from, a.to, a.bend);
@@ -148,6 +153,7 @@ export function translateAnnotation<A extends Annotation>(
       return { ...a, points: a.points.map((v, i) => v + (i % 2 === 0 ? dx : dy)) };
     case "text":
     case "step":
+    case "click":
       return { ...a, x: a.x + dx, y: a.y + dy };
     case "callout":
       return { ...a, x: a.x + dx, y: a.y + dy, tip: leaveTip ? a.tip : p(a.tip) };

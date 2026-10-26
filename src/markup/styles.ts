@@ -17,6 +17,7 @@ import type {
   StepFormat,
   StrokeStyle,
   TextAlign,
+  ClickLook,
 } from "./model/types";
 import { nearestValue } from "./pickers";
 import type { ColorKey } from "./restyle";
@@ -61,6 +62,7 @@ export const DEFAULT_STYLE_CONFIG: StyleConfig = {
     blur: { control: "slider", min: 6, max: 30 },
     spotlight: { control: "slider", min: 30, max: 85 },
     stepSize: { control: "dropdown", values: [24, 32, 44, 60, 72] },
+    clickSize: { control: "dropdown", values: [24, 32, 44, 60, 80] },
     // Never buttons, and 0 is always a choice (Rust keeps it so).
     cornerRadius: { control: "dropdown", values: [0, 5, 10, 15, 20] },
     stepFont: { source: "text", fonts: [], control: "dropdown" },
@@ -105,6 +107,7 @@ export const TOOL_FOR_KIND: Record<AnnotationKind, ToolId> = {
   spotlight: "spotlight",
   step: "step",
   callout: "callout",
+  click: "click",
 };
 
 function override(tool: ToolId, cfg: StyleConfig) {
@@ -331,6 +334,20 @@ export function rememberWidth(tool: ToolId, width: number): void {
 const PREFERRED_STEP_SIZE = 32;
 
 /** The next step marker's style. */
+/** The click tool's next mark (PLAN 5b.6b): its look, size and colour. */
+export function toolClickStyle(): { look: ClickLook; size: number; color: string } {
+  const t = useToolStore.getState();
+  const cfg = useStyleConfig.getState();
+  return {
+    look: t.clickLook,
+    size: t.clickSize ?? nearestValue(cfg.styles.clickSize, PREFERRED_CLICK_SIZE),
+    color: toolColor("click"),
+  };
+}
+
+/** The size a click mark starts at before one's picked. */
+const PREFERRED_CLICK_SIZE = 44;
+
 export function toolStepStyle(): StepStyle {
   const t = useToolStore.getState();
   const cfg = useStyleConfig.getState();

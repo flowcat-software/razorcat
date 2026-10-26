@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { CONTROL_HINTS, WHY, chooseHint, parseHint, withShortcuts, type HintState } from "./hints";
+import {
+  CONTROL_HINTS,
+  WHY,
+  chooseHint,
+  parseHint,
+  withShortcuts,
+  type ControlHint,
+  type HintState,
+} from "./hints";
 import { RAZORCAT_SHORTCUTS } from "./shortcuts";
+import { TOOLS } from "./toolStore";
 
 const nothing = { clips: 0, range: false, marks: 0, pendingIn: false };
 const base: HintState = {
@@ -68,10 +77,15 @@ describe("chooseHint", () => {
   it("names Razorcat's tool keys", () => {
     const idle = withShortcuts(chooseHint(base), RAZORCAT_SHORTCUTS);
     expect(idle).toMatch(
-      /^\[V\] \[P\] \[H\] \[\/\] \[A\] \[B\] \[E\] \[T\] \[Q\] \[U\] \[F\] \[N\] tools/,
+      /^\[V\] \[P\] \[H\] \[\/\] \[A\] \[B\] \[E\] \[T\] \[Q\] \[U\] \[F\] \[N\] \[D\] tools/,
     );
     expect(withShortcuts(CONTROL_HINTS["tool.spotlight"], RAZORCAT_SHORTCUTS)).toMatch(/^\[F\]/);
     expect(withShortcuts(CONTROL_HINTS["tool.redact"], RAZORCAT_SHORTCUTS)).toMatch(/^\[U\]/);
+  });
+
+  it("has a hint for every tool's button", () => {
+    // A tool without one left the hint line with nothing, and it failed (the click tool did).
+    for (const tool of TOOLS) expect(CONTROL_HINTS[`tool.${tool}` as ControlHint]).toBeTruthy();
   });
 
   it("shows the general shortcuts with Select and nothing selected", () => {

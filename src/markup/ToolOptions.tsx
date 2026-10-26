@@ -23,6 +23,7 @@ import {
   TEXT_SIZE_ICON,
 } from "./pickerIcons";
 import { StepOptions } from "./StepOptions";
+import { ClickOptions } from "./ClickOptions";
 import {
   applyStyle,
   beginStyleDrag,
@@ -426,6 +427,10 @@ export function ToolOptions({ compact = false }: { compact?: boolean }) {
         ) : (
           textPickers
         ))}
+
+      {show.click && values.click && (
+        <ClickOptions click={values.click} hints={hints} showKeys={hints && held.digit} />
+      )}
 
       {step && (
         <StepOptions

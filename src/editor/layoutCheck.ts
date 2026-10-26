@@ -27,6 +27,7 @@ const TOOLS: Tool[] = [
   "redact",
   "spotlight",
   "step",
+  "click",
 ];
 
 /** The bars measured, by their class. */

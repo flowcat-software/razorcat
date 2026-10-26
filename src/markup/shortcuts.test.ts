@@ -43,7 +43,7 @@ describe("withShortcuts", () => {
       "[P] Draw freehand · [Shift] straight line",
     );
     expect(withShortcuts("{tools} tools", { ...DEFAULT_SHORTCUTS, pen: null })).toBe(
-      "[V] [H] [L] [A] [R] [E] [T] [O] [B] [S] [N] tools",
+      "[V] [H] [L] [A] [R] [E] [T] [O] [B] [S] [N] [D] tools",
     );
   });
 

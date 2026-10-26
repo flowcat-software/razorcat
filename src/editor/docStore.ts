@@ -68,6 +68,9 @@ import {
   type SourceId,
 } from "./doc";
 import type { Rect, Size } from "./fit";
+import type { ClickLook } from "../markup/model/types";
+import type { RecordedInput } from "../shared/ipc";
+import { withRecordedClicks } from "./recordedInput";
 import type { Grow } from "./frame";
 import { setClipSpeed, setClipsSpeed, type Speed } from "./speed";
 
@@ -189,6 +192,14 @@ export interface DocState {
 
   /** Adds markup showing `object` at timeline frame `start`, `length` frames long; its id. */
   addMark: (object: MarkObject, start: number, length: number, lane: number) => MarkId | null;
+  /** A recording's clicks as click marks on clip `clip` (PLAN 5b.6b): one undo step. */
+  addRecordedClicks: (
+    clip: ClipId,
+    input: RecordedInput,
+    fps: number,
+    size: Size,
+    look: { look: ClickLook; size: number },
+  ) => boolean;
   /** Moves or resizes markup `id` to timeline frames `start` to `end`, in `lane`. */
   setMark: (id: MarkId, start: number, end: number, lane: number) => boolean;
   /** Markup `id` shows `object` now (moved, resized or restyled on the preview). */
@@ -437,6 +448,8 @@ export const useDoc = create<DocState>()((set, get) => {
       const id = get().doc.nextMarkId;
       return apply((doc) => addMark(doc, object, start, length, lane), [id]) ? id : null;
     },
+    addRecordedClicks: (clip, input, fps, size, look) =>
+      apply((doc) => withRecordedClicks(doc, clip, input, fps, size, look)),
     setMark: (id, start, end, lane) => apply((doc) => setMark(doc, id, start, end, lane), [id]),
     setMarkObject: (id, object) => apply((doc) => setMarkObject(doc, id, object)),
     stepMark: (id, dir) => apply((doc) => stepLane(doc, id, dir)),

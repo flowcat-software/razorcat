@@ -371,6 +371,7 @@ export const MARK_NAMES: Record<MarkObject["kind"], string> = {
   step: "Step",
   redact: "Redact",
   spotlight: "Spotlight",
+  click: "Click",
 };
 
 /** What markup's bar on the timeline says: its text's first line, else what it is. */

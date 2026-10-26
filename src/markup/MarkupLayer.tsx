@@ -15,6 +15,7 @@ import {
   Transformer,
 } from "react-konva";
 import { bendFromPoint, bendPoint } from "./bend";
+import { clickReach, drawClick } from "./click";
 import {
   calloutBox,
   calloutExtent,
@@ -47,6 +48,7 @@ import type {
   AnnotationId,
   ArrowAnnotation,
   CalloutAnnotation,
+  ClickAnnotation,
   HighlighterAnnotation,
   LineAnnotation,
   PenAnnotation,
@@ -74,6 +76,7 @@ import {
   toolRedact,
   toolSpotlight,
   toolStepStyle,
+  toolClickStyle,
   toolStroke,
   useStyleConfig,
 } from "./styles";
@@ -617,6 +620,13 @@ export function MarkupLayer({
         cornerRadius: toolCornerRadius("spotlight"),
       });
       drag = { mode: "draw", start: p, id };
+    } else if (tool === "click") {
+      // A click marks a click there; dragging before letting go moves it (PLAN 5b.6b).
+      store.select([]);
+      store.beginGesture();
+      const { look, size, color } = toolClickStyle();
+      const id = store.add({ kind: "click", x: p.x, y: p.y, look, size, color, double: false });
+      drag = { mode: "place", id };
     } else if (tool === "step") {
       // A click places the next marker; dragging before letting go moves it.
       store.select([]);
@@ -727,7 +737,9 @@ export function MarkupLayer({
           break;
         }
         case "place":
-          s.update(drag.id, (a) => (a.kind === "step" ? { ...a, x: q.x, y: q.y } : a));
+          s.update(drag.id, (a) =>
+            a.kind === "step" || a.kind === "click" ? { ...a, x: q.x, y: q.y } : a,
+          );
           break;
         case "tip": {
           const tip = m.shiftKey ? snapAngle(drag.pivot, q) : q;
@@ -1310,7 +1322,7 @@ export function MarkupLayer({
             />
           )}
           {doc.annotations.map((a) =>
-            (isStroke(a) || a.kind === "step") &&
+            (isStroke(a) || a.kind === "step" || a.kind === "click") &&
             selection.includes(a.id) &&
             a.id !== labelEditing ? (
               <SelectionBounds
@@ -1399,6 +1411,7 @@ export function AnnotationShape({
   label?: string;
 }) {
   if (a.kind === "step") return <StepMarker a={a} label={label} hidden={hidden} />;
+  if (a.kind === "click") return <ClickMark a={a} />;
   if (a.kind === "callout") return <CalloutShape a={a} hitSlop={hitSlop} typing={hidden} />;
   if (a.kind === "text") {
     return (
@@ -1770,6 +1783,32 @@ function stepPath(c: CanvasRenderingContext2D, shape: StepShape, r: number): voi
  * A step marker (PLAN 3D.11): its shape filled, and the label in bold,
  * centred, shrunk to fit when it's long. Positioned about its centre.
  */
+/** A click mark (PLAN 5b.6b), drawn by click.ts so the export matches. */
+function ClickMark({ a }: { a: ClickAnnotation }) {
+  const reach = clickReach(a);
+  return (
+    <Shape
+      id={a.id}
+      name="annotation"
+      x={a.x}
+      y={a.y}
+      // For the hit area only; the scene draws itself.
+      fill={a.color}
+      perfectDrawEnabled={false}
+      sceneFunc={(ctx) => {
+        const c = (ctx as unknown as { _context: CanvasRenderingContext2D })._context;
+        drawClick(c, a);
+      }}
+      hitFunc={(ctx, shape) => {
+        ctx.beginPath();
+        ctx.arc(0, 0, reach, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.fillShape(shape);
+      }}
+    />
+  );
+}
+
 function StepMarker({ a, label, hidden }: { a: StepAnnotation; label: string; hidden: boolean }) {
   const r = a.size / 2;
   return (

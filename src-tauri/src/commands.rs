@@ -315,6 +315,13 @@ pub fn note_recording_input(app: AppHandle, clicks: Option<bool>, keys: Option<b
     crate::recording::note(&app, clicks.map(Some), keys.map(Some));
 }
 
+/// The clicks and keys noted while the file at `path` was recorded, once (PLAN 5b.6b).
+#[tauri::command]
+#[specta::specta]
+pub fn take_recorded_input(path: String) -> Option<crate::recording::RecordedInput> {
+    crate::recording::take_input(&path)
+}
+
 /// The control's Pause: pauses the recording, or resumes it.
 #[tauri::command]
 #[specta::specta]

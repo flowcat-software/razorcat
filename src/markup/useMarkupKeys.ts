@@ -116,6 +116,11 @@ function pickWidth(slot: number): boolean {
     if (stepSize !== null) applyStyle({ stepSize });
     return true;
   }
+  if (sections.click) {
+    const clickSize = pickByDigit(useStyleConfig.getState().styles.clickSize, slot);
+    if (clickSize !== null) applyStyle({ clickSize });
+    return true;
+  }
   if (sections.spotlight) {
     const dim = pickByDigit(useStyleConfig.getState().styles.spotlight, slot);
     if (dim !== null) applyStyle({ dim });

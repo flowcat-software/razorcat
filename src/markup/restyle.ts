@@ -10,6 +10,7 @@ import type {
   AnnotationKind,
   CalloutEnd,
   CalloutShape,
+  ClickLook,
   ArrowEnds,
   ArrowHead,
   Doc,
@@ -34,6 +35,7 @@ import {
   toolRedact,
   stepNumbering,
   toolCalloutStyle,
+  toolClickStyle,
   toolCornerRadius,
   toolSpotlight,
   toolStepStyle,
@@ -108,6 +110,8 @@ export interface TargetValues {
   corner: number | null;
   /** Callouts only (`color` is the box's, `width` the pointer's). */
   callout: { textColor: string; end: CalloutEnd; shape: CalloutShape } | null;
+  /** Click marks only (PLAN 5b.6b; `color` is the mark's). */
+  click: { look: ClickLook; size: number } | null;
 }
 
 /** What the controls show: the first object's style, or the tool's. */
@@ -137,9 +141,25 @@ export function targetValues(target: StyleTarget, doc: Doc): TargetValues {
       // An underline has no box to round.
       corner: c.shape === "underline" ? null : c.cornerRadius,
       callout: { textColor: c.textColor, end: c.end, shape: c.shape },
+      click: null,
     };
   }
-  return { ...styleValues(target, a), corner: cornerValue(target, doc), callout: null };
+  return {
+    ...styleValues(target, a),
+    corner: cornerValue(target, doc),
+    callout: null,
+    click: clickValue(target, a),
+  };
+}
+
+/** A click mark's look and size, or the click tool's. */
+function clickValue(target: StyleTarget, a: Annotation | undefined): TargetValues["click"] {
+  if (a?.kind === "click") return { look: a.look, size: a.size };
+  if (!a && target.tool === "click") {
+    const t = toolClickStyle();
+    return { look: t.look, size: t.size };
+  }
+  return null;
 }
 
 /** The corner radius on show, or null where corners don't apply (ellipses, round spotlights). */
@@ -159,14 +179,13 @@ function cornerValue(target: StyleTarget, doc: Doc): number | null {
 function styleValues(
   target: StyleTarget,
   a: Exclude<Annotation, { kind: "callout" }> | undefined,
-): Omit<TargetValues, "corner" | "callout"> {
+): Omit<TargetValues, "corner" | "callout" | "click"> {
   const tools = useToolStore.getState();
   if (!a) {
     const t = target.tool;
     return {
       color: toolColor(t),
-      width:
-        t === "text" || t === "redact" || t === "spotlight" || t === "step" ? null : toolWidth(t),
+      width: widthTool(t) ? toolWidth(t) : null,
       fill: t === "rect" || t === "ellipse" ? toolFill(t).fill : null,
       fillColor: t === "rect" || t === "ellipse" ? (toolFill(t).color ?? toolColor(t)) : null,
       head: t === "arrow" ? tools.arrowHead : null,
@@ -208,6 +227,20 @@ function styleValues(
         format: a.format,
         start: a.start,
       },
+    };
+  }
+  if (a.kind === "click") {
+    return {
+      color: a.color,
+      width: null,
+      fill: null,
+      fillColor: null,
+      head: null,
+      ends: null,
+      text: null,
+      redact: null,
+      spotlight: null,
+      step: null,
     };
   }
   if (a.kind === "spotlight") {
@@ -268,9 +301,7 @@ export function targetSections(target: StyleTarget) {
   const all = (pred: (k: AnnotationKind) => boolean) => target.kinds.every(pred);
   return {
     color: target.kinds.some((k) => k !== "redact" && k !== "spotlight"),
-    width: target.kinds.some(
-      (k) => k !== "text" && k !== "redact" && k !== "spotlight" && k !== "step",
-    ),
+    width: target.kinds.some((k) => widthTool(TOOL_FOR_KIND[k])),
     fill: all((k) => k === "rect" || k === "ellipse"),
     head: all((k) => k === "arrow"),
     // Font, size, bold, italic and alignment: text and callouts.
@@ -281,6 +312,7 @@ export function targetSections(target: StyleTarget) {
     spotlight: all((k) => k === "spotlight"),
     step: all((k) => k === "step"),
     callout: all((k) => k === "callout"),
+    click: all((k) => k === "click"),
     // Also needs a rectangle's shape (see TargetValues.corner).
     corner: all((k) => k === "rect" || k === "spotlight" || k === "callout"),
   };
@@ -385,6 +417,9 @@ export interface StylePatch {
   pointerEnd?: CalloutEnd;
   /** A callout's shape (PLAN 3E.3). */
   calloutShape?: CalloutShape;
+  /** A click mark's look and size (PLAN 5b.6b). */
+  clickLook?: ClickLook;
+  clickSize?: number;
 }
 
 /** Tools whose corners round. */
@@ -441,6 +476,14 @@ export function patchAnnotation(a: Annotation, p: StylePatch): Annotation {
   }
   if (a.kind === "spotlight") {
     return { ...a, shape: p.spotlightShape ?? a.shape, dim: p.dim ?? a.dim };
+  }
+  if (a.kind === "click") {
+    return {
+      ...a,
+      look: p.clickLook ?? a.look,
+      size: p.clickSize ?? a.size,
+      color: p.color ?? a.color,
+    };
   }
   if (a.kind === "redact") {
     const mode = p.redactMode ?? a.mode;
@@ -533,6 +576,13 @@ export function applyStyle(patch: StylePatch, target = styleTarget()): void {
         stepFont: patch.fontFamily ?? t.stepFont,
         stepFormat: patch.stepFormat ?? t.stepFormat,
         stepStart: patch.stepStart ?? t.stepStart,
+      });
+    }
+    if (tool === "click") {
+      const t = useToolStore.getState();
+      useToolStore.setState({
+        clickLook: patch.clickLook ?? t.clickLook,
+        clickSize: patch.clickSize ?? t.clickSize,
       });
     }
     if (tool === "spotlight") {
@@ -637,7 +687,13 @@ export function swapColors(): boolean {
 
 /** Tools with a line width. */
 function widthTool(tool: ToolId): boolean {
-  return tool !== "text" && tool !== "redact" && tool !== "spotlight" && tool !== "step";
+  return (
+    tool !== "text" &&
+    tool !== "redact" &&
+    tool !== "spotlight" &&
+    tool !== "step" &&
+    tool !== "click"
+  );
 }
 
 /**

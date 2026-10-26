@@ -16,6 +16,7 @@ export type ShortcutKeys = Record<
   | "redact"
   | "spotlight"
   | "step"
+  | "click"
   | "crop"
   | "swapColors",
   string | null
@@ -39,6 +40,7 @@ export const RAZORCAT_SHORTCUTS: ShortcutKeys = {
   redact: "U",
   spotlight: "F",
   step: "N",
+  click: "D",
   crop: "C",
   swapColors: "X",
 };
@@ -58,6 +60,7 @@ export const DEFAULT_SHORTCUTS: ShortcutKeys = {
   redact: "B",
   spotlight: "S",
   step: "N",
+  click: "D",
   crop: "C",
   swapColors: "X",
 };
@@ -76,6 +79,7 @@ export const SHORTCUT_NAMES: Record<ShortcutId, string> = {
   redact: "Redact",
   spotlight: "Spotlight",
   step: "Step marker",
+  click: "Click",
   crop: "Crop",
   swapColors: "Swap colors",
 };

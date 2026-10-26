@@ -7,6 +7,7 @@ import type {
   AnnotationId,
   CalloutEnd,
   CalloutShape,
+  ClickLook,
   ArrowEnds,
   ArrowHead,
   RedactMode,
@@ -31,6 +32,7 @@ export const TOOLS = [
   "redact",
   "spotlight",
   "step",
+  "click",
 ] as const;
 export type ToolId = (typeof TOOLS)[number];
 
@@ -100,6 +102,9 @@ export interface ToolState {
   /** The labels of a document's first marker (after that, its markers say). */
   stepFormat: StepFormat;
   stepStart: number;
+  /** Click marks (PLAN 5b.6b): the next one's look, and its size once picked. */
+  clickLook: ClickLook;
+  clickSize: number | null;
   /**
    * Callouts (PLAN 3E): their own font, size and text style once picked (else
    * the text tool's), and the text color (null: black or white, whichever
@@ -155,6 +160,8 @@ export const useToolStore = create<ToolState>((set) => ({
   stepFont: null,
   stepFormat: "numbers",
   stepStart: 1,
+  clickLook: "ring",
+  clickSize: null,
   calloutFont: null,
   calloutFontSize: null,
   calloutBold: false,

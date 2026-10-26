@@ -28,6 +28,8 @@ export const CONTROL_HINTS = {
   "tool.redact": "{redact} Blur or pixelate an area · always under the other markup",
   "tool.spotlight": "{spotlight} Darken everything outside a box or ellipse",
   "tool.step": "{step} Click to place numbered or lettered markers · they count up",
+  "tool.click":
+    "{click} Click to mark where something was clicked · a recording's clicks come as these",
   "tool.callout": "{callout} Drag from what to point at to where the text goes, or click",
   "tool.crop": "{crop} Crop the picture, the same for the whole video · [Enter] done",
   "tool.grow": "[G] Grow the frame: space round the picture, in a colour · [Enter] done",
@@ -73,6 +75,7 @@ export const CONTROL_HINTS = {
     "A box around the text, filled or outlined, or a line under it (over it when the pointer points up)",
   dim: "[1…0] How dark outside · [`] the lightest · shared by every spotlight",
   "step.shape": "The marker's shape",
+  "click.look": "How the click mark looks",
   "step.format": "Numbers or letters · shared by every marker",
   "step.start": "The first marker's label · the others count up from it",
   "step.resetStyles": "Give every marker the style shown here · [Ctrl+Z] undoes it",
@@ -270,6 +273,8 @@ function toolHint(tool: Exclude<ToolId, "select">, twoColors: boolean): string {
       return "Drag the area to keep bright · [Shift] square or circle · [1…0] darkness · [Alt+1…0] corners";
     case "step":
       return `Click to place the next marker · [1…0] size · [Alt+1…0] font · ${colors}`;
+    case "click":
+      return `Click to mark a click there · [1…0] size · ${colors}`;
     case "callout":
       return `Drag from what to point at to where the text goes · [1…0] size · [Shift+1…0] thickness · [Alt+1…0] font · ${colors}`;
   }

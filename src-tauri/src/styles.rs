@@ -219,6 +219,8 @@ pub struct Styles {
     pub spotlight: NumberPicker,
     /// Step markers' size in source px (PLAN 3D.13).
     pub step_size: NumberPicker,
+    /// Click marks' size in source px (PLAN 5b.6b).
+    pub click_size: NumberPicker,
     /// Rounded corners (rectangles, Spotlight's rectangle) in source px (PLAN
     /// 3D.17): 0 is always a choice, and never buttons.
     pub corner_radius: NumberPicker,
@@ -263,6 +265,9 @@ impl Default for Styles {
             },
             step_size: NumberPicker::Dropdown {
                 values: vec![24.0, 32.0, 44.0, 60.0, 72.0],
+            },
+            click_size: NumberPicker::Dropdown {
+                values: vec![24.0, 32.0, 44.0, 60.0, 80.0],
             },
             corner_radius: NumberPicker::Dropdown {
                 values: vec![0.0, 5.0, 10.0, 15.0, 20.0],
@@ -335,6 +340,7 @@ impl Styles {
                 .normalized_up_to(100.0)
                 .unwrap_or(defaults.spotlight),
             step_size: self.step_size.normalized().unwrap_or(defaults.step_size),
+            click_size: self.click_size.normalized().unwrap_or(defaults.click_size),
             corner_radius: self
                 .corner_radius
                 .normalized_from_zero()

@@ -4,6 +4,7 @@ import { sayWhy, useHintSources } from "../markup/hints";
 import { annotationId, docStore as markupDoc } from "../markup/model/store";
 import { startToolStylesSync } from "../markup/toolStylesSync";
 import { useMarkupKeys } from "../markup/useMarkupKeys";
+import { toolClickStyle } from "../markup/styles";
 import { applyStyleSettings, loadFonts } from "../markup/useStyleSettings";
 import { ConfirmDialog } from "../settings/controls/ConfirmDialog";
 import { isTyping } from "../shared/dom";
@@ -185,6 +186,26 @@ function transportKey(e: KeyboardEvent, player: Player, audio: boolean): boolean
  * the timeline). Files open from the Open dialog, a drop, "Open with" or a second launch; Rust
  * reads them and sends `SourceOpened` (or `OpenFailed`).
  */
+/**
+ * The clicks Rust noted while file `s` was recorded, as click marks on its clip `clip` (PLAN
+ * 5b.6b), at the timeline's rate (`first`, its first file's): asked once, as it opens.
+ */
+function addRecordedInput(s: SourceInfo, clip: number, first: SourceInfo): void {
+  void commands.takeRecordedInput(s.path).then((input) => {
+    if (!input?.clicks.length) return;
+    const { look, size } = toolClickStyle();
+    useDoc
+      .getState()
+      .addRecordedClicks(
+        clip,
+        input,
+        first.rateNum / first.rateDen,
+        { width: s.width, height: s.height },
+        { look, size },
+      );
+  });
+}
+
 export function EditorApp() {
   /** The timeline's files, first first (PLAN 4.5e): the first sets its rate and frame. */
   const [sources, setSources] = useState<SourceInfo[]>([]);
@@ -322,6 +343,9 @@ export function EditorApp() {
     doc.load(sourceFrames, { width: sourceWidth, height: sourceHeight }, sourceId);
     for (const s of latest.current.slice(1)) doc.addSource(s.id, s.frames);
     useDoc.setState({ past: [], future: [] });
+    // A recording's clicks, on its one clip.
+    const first = latest.current[0];
+    if (first) addRecordedInput(first, 1, first);
     useTool.getState().setTool("select");
     // A portrait video's crop ratios start turned (9:16).
     useTool.getState().setPortrait(sourceHeight > sourceWidth);
@@ -403,6 +427,9 @@ export function EditorApp() {
         // Dropped onto a cut, it goes in there, and lights up to show where.
         const id = useDoc.getState().doc.nextId;
         useDoc.getState().addSource(added.id, added.frames, payload.at);
+        // A recording's clicks, on its clip, at the timeline's rate.
+        const first = latest.current[0];
+        if (first) addRecordedInput(added, id, first);
         if (payload.at !== null) useTimeline.getState().flashClip(id);
         setNotice({
           text:

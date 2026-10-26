@@ -203,7 +203,7 @@ pub fn note(app: &AppHandle, clicks: Option<Option<bool>>, keys: Option<Option<b
     }
     if r.input.is_none() && (r.clicks || r.keys) {
         let window = r.target.window.map(|w| w.0 as isize);
-        match input::Watch::start(false, r.key_mode, window) {
+        match input::Watch::start(false, false, r.key_mode, window) {
             Ok(w) => r.input = Some(w),
             Err(e) => {
                 logln!("[recording] clicks and keys: {e}");
@@ -247,6 +247,23 @@ pub struct RecordedKeys {
 pub struct RecordedInput {
     pub clicks: Vec<RecordedClick>,
     pub keys: Vec<RecordedKeys>,
+}
+
+/// Recordings' clicks and keys, by file, until the editor opening it takes them (in memory only).
+static NOTED: Mutex<Vec<(PathBuf, RecordedInput)>> = Mutex::new(Vec::new());
+
+/// The clicks and keys noted while `path` was recorded, once: the editor turns them into markup
+/// as it opens the file.
+pub fn take_input(path: &str) -> Option<RecordedInput> {
+    let path = std::path::Path::new(path);
+    let mut noted = NOTED.lock().unwrap();
+    let same = |p: &PathBuf| {
+        p == path
+            || (std::fs::canonicalize(p).ok())
+                .is_some_and(|a| std::fs::canonicalize(path).is_ok_and(|b| a == b))
+    };
+    let i = noted.iter().position(|(p, _)| same(p))?;
+    Some(noted.remove(i).1)
 }
 
 /// Where `qpc` (100 ns) falls in the joined recording (s), given its segments' spans in order;
@@ -748,6 +765,25 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
     // The overlays, the countdown and the editor out of the way before the first frame.
     std::thread::sleep(Duration::from_millis(250));
 
+    let key_mode = if settings.keys == input::KeyMode::Off {
+        input::KeyMode::Shortcuts
+    } else {
+        settings.keys
+    };
+    // Noting from before ffmpeg starts, not once it's seen to: its frames are from the start of
+    // its clock, and a click in its first moments would be lost (the control's toggles set it).
+    let mut noting = EARLY
+        .lock()
+        .unwrap()
+        .as_ref()
+        .filter(|e| e.clicks || e.keys)
+        .and_then(|e| {
+            let window = target.window.map(|w| w.0 as isize);
+            input::Watch::start(e.clicks, e.keys, key_mode, window)
+                .inspect_err(|e| logln!("[recording] clicks and keys: {e}"))
+                .ok()
+        });
+
     let (w, h) = target.size();
     let video = video(app);
     let mut why = String::from("no encoder worked");
@@ -779,14 +815,10 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
                         seg: Some(seg),
                         parts: Vec::new(),
                         spans: Vec::new(),
-                        input: None,
+                        input: noting.take(),
                         clicks: false,
                         keys: false,
-                        key_mode: if settings.keys == input::KeyMode::Off {
-                            input::KeyMode::Shortcuts
-                        } else {
-                            settings.keys
-                        },
+                        key_mode,
                         base,
                         target: target.clone(),
                         encoder,
@@ -829,6 +861,9 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
                 }
             }
         }
+    }
+    if let Some(w) = noting {
+        w.stop();
     }
     Err(why)
 }
@@ -1147,6 +1182,9 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
                 message: r.warning.take(),
             }
             .emit_to(app, LABEL);
+            if !noted.clicks.is_empty() || !noted.keys.is_empty() {
+                NOTED.lock().unwrap().push((r.file.clone(), noted));
+            }
             crate::editor::request_open(app, r.file, r.add);
         }
         Err(message) => {

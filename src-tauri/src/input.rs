@@ -94,10 +94,21 @@ pub struct Watch {
 }
 
 impl Watch {
-    /// Starts noting: clicks if `clicks`, keys as `keys`; `window` is the window recorded.
-    pub fn start(clicks: bool, keys: KeyMode, window: Option<isize>) -> Result<Watch, String> {
+    /// Starts noting: clicks if `clicks`, keys if `keys`, as `mode` (shortcuts if that's off);
+    /// `window` is the window recorded.
+    pub fn start(
+        clicks: bool,
+        keys: bool,
+        mode: KeyMode,
+        window: Option<isize>,
+    ) -> Result<Watch, String> {
+        let keys_on = if mode == KeyMode::Off {
+            KeyMode::Shortcuts
+        } else {
+            mode
+        };
         let clicks = Arc::new(AtomicBool::new(clicks));
-        let mode = Arc::new(Mutex::new(keys));
+        let mode = Arc::new(Mutex::new(if keys { keys_on } else { KeyMode::Off }));
         *SINK.lock().unwrap() = Some(Sink {
             clicks: clicks.clone(),
             keys: mode.clone(),
@@ -128,11 +139,7 @@ impl Watch {
                 handle,
                 clicks,
                 keys: mode,
-                keys_on: if keys == KeyMode::Off {
-                    KeyMode::Shortcuts
-                } else {
-                    keys
-                },
+                keys_on,
             }),
             _ => {
                 let _ = handle.join();

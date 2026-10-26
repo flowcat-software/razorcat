@@ -64,6 +64,22 @@ describe("the markup's view of the edit", () => {
     ]);
     expect(useEdit.getState().selectedMarks).toEqual([2]);
   });
+
+  it("places a click for a moment, fading out, as a recording's are", () => {
+    docStore.getState().load(emptyDoc({ width: 100, height: 100 }));
+    docStore.getState().add({
+      kind: "click",
+      x: 10,
+      y: 10,
+      size: 44,
+      look: "ring",
+      color: "#ffd60a",
+      double: false,
+    });
+    // No player: at 30 fps, 0.8 s and 0.3 s.
+    const [mark] = useEdit.getState().doc.marks;
+    expect(mark).toMatchObject({ at: 0, length: 24, fadeOut: 9 });
+  });
 });
 
 describe("timelineStepLabels", () => {

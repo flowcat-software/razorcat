@@ -231,6 +231,27 @@ export interface CalloutAnnotation extends Base, TextBody {
   end: CalloutEnd;
 }
 
+/** How a click mark looks (PLAN 5b.6b): a ring round a dot, a soft glow, or crosshair ticks
+ *  round a ring. (The moving ripple is 5b.6e.) */
+export type ClickLook = "ring" | "halo" | "target";
+
+/**
+ * Where the mouse was clicked (PLAN 5b.6b): noted while recording (a left click in one colour, a
+ * right in another, as Settings has them), or placed by hand with the click tool.
+ */
+export interface ClickAnnotation extends Base {
+  kind: "click";
+  /** The centre: where it was clicked. */
+  x: number;
+  y: number;
+  /** Width and height in source px. */
+  size: number;
+  look: ClickLook;
+  color: string;
+  /** A double-click: a second ring round the first. */
+  double: boolean;
+}
+
 export type Annotation =
   | PenAnnotation
   | HighlighterAnnotation
@@ -241,7 +262,8 @@ export type Annotation =
   | RedactAnnotation
   | SpotlightAnnotation
   | StepAnnotation
-  | CalloutAnnotation;
+  | CalloutAnnotation
+  | ClickAnnotation;
 
 export type AnnotationKind = Annotation["kind"];
 
