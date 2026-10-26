@@ -11,6 +11,7 @@ import type {
   CalloutEnd,
   CalloutShape,
   ClickLook,
+  KeysLook,
   ArrowEnds,
   ArrowHead,
   Doc,
@@ -36,6 +37,7 @@ import {
   stepNumbering,
   toolCalloutStyle,
   toolClickStyle,
+  toolKeysStyle,
   toolCornerRadius,
   toolSpotlight,
   toolStepStyle,
@@ -112,6 +114,8 @@ export interface TargetValues {
   callout: { textColor: string; end: CalloutEnd; shape: CalloutShape } | null;
   /** Click marks only (PLAN 5b.6b; `color` is the mark's). */
   click: { look: ClickLook; size: number } | null;
+  /** Keys marks only (PLAN 5b.6c; `color` is the mark's). */
+  keys: { look: KeysLook; size: number } | null;
 }
 
 /** What the controls show: the first object's style, or the tool's. */
@@ -142,6 +146,7 @@ export function targetValues(target: StyleTarget, doc: Doc): TargetValues {
       corner: c.shape === "underline" ? null : c.cornerRadius,
       callout: { textColor: c.textColor, end: c.end, shape: c.shape },
       click: null,
+      keys: null,
     };
   }
   return {
@@ -149,7 +154,18 @@ export function targetValues(target: StyleTarget, doc: Doc): TargetValues {
     corner: cornerValue(target, doc),
     callout: null,
     click: clickValue(target, a),
+    keys: keysValue(target, a),
   };
+}
+
+/** A keys mark's look and size, or the keys tool's. */
+function keysValue(target: StyleTarget, a: Annotation | undefined): TargetValues["keys"] {
+  if (a?.kind === "keys") return { look: a.look, size: a.size };
+  if (!a && target.tool === "keys") {
+    const t = toolKeysStyle();
+    return { look: t.look, size: t.size };
+  }
+  return null;
 }
 
 /** A click mark's look and size, or the click tool's. */
@@ -179,7 +195,7 @@ function cornerValue(target: StyleTarget, doc: Doc): number | null {
 function styleValues(
   target: StyleTarget,
   a: Exclude<Annotation, { kind: "callout" }> | undefined,
-): Omit<TargetValues, "corner" | "callout" | "click"> {
+): Omit<TargetValues, "corner" | "callout" | "click" | "keys"> {
   const tools = useToolStore.getState();
   if (!a) {
     const t = target.tool;
@@ -229,7 +245,7 @@ function styleValues(
       },
     };
   }
-  if (a.kind === "click") {
+  if (a.kind === "click" || a.kind === "keys") {
     return {
       color: a.color,
       width: null,
@@ -313,6 +329,7 @@ export function targetSections(target: StyleTarget) {
     step: all((k) => k === "step"),
     callout: all((k) => k === "callout"),
     click: all((k) => k === "click"),
+    keys: all((k) => k === "keys"),
     // Also needs a rectangle's shape (see TargetValues.corner).
     corner: all((k) => k === "rect" || k === "spotlight" || k === "callout"),
   };
@@ -420,6 +437,9 @@ export interface StylePatch {
   /** A click mark's look and size (PLAN 5b.6b). */
   clickLook?: ClickLook;
   clickSize?: number;
+  /** A keys mark's look and size (PLAN 5b.6c). */
+  keysLook?: KeysLook;
+  keysSize?: number;
 }
 
 /** Tools whose corners round. */
@@ -482,6 +502,14 @@ export function patchAnnotation(a: Annotation, p: StylePatch): Annotation {
       ...a,
       look: p.clickLook ?? a.look,
       size: p.clickSize ?? a.size,
+      color: p.color ?? a.color,
+    };
+  }
+  if (a.kind === "keys") {
+    return {
+      ...a,
+      look: p.keysLook ?? a.look,
+      size: p.keysSize ?? a.size,
       color: p.color ?? a.color,
     };
   }
@@ -583,6 +611,13 @@ export function applyStyle(patch: StylePatch, target = styleTarget()): void {
       useToolStore.setState({
         clickLook: patch.clickLook ?? t.clickLook,
         clickSize: patch.clickSize ?? t.clickSize,
+      });
+    }
+    if (tool === "keys") {
+      const t = useToolStore.getState();
+      useToolStore.setState({
+        keysLook: patch.keysLook ?? t.keysLook,
+        keysSize: patch.keysSize ?? t.keysSize,
       });
     }
     if (tool === "spotlight") {
@@ -692,7 +727,8 @@ function widthTool(tool: ToolId): boolean {
     tool !== "redact" &&
     tool !== "spotlight" &&
     tool !== "step" &&
-    tool !== "click"
+    tool !== "click" &&
+    tool !== "keys"
   );
 }
 

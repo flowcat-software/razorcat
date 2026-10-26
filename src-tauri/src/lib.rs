@@ -4,6 +4,7 @@ mod log;
 
 mod appearance;
 mod audio;
+mod browser_keys;
 mod check;
 mod cli;
 mod commands;

@@ -94,7 +94,8 @@ export function drawClick(c: CanvasRenderingContext2D, a: ClickAnnotation): void
     dot(c, a.size * 0.12, a.color);
   }
   if (a.double) {
-    c.globalAlpha = 0.6;
+    // Under the mark's own opacity (fading, while selected).
+    c.globalAlpha *= 0.6;
     ring(c, r * DOUBLE_RING - line / 2, Math.max(1.5, line * 0.7), a.color);
   }
   c.restore();

@@ -28,6 +28,7 @@ import { editStepLabel } from "./stepEditing";
 import { editText } from "./textEditing";
 import { duplicateSelection } from "./objectActions";
 import { shortcutOf } from "./shortcuts";
+import { isCapturingKeys } from "./KeysField";
 import styles from "./markup.module.css";
 
 /**
@@ -46,6 +47,8 @@ export function useMarkupKeys(active?: () => boolean): void {
     };
     const onKey = (e: KeyboardEvent) => {
       if (activeRef.current && !activeRef.current()) return;
+      // A keys mark's field is taking the keys (PLAN 5b.6c).
+      if (isCapturingKeys()) return;
       const slot = digitSlot(e.code);
       // Ctrl+0 and Ctrl+Shift+0 are zoom (the editor's), never a color (PLAN 3M.1),
       // and Ctrl+` is nothing: colors have no lowest (PLAN 3M.3).
@@ -119,6 +122,11 @@ function pickWidth(slot: number): boolean {
   if (sections.click) {
     const clickSize = pickByDigit(useStyleConfig.getState().styles.clickSize, slot);
     if (clickSize !== null) applyStyle({ clickSize });
+    return true;
+  }
+  if (sections.keys) {
+    const keysSize = pickByDigit(useStyleConfig.getState().styles.keysSize, slot);
+    if (keysSize !== null) applyStyle({ keysSize });
     return true;
   }
   if (sections.spotlight) {

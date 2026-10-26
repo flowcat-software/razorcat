@@ -18,6 +18,7 @@ import type {
   StrokeStyle,
   TextAlign,
   ClickLook,
+  KeysLook,
 } from "./model/types";
 import { nearestValue } from "./pickers";
 import type { ColorKey } from "./restyle";
@@ -63,6 +64,7 @@ export const DEFAULT_STYLE_CONFIG: StyleConfig = {
     spotlight: { control: "slider", min: 30, max: 85 },
     stepSize: { control: "dropdown", values: [24, 32, 44, 60, 72] },
     clickSize: { control: "dropdown", values: [24, 32, 44, 60, 80] },
+    keysSize: { control: "dropdown", values: [16, 20, 28, 36, 48] },
     // Never buttons, and 0 is always a choice (Rust keeps it so).
     cornerRadius: { control: "dropdown", values: [0, 5, 10, 15, 20] },
     stepFont: { source: "text", fonts: [], control: "dropdown" },
@@ -108,6 +110,7 @@ export const TOOL_FOR_KIND: Record<AnnotationKind, ToolId> = {
   step: "step",
   callout: "callout",
   click: "click",
+  keys: "keys",
 };
 
 function override(tool: ToolId, cfg: StyleConfig) {
@@ -333,7 +336,6 @@ export function rememberWidth(tool: ToolId, width: number): void {
 
 const PREFERRED_STEP_SIZE = 32;
 
-/** The next step marker's style. */
 /** The click tool's next mark (PLAN 5b.6b): its look, size and colour. */
 export function toolClickStyle(): { look: ClickLook; size: number; color: string } {
   const t = useToolStore.getState();
@@ -348,6 +350,21 @@ export function toolClickStyle(): { look: ClickLook; size: number; color: string
 /** The size a click mark starts at before one's picked. */
 const PREFERRED_CLICK_SIZE = 44;
 
+/** The keys tool's next mark (PLAN 5b.6c): its look, size (the font's) and colour. */
+export function toolKeysStyle(): { look: KeysLook; size: number; color: string } {
+  const t = useToolStore.getState();
+  const cfg = useStyleConfig.getState();
+  return {
+    look: t.keysLook,
+    size: t.keysSize ?? nearestValue(cfg.styles.keysSize, PREFERRED_KEYS_SIZE),
+    color: toolColor("keys"),
+  };
+}
+
+/** The font size a keys mark starts at before one's picked. */
+const PREFERRED_KEYS_SIZE = 28;
+
+/** The next step marker's style. */
 export function toolStepStyle(): StepStyle {
   const t = useToolStore.getState();
   const cfg = useStyleConfig.getState();

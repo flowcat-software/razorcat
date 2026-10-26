@@ -868,6 +868,8 @@ export type Styles = {
 	stepSize?: NumberPicker,
 	/**  Click marks' size in source px (PLAN 5b.6b). */
 	clickSize?: NumberPicker,
+	/**  Keys marks' font size in source px (PLAN 5b.6c). */
+	keysSize?: NumberPicker,
 	/**
 	 *  Rounded corners (rectangles, Spotlight's rectangle) in source px (PLAN
 	 *  3D.17): 0 is always a choice, and never buttons.

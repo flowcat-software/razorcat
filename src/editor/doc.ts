@@ -372,11 +372,18 @@ export const MARK_NAMES: Record<MarkObject["kind"], string> = {
   redact: "Redact",
   spotlight: "Spotlight",
   click: "Click",
+  keys: "Keys",
 };
 
 /** What markup's bar on the timeline says: its text's first line, else what it is. */
 export function markLabel(o: MarkObject): string {
-  const text = o.kind === "text" || o.kind === "callout" ? o.text.trim().split("\n")[0] : "";
+  const text =
+    o.kind === "text" || o.kind === "callout"
+      ? o.text.trim().split("\n")[0]
+      : // A keys mark: its keys, "Ctrl + C, Ctrl + V".
+        o.kind === "keys"
+        ? o.presses.map((p) => p.join(" + ")).join(", ")
+        : "";
   return text || MARK_NAMES[o.kind];
 }
 

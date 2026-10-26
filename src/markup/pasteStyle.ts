@@ -48,6 +48,9 @@ function styleOf(a: Annotation): Style {
       return { fill: a.color, text: a.textColor, font: { fontFamily: a.fontFamily } };
     case "click":
       return { fill: a.color };
+    case "keys":
+      // Outlined keys' colour is a line; the others' fills the caps, bar or pill.
+      return a.look === "outline" ? { line: a.color } : { fill: a.color };
     case "rect":
     case "ellipse":
       // Solid: no border, the shape's colour its fill.
@@ -80,6 +83,9 @@ function ownOf(a: Annotation): StylePatch {
       return { stepShape: a.shape, stepSize: a.size };
     case "click":
       return { clickLook: a.look, clickSize: a.size };
+    case "keys":
+      // Not the keys: they're what it says, not how.
+      return { keysLook: a.look, keysSize: a.size };
     case "rect":
     case "ellipse":
       return { fill: a.fill, fillColor: a.fillColor };
@@ -112,7 +118,7 @@ export function stylePatchFor(source: Annotation, target: Annotation): StylePatc
       patch.background = true;
       patch.backgroundColor = s.fill;
     }
-  } else if (t === "callout" || t === "step" || t === "click") {
+  } else if (t === "callout" || t === "step" || t === "click" || t === "keys") {
     color = s.fill ?? s.line;
     if (s.text !== undefined) patch.textColor = s.text;
   } else if (target.kind === "rect" || target.kind === "ellipse") {
@@ -132,6 +138,7 @@ export function stylePatchFor(source: Annotation, target: Annotation): StylePatc
     t !== "text" &&
     t !== "step" &&
     t !== "click" &&
+    t !== "keys" &&
     t !== "redact" &&
     t !== "spotlight"
   )

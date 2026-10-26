@@ -24,6 +24,7 @@ import {
 } from "./pickerIcons";
 import { StepOptions } from "./StepOptions";
 import { ClickOptions } from "./ClickOptions";
+import { KeysOptions } from "./KeysOptions";
 import {
   applyStyle,
   beginStyleDrag,
@@ -203,6 +204,9 @@ export function ToolOptions({ compact = false }: { compact?: boolean }) {
 
   const values = targetValues(target, doc);
   const show = targetSections(target);
+  // One keys mark selected: its keys can be changed (PLAN 5b.6c).
+  const only = target.ids.length === 1 && doc.annotations.find((a) => a.id === target.ids[0]);
+  const keysMark = only && only.kind === "keys" ? only : null;
   const widthPicker = widthPickerFor(target.tool, config);
   const strengthPicker = values.redact && strengthPickerFor(values.redact.mode, config);
   const text = values.text;
@@ -430,6 +434,15 @@ export function ToolOptions({ compact = false }: { compact?: boolean }) {
 
       {show.click && values.click && (
         <ClickOptions click={values.click} hints={hints} showKeys={hints && held.digit} />
+      )}
+
+      {show.keys && values.keys && (
+        <KeysOptions
+          keys={values.keys}
+          mark={keysMark}
+          hints={hints}
+          showKeys={hints && held.digit}
+        />
       )}
 
       {step && (

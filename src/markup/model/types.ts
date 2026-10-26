@@ -252,6 +252,28 @@ export interface ClickAnnotation extends Base {
   double: boolean;
 }
 
+/** How a keys mark looks (PLAN 5b.6c): light key caps, caps on a dark bar, a pill of text, or
+ *  outlined caps. */
+export type KeysLook = "caps" | "bar" | "pill" | "outline";
+
+/**
+ * Keys pressed (PLAN 5b.6c): noted while recording, or placed by hand with the keys tool and its
+ * keys taken from the keyboard. Presses close together share one mark: "Ctrl + C, Ctrl + V".
+ */
+export interface KeysAnnotation extends Base {
+  kind: "keys";
+  /** The centre. */
+  x: number;
+  y: number;
+  /** Each press's keys, as Windows names them: [["Ctrl", "C"], ["Ctrl", "V"]]. */
+  presses: string[][];
+  /** The font size in source px. */
+  size: number;
+  look: KeysLook;
+  /** The caps', bar's or pill's colour (the text black or white on it), or an outline's. */
+  color: string;
+}
+
 export type Annotation =
   | PenAnnotation
   | HighlighterAnnotation
@@ -263,7 +285,8 @@ export type Annotation =
   | SpotlightAnnotation
   | StepAnnotation
   | CalloutAnnotation
-  | ClickAnnotation;
+  | ClickAnnotation
+  | KeysAnnotation;
 
 export type AnnotationKind = Annotation["kind"];
 

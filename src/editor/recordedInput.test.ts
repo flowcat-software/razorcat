@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { RecordedInput } from "../shared/ipc";
 import { addSource, wholeSource, type Doc } from "./doc";
 import { NO_GROW } from "./frame";
-import { CLICK_COLOURS, onFrame, withRecordedClicks } from "./recordedInput";
+import {
+  CLICK_COLOURS,
+  onFrame,
+  RECORDED_KEYS,
+  recordedKeysSize,
+  withRecordedClicks,
+  withRecordedKeys,
+} from "./recordedInput";
 
 const look = { look: "ring" as const, size: 44 };
 const click = (time: number, x: number, y: number, button: "left" | "right" = "left") => ({
@@ -87,5 +94,45 @@ describe("withRecordedClicks", () => {
   it("is the same document for a clip that isn't there", () => {
     const doc = wholeSource(300, { width: 1920, height: 1080 });
     expect(withRecordedClicks(doc, 9, input, 30, { width: 1920, height: 1080 }, look)).toBe(doc);
+  });
+});
+
+describe("withRecordedKeys", () => {
+  const keys = (time: number, ...k: string[]) => ({ time, keys: k });
+
+  it("joins presses close together, at the frame's bottom centre, fading out", () => {
+    const doc = withRecordedKeys(
+      wholeSource(600, { width: 1920, height: 1080 }),
+      1,
+      { clicks: [], keys: [keys(1, "Ctrl", "C"), keys(1.5, "Ctrl", "V"), keys(5, "Enter")] },
+      30,
+    );
+    expect(doc.marks).toHaveLength(2);
+    const [a, b] = doc.marks;
+    // From the first press to 1.5 s after the last.
+    expect(a).toMatchObject({ at: 30, length: 60, fadeOut: 9 });
+    expect(a.fadeIn ?? 0).toBe(0);
+    expect(a.object).toMatchObject({
+      kind: "keys",
+      presses: [
+        ["Ctrl", "C"],
+        ["Ctrl", "V"],
+      ],
+      x: 960,
+      size: recordedKeysSize(1080),
+      ...RECORDED_KEYS,
+    });
+    expect(a.object.kind === "keys" && a.object.y).toBeGreaterThan(900);
+    expect(b).toMatchObject({ at: 150, length: 45 });
+  });
+
+  it("ends a mark at its clip's end", () => {
+    const doc = withRecordedKeys(
+      wholeSource(40, { width: 1920, height: 1080 }),
+      1,
+      { clicks: [], keys: [keys(1, "Esc")] },
+      30,
+    );
+    expect(doc.marks[0]).toMatchObject({ at: 30, length: 10 });
   });
 });

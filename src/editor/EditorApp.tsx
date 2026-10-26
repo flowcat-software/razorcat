@@ -192,11 +192,11 @@ function transportKey(e: KeyboardEvent, player: Player, audio: boolean): boolean
  */
 function addRecordedInput(s: SourceInfo, clip: number, first: SourceInfo): void {
   void commands.takeRecordedInput(s.path).then((input) => {
-    if (!input?.clicks.length) return;
+    if (!input || (!input.clicks.length && !input.keys.length)) return;
     const { look, size } = toolClickStyle();
     useDoc
       .getState()
-      .addRecordedClicks(
+      .addRecordedInput(
         clip,
         input,
         first.rateNum / first.rateDen,

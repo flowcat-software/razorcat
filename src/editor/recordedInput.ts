@@ -1,12 +1,15 @@
-// A recording's clicks, made markup on its clip (PLAN 5b.6b): a click mark each, where and when
-// it was clicked, a moment long and fading out, in the left or right click's colour. Rust notes
-// them while recording (recording.rs) and hands them over once, as the file opens. Pure.
+// A recording's clicks and keys, made markup on its clip (PLAN 5b.6b-c): a click mark each, where
+// and when it was clicked, a moment long and fading out, in the left or right click's colour; and
+// keys marks at the bottom of the frame, presses close together sharing one. Rust notes them while
+// recording (recording.rs) and hands them over once, as the file opens. Pure.
 
 import { clickTiming } from "../markup/click";
+import { KEYS_SECONDS, keysExtent, keysTiming } from "../markup/keys";
 import type { ClickLook } from "../markup/model/types";
 import type { RecordedInput } from "../shared/ipc";
 import { addMark, clipStarts, freeLane, setFades, type ClipId, type Doc } from "./doc";
 import { fitIn, type Point, type Size } from "./fit";
+import { outputSize } from "./frame";
 
 /** Each button's colour (5b.6d makes them settings). */
 export const CLICK_COLOURS: Record<RecordedInput["clicks"][number]["button"], string> = {
@@ -70,6 +73,69 @@ export function withRecordedClicks(
       freeLane(d, t, t + length),
     );
     if (d.nextMarkId !== id && fade > 0) d = setFades(d, [id], 0, fade);
+  }
+  return d;
+}
+
+/** Presses closer together than this (s) share one keys mark (5b.6d makes it a setting). */
+export const KEYS_JOIN_SECONDS = 1;
+/** The most presses one mark shows. */
+const MOST_PRESSES = 4;
+/** A recording's keys: white caps (5b.6d makes their look a setting). */
+export const RECORDED_KEYS = { look: "caps", color: "#ffffff" } as const;
+
+/** Keys marks' font size for a frame `height` px tall: a 1080p frame's is 30. */
+export function recordedKeysSize(height: number): number {
+  return Math.max(14, Math.round(height / 36));
+}
+
+/**
+ * `doc` with the keys of `input` as keys marks on clip `clip` (at `fps` frames a second): presses
+ * close together share one, at the frame's bottom centre, from the first press until a moment
+ * after the last, fading in and out. Presses off the clip's frames are left out.
+ */
+export function withRecordedKeys(doc: Doc, clip: ClipId, input: RecordedInput, fps: number): Doc {
+  const i = doc.clips.findIndex((c) => c.id === clip);
+  if (i < 0 || fps <= 0) return doc;
+  const c = doc.clips[i];
+  const start = clipStarts(doc)[i];
+  // Rust's f64s arrive typed `number | null` (see ipc.ts); they're always numbers.
+  const presses = input.keys
+    .map((k) => ({ at: Math.round((k.time ?? 0) * fps), keys: k.keys }))
+    .filter((k) => k.at >= c.in && k.at < c.out && k.keys.length);
+  const groups: { at: number; last: number; presses: string[][] }[] = [];
+  for (const p of presses) {
+    const g = groups[groups.length - 1];
+    if (g && p.at - g.last <= KEYS_JOIN_SECONDS * fps && g.presses.length < MOST_PRESSES) {
+      g.presses.push(p.keys);
+      g.last = p.at;
+    } else groups.push({ at: p.at, last: p.at, presses: [p.keys] });
+  }
+  const frame = outputSize(doc.frame);
+  const size = recordedKeysSize(frame.height);
+  let d = doc;
+  for (const g of groups) {
+    const t = start + g.at - c.in;
+    const timing = keysTiming(fps, (g.last - g.at) / fps + KEYS_SECONDS);
+    const length = Math.min(timing.length, c.out - g.at);
+    const mark = { kind: "keys" as const, presses: g.presses, size, ...RECORDED_KEYS };
+    const { height } = keysExtent({ ...mark, id: "", x: 0, y: 0 });
+    const id = d.nextMarkId;
+    d = addMark(
+      d,
+      { ...mark, x: frame.width / 2, y: frame.height * 0.92 - height / 2 },
+      t,
+      length,
+      freeLane(d, t, t + length),
+    );
+    if (d.nextMarkId !== id) {
+      d = setFades(
+        d,
+        [id],
+        Math.min(timing.fadeIn, length),
+        Math.min(timing.fadeOut, length - timing.fadeIn),
+      );
+    }
   }
   return d;
 }

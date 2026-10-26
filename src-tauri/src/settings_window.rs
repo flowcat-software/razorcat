@@ -40,6 +40,7 @@ pub fn open(app: &AppHandle, section: Option<&str>) {
         match built {
             Ok(window) => {
                 crate::webview_crash::watch(&window);
+                crate::browser_keys::disable(&window);
                 // Fallback in case the page never signals it rendered.
                 std::thread::sleep(Duration::from_secs(3));
                 if !window.is_visible().unwrap_or(true) {

@@ -1283,6 +1283,7 @@ fn open_control(
         Ok(window) => {
             exclude_from_capture(&window);
             crate::webview_crash::watch(&window);
+            crate::browser_keys::disable(&window);
             // Placed in physical pixels on its monitor, then sized there (its scale).
             let wide = (width * screen.scale).round() as i32;
             let x = screen.x + (screen.width as i32 - wide) / 2;

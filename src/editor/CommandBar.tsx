@@ -148,6 +148,16 @@ const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
       </>
     ),
   },
+  {
+    id: "keys",
+    label: "Keys (Y)",
+    icon: (
+      <>
+        <rect x="3" y="6" width="18" height="12" rx="2.5" />
+        <path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8" />
+      </>
+    ),
+  },
 ];
 
 /** The editor's top row: the picture's tools on the left, file actions on the right. */

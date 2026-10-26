@@ -16,7 +16,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::Threading::GetCurrentThreadId;
+use windows::Win32::System::Threading::{
+    GetCurrentThread, GetCurrentThreadId, SetThreadPriority, THREAD_PRIORITY_TIME_CRITICAL,
+};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetDoubleClickTime, GetKeyNameTextW};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetMessageW, PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
@@ -119,6 +121,9 @@ impl Watch {
         });
         let (tx, rx) = channel();
         let handle = std::thread::spawn(move || unsafe {
+            // Ahead of the rest: Windows drops a low-level hook that answers too slowly, without
+            // a word (a recording with the machine busy noted nothing, PLAN 5b.6c).
+            let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
             let module = GetModuleHandleW(None).ok().map(|m| m.into());
             let mouse = SetWindowsHookExW(WH_MOUSE_LL, Some(on_mouse), module, 0);
             let keyboard = SetWindowsHookExW(WH_KEYBOARD_LL, Some(on_key), module, 0);

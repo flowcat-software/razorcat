@@ -16,6 +16,8 @@ import {
 } from "react-konva";
 import { bendFromPoint, bendPoint } from "./bend";
 import { clickReach, drawClick } from "./click";
+import { drawKeys, keysExtent } from "./keys";
+import { captureKeys } from "./KeysField";
 import {
   calloutBox,
   calloutExtent,
@@ -49,6 +51,7 @@ import type {
   ArrowAnnotation,
   CalloutAnnotation,
   ClickAnnotation,
+  KeysAnnotation,
   HighlighterAnnotation,
   LineAnnotation,
   PenAnnotation,
@@ -77,6 +80,7 @@ import {
   toolSpotlight,
   toolStepStyle,
   toolClickStyle,
+  toolKeysStyle,
   toolStroke,
   useStyleConfig,
 } from "./styles";
@@ -627,6 +631,18 @@ export function MarkupLayer({
       const { look, size, color } = toolClickStyle();
       const id = store.add({ kind: "click", x: p.x, y: p.y, look, size, color, double: false });
       drag = { mode: "place", id };
+    } else if (tool === "keys") {
+      // Keys there, then the keys pressed next (PLAN 5b.6c); dragging before letting go moves it.
+      store.select([]);
+      store.beginGesture();
+      const id = store.add({
+        kind: "keys",
+        x: p.x,
+        y: p.y,
+        presses: [["Ctrl", "C"]],
+        ...toolKeysStyle(),
+      });
+      drag = { mode: "place", id };
     } else if (tool === "step") {
       // A click places the next marker; dragging before letting go moves it.
       store.select([]);
@@ -738,7 +754,9 @@ export function MarkupLayer({
         }
         case "place":
           s.update(drag.id, (a) =>
-            a.kind === "step" || a.kind === "click" ? { ...a, x: q.x, y: q.y } : a,
+            a.kind === "step" || a.kind === "click" || a.kind === "keys"
+              ? { ...a, x: q.x, y: q.y }
+              : a,
           );
           break;
         case "tip": {
@@ -850,10 +868,13 @@ export function MarkupLayer({
           });
           break;
         }
-        case "place":
+        case "place": {
           s.endGesture();
           s.select([drag.id]);
+          const id = drag.id;
+          if (s.doc.annotations.find((a) => a.id === id)?.kind === "keys") captureKeys(id);
           break;
+        }
         case "stroke": {
           // A click leaves a dot; strokes lose the points that add nothing.
           const tolerance = PEN_TOLERANCE / view.current.scale;
@@ -1322,7 +1343,7 @@ export function MarkupLayer({
             />
           )}
           {doc.annotations.map((a) =>
-            (isStroke(a) || a.kind === "step" || a.kind === "click") &&
+            (isStroke(a) || a.kind === "step" || a.kind === "click" || a.kind === "keys") &&
             selection.includes(a.id) &&
             a.id !== labelEditing ? (
               <SelectionBounds
@@ -1412,6 +1433,7 @@ export function AnnotationShape({
 }) {
   if (a.kind === "step") return <StepMarker a={a} label={label} hidden={hidden} />;
   if (a.kind === "click") return <ClickMark a={a} />;
+  if (a.kind === "keys") return <KeysMark a={a} />;
   if (a.kind === "callout") return <CalloutShape a={a} hitSlop={hitSlop} typing={hidden} />;
   if (a.kind === "text") {
     return (
@@ -1783,6 +1805,32 @@ function stepPath(c: CanvasRenderingContext2D, shape: StepShape, r: number): voi
  * A step marker (PLAN 3D.11): its shape filled, and the label in bold,
  * centred, shrunk to fit when it's long. Positioned about its centre.
  */
+/** A keys mark (PLAN 5b.6c), drawn by keys.ts so the export matches. */
+function KeysMark({ a }: { a: KeysAnnotation }) {
+  const { width, height } = keysExtent(a);
+  return (
+    <Shape
+      id={a.id}
+      name="annotation"
+      x={a.x}
+      y={a.y}
+      // For the hit area only; the scene draws itself.
+      fill={a.color}
+      perfectDrawEnabled={false}
+      sceneFunc={(ctx) => {
+        const c = (ctx as unknown as { _context: CanvasRenderingContext2D })._context;
+        drawKeys(c, a);
+      }}
+      hitFunc={(ctx, shape) => {
+        ctx.beginPath();
+        ctx.rect(-width / 2, -height / 2, width, height);
+        ctx.closePath();
+        ctx.fillShape(shape);
+      }}
+    />
+  );
+}
+
 /** A click mark (PLAN 5b.6b), drawn by click.ts so the export matches. */
 function ClickMark({ a }: { a: ClickAnnotation }) {
   const reach = clickReach(a);

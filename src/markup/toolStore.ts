@@ -8,6 +8,7 @@ import type {
   CalloutEnd,
   CalloutShape,
   ClickLook,
+  KeysLook,
   ArrowEnds,
   ArrowHead,
   RedactMode,
@@ -33,6 +34,7 @@ export const TOOLS = [
   "spotlight",
   "step",
   "click",
+  "keys",
 ] as const;
 export type ToolId = (typeof TOOLS)[number];
 
@@ -105,6 +107,9 @@ export interface ToolState {
   /** Click marks (PLAN 5b.6b): the next one's look, and its size once picked. */
   clickLook: ClickLook;
   clickSize: number | null;
+  /** Keys marks (PLAN 5b.6c): the next one's look, and its font size once picked. */
+  keysLook: KeysLook;
+  keysSize: number | null;
   /**
    * Callouts (PLAN 3E): their own font, size and text style once picked (else
    * the text tool's), and the text color (null: black or white, whichever
@@ -162,6 +167,8 @@ export const useToolStore = create<ToolState>((set) => ({
   stepStart: 1,
   clickLook: "ring",
   clickSize: null,
+  keysLook: "caps",
+  keysSize: null,
   calloutFont: null,
   calloutFontSize: null,
   calloutBold: false,

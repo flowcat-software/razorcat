@@ -142,6 +142,7 @@ fn create(app: &AppHandle, index: usize, s: &Screen) -> tauri::Result<WebviewWin
         .focused(false)
         .build()?;
     no_transitions(&window);
+    crate::browser_keys::disable(&window);
     // Position first, then size: moving onto a monitor of another scale rescales the window.
     window.set_position(PhysicalPosition::new(s.x, s.y))?;
     window.set_size(PhysicalSize::new(s.width, s.height))?;

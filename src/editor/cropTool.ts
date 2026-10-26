@@ -6,6 +6,7 @@
 import { useEffect } from "react";
 import { docStore as markupDoc } from "../markup/model/store";
 import { useToolStore as useMarkupTools } from "../markup/toolStore";
+import { isCapturingKeys } from "../markup/KeysField";
 import { isPopoverOpen } from "../markup/usePopover";
 import { isTyping } from "../shared/dom";
 import { nudgeCrop } from "./cropGeometry";
@@ -83,6 +84,8 @@ const TOOL_KEYS: Record<string, Tool> = {
   KeyN: "step",
   // D: a dot where it was clicked (PLAN 5b.6b).
   KeyD: "click",
+  // Y: keYs (K is the timeline's pause).
+  KeyY: "keys",
   // Q: a speech bubble.
   KeyQ: "callout",
   KeyH: "highlighter",
@@ -95,8 +98,8 @@ const TOOL_KEYS: Record<string, Tool> = {
 
 /**
  * The picture's tool keys: C picks crop up (or puts it down), G grow, T text, A arrow, / or \
- * line, B rectangle (box), E ellipse, N step, D click, Q callout, H highlighter, P pen, F spotlight
- * (focus), U redact (blur), V the select tool.
+ * line, B rectangle (box), E ellipse, N step, D click, Y keys, Q callout, H highlighter, P pen,
+ * F spotlight (focus), U redact (blur), V the select tool.
  * While cropping, arrows nudge the box (Shift 10 px) and Ctrl+arrows resize it from the
  * bottom-right, as in Vandal, one undo step for as long as the key is held. Enter or Esc put the
  * crop or grow tool down; with a markup tool, Esc first drops the markup selected (Vandal's Esc
@@ -115,7 +118,8 @@ export function useToolKeys(active: boolean): void {
       useDoc.getState().endGesture();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (isTyping(e.target) || isPopoverOpen() || e.altKey || e.metaKey) return;
+      if (isTyping(e.target) || isPopoverOpen() || isCapturingKeys() || e.altKey || e.metaKey)
+        return;
       const { tool, setTool } = useTool.getState();
       const picked = TOOL_KEYS[e.code];
       if (picked && !e.ctrlKey && !e.shiftKey && !e.repeat) {

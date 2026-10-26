@@ -221,6 +221,8 @@ pub struct Styles {
     pub step_size: NumberPicker,
     /// Click marks' size in source px (PLAN 5b.6b).
     pub click_size: NumberPicker,
+    /// Keys marks' font size in source px (PLAN 5b.6c).
+    pub keys_size: NumberPicker,
     /// Rounded corners (rectangles, Spotlight's rectangle) in source px (PLAN
     /// 3D.17): 0 is always a choice, and never buttons.
     pub corner_radius: NumberPicker,
@@ -268,6 +270,9 @@ impl Default for Styles {
             },
             click_size: NumberPicker::Dropdown {
                 values: vec![24.0, 32.0, 44.0, 60.0, 80.0],
+            },
+            keys_size: NumberPicker::Dropdown {
+                values: vec![16.0, 20.0, 28.0, 36.0, 48.0],
             },
             corner_radius: NumberPicker::Dropdown {
                 values: vec![0.0, 5.0, 10.0, 15.0, 20.0],
@@ -341,6 +346,7 @@ impl Styles {
                 .unwrap_or(defaults.spotlight),
             step_size: self.step_size.normalized().unwrap_or(defaults.step_size),
             click_size: self.click_size.normalized().unwrap_or(defaults.click_size),
+            keys_size: self.keys_size.normalized().unwrap_or(defaults.keys_size),
             corner_radius: self
                 .corner_radius
                 .normalized_from_zero()

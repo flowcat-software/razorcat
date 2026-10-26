@@ -1071,3 +1071,66 @@
     0 0 0 2px var(--surface),
     0 0 0 4px var(--accent);
 }
+
+/* A keys mark's keys (KeysField): click, then press them. */
+.keysField {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 30px;
+  max-width: 320px;
+  overflow: hidden;
+  padding: 0 8px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.keysField:hover {
+  background: var(--hover);
+}
+
+.keysField[data-capturing] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.keysField:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.keysPress {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.keycap {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12px;
+  background: var(--surface);
+  box-shadow:
+    inset 0 0 0 1px var(--control-border),
+    0 1px 0 var(--control-border);
+}
+
+.keysPlus,
+.keysComma {
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.keysComma {
+  margin-right: 3px;
+}
+
+.keysPrompt {
+  margin-left: 4px;
+  color: var(--accent);
+  font-size: 12px;
+}

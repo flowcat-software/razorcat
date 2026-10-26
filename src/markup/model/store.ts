@@ -28,6 +28,7 @@ import { darkAt, darkLayer } from "../../editor/spotlights";
 import { useDoc as useEdit } from "../../editor/docStore";
 import { stepLabel } from "../steps";
 import { clickTiming } from "../click";
+import { keysTiming } from "../keys";
 import { outputSize } from "../../editor/frame";
 import type { Player } from "../../editor/player";
 import { useToolStore } from "../toolStore";
@@ -268,15 +269,22 @@ export const docStore = createStore<DocState>()(() => ({
     const original = like && shownMarks(edit.doc).find((m) => m.id === markId(like));
     const frame = original ? original.start : (player?.getState().frame ?? 0);
     const fps = player?.fps ?? 30;
-    // A click is a moment, fading out, as a recording's are (PLAN 5b.6b).
-    const click = !original && annotation.kind === "click" ? clickTiming(fps) : null;
+    // A click or keys mark is a moment, fading, as a recording's are (PLAN 5b.6b-c).
+    const timed = original
+      ? null
+      : annotation.kind === "click"
+        ? { fadeIn: 0, ...clickTiming(fps) }
+        : annotation.kind === "keys"
+          ? keysTiming(fps)
+          : null;
     const length = original
       ? original.end - original.start
-      : (click?.length ?? Math.round(NEW_MARK_SECONDS * fps));
+      : (timed?.length ?? Math.round(NEW_MARK_SECONDS * fps));
     player?.pause();
     const id = edit.addMark(annotation, frame, length, freeLane(edit.doc, frame, frame + length));
     if (id === null) return "";
-    if (click && click.fadeOut > 0) useEdit.getState().setMarkFades(id, { fadeOut: click.fadeOut });
+    if (timed?.fadeIn) useEdit.getState().setMarkFades(id, { fadeIn: timed.fadeIn });
+    if (timed?.fadeOut) useEdit.getState().setMarkFades(id, { fadeOut: timed.fadeOut });
     const kept = original && edit.doc.marks.find((m) => m.id === original.id);
     if (kept && edit.options.copyFades) {
       const fades = markFades(kept, length);
