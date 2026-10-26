@@ -47,6 +47,8 @@
 .time {
   flex: 1;
   font-variant-numeric: tabular-nums;
+  /* "Starts in 10" on one line (the control's width leaves room for it). */
+  white-space: nowrap;
 }
 
 .stop {

@@ -36,10 +36,10 @@ const OUTLINE_LABEL: &str = "recording-outline";
 /// The countdown's window (countdown.html).
 const COUNTDOWN_LABEL: &str = "recording-countdown";
 /// The control's size (logical px) and its gap from the monitor's top: the dot, the time, clicks,
-/// Pause and Stop.
-const CONTROL: (f64, f64) = (268.0, 44.0);
+/// Pause and Stop. Wide enough for "Starts in 10" (a 10 s countdown) beside them.
+const CONTROL: (f64, f64) = (288.0, 44.0);
 /// What the microphone's mute button adds to it (a button and a gap).
-const CONTROL_MIC: f64 = 36.0;
+const CONTROL_MIC: f64 = 40.0;
 /// While recording, wherever the keys are: mute and unmute the microphone (PLAN 5b.4d), pause
 /// and resume, stop (5b.5c). Settable with 5b.8's shortcuts.
 const MUTE_KEY: &str = "Ctrl+Alt+M";
