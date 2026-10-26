@@ -83,7 +83,7 @@
   background: rgb(127 127 127 / 0.26);
 }
 
-/* A toggle that's off (the mic muted, clicks or keys not noted): red, its icon struck through.
+/* A toggle that's off (the mic muted, clicks not noted): red, its icon struck through.
    On: plain. */
 .mic[data-off] {
   color: #e5484d;

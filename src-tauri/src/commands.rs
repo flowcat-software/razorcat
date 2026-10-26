@@ -308,11 +308,11 @@ pub fn set_record_sound(
     settings::update(&app, s).map(drop)
 }
 
-/// The control's clicks and keys buttons: each noted or not (None: as it is).
+/// The control's clicks button: noted or not.
 #[tauri::command]
 #[specta::specta]
-pub fn note_recording_input(app: AppHandle, clicks: Option<bool>, keys: Option<bool>) {
-    crate::recording::note(&app, clicks.map(Some), keys.map(Some));
+pub fn note_recording_clicks(app: AppHandle, on: bool) {
+    crate::recording::note(&app, Some(on));
 }
 
 /// The clicks and keys noted while the file at `path` was recorded, once (PLAN 5b.6b).

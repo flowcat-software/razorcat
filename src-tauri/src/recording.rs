@@ -36,8 +36,8 @@ const OUTLINE_LABEL: &str = "recording-outline";
 /// The countdown's window (countdown.html).
 const COUNTDOWN_LABEL: &str = "recording-countdown";
 /// The control's size (logical px) and its gap from the monitor's top: the dot, the time, clicks,
-/// keys, Pause and Stop.
-const CONTROL: (f64, f64) = (304.0, 44.0);
+/// Pause and Stop.
+const CONTROL: (f64, f64) = (268.0, 44.0);
 /// What the microphone's mute button adds to it (a button and a gap).
 const CONTROL_MIC: f64 = 36.0;
 /// While recording, wherever the keys are: mute and unmute the microphone (PLAN 5b.4d), pause
@@ -45,9 +45,8 @@ const CONTROL_MIC: f64 = 36.0;
 const MUTE_KEY: &str = "Ctrl+Alt+M";
 const PAUSE_KEY: &str = "Ctrl+Alt+P";
 const STOP_KEY: &str = "Ctrl+Alt+S";
-/// Clicks and keys noted or not, while recording (PLAN 5b.6).
+/// Clicks noted or not, while recording (PLAN 5b.6).
 const CLICKS_KEY: &str = "Ctrl+Alt+C";
-const KEYS_KEY: &str = "Ctrl+Alt+K";
 const CONTROL_TOP: f64 = 8.0;
 /// How long ffmpeg must keep running for an encoder to count as working.
 const STARTED: Duration = Duration::from_millis(1500);
@@ -72,12 +71,9 @@ struct Running {
     /// where a press falls in the joined recording.
     parts: Vec<PathBuf>,
     spans: Vec<(i64, i64)>,
-    /// Clicks and keys being noted (PLAN 5b.6), once either is on.
+    /// Clicks being noted (PLAN 5b.6), once they're on.
     input: Option<input::Watch>,
-    /// Which are on, and the keys' mode when they're turned on.
     clicks: bool,
-    keys: bool,
-    key_mode: input::KeyMode,
     /// Where the segments go: `{base}.{n}.part`.
     base: PathBuf,
     target: Target,
@@ -157,72 +153,49 @@ pub struct MicMuted(pub bool);
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct RecordingPaused(pub bool);
 
-/// Rust → the control: clicks and keys noted or not.
+/// Rust → the control: clicks noted or not.
 #[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct InputNoted {
-    pub clicks: bool,
-    pub keys: bool,
-}
+pub struct ClicksNoted(pub bool);
 
-/// Clicks and keys noted or not (the control's buttons, or [`CLICKS_KEY`] and [`KEYS_KEY`]):
-/// each `Some(Some(on))` as given, `Some(None)` the other way, `None` as it is. The hooks start
-/// when either is first on. Says so to the control.
-pub fn note(app: &AppHandle, clicks: Option<Option<bool>>, keys: Option<Option<bool>>) {
+/// Clicks noted or not (the control's button, or [`CLICKS_KEY`]): `Some(on)` as given, `None`
+/// the other way. The hook starts when they're first on. Says so to the control.
+pub fn note(app: &AppHandle, clicks: Option<bool>) {
     let mut now = NOW.lock().unwrap();
     let Some(r) = now.as_mut() else {
         drop(now);
         let mut early = EARLY.lock().unwrap();
         match early.as_mut() {
             Some(e) => {
-                if let Some(on) = clicks {
-                    e.clicks = on.unwrap_or(!e.clicks);
-                }
-                if let Some(on) = keys {
-                    e.keys = on.unwrap_or(!e.keys);
-                }
-                let _ = InputNoted {
-                    clicks: e.clicks,
-                    keys: e.keys,
-                }
-                .emit_to(app, RECORDER);
+                e.clicks = clicks.unwrap_or(!e.clicks);
+                let _ = ClicksNoted(e.clicks).emit_to(app, RECORDER);
             }
             // It got going meanwhile: to the recording.
             None if NOW.lock().unwrap().is_some() => {
                 drop(early);
-                note(app, clicks, keys);
+                note(app, clicks);
             }
             None => {}
         }
         return;
     };
-    if let Some(on) = clicks {
-        r.clicks = on.unwrap_or(!r.clicks);
-    }
-    if let Some(on) = keys {
-        r.keys = on.unwrap_or(!r.keys);
-    }
-    if r.input.is_none() && (r.clicks || r.keys) {
+    r.clicks = clicks.unwrap_or(!r.clicks);
+    if r.input.is_none() && r.clicks {
         let window = r.target.window.map(|w| w.0 as isize);
-        match input::Watch::start(false, false, r.key_mode, window) {
+        match input::Watch::start(false, window) {
             Ok(w) => r.input = Some(w),
             Err(e) => {
-                logln!("[recording] clicks and keys: {e}");
+                logln!("[recording] clicks: {e}");
                 r.clicks = false;
-                r.keys = false;
             }
         }
     }
     if let Some(w) = &r.input {
         w.set_clicks(r.clicks);
-        w.set_keys(r.keys);
     }
-    let shown = InputNoted {
-        clicks: r.clicks,
-        keys: r.keys,
-    };
+    let on = r.clicks;
     drop(now);
-    logln!("[recording] clicks {}, keys {}", shown.clicks, shown.keys);
-    let _ = shown.emit_to(app, RECORDER);
+    logln!("[recording] clicks {on}");
+    let _ = ClicksNoted(on).emit_to(app, RECORDER);
 }
 
 /// A click where it lands on the recorded picture, and when (s).
@@ -235,25 +208,17 @@ pub struct RecordedClick {
     pub double: bool,
 }
 
-/// Keys pressed together, and when (s).
-#[derive(Debug, Clone, PartialEq, Serialize, Type)]
-pub struct RecordedKeys {
-    pub time: f64,
-    pub keys: Vec<String>,
-}
-
-/// The clicks and keys of a recording, on its picture and its time.
+/// The clicks of a recording, on its picture and its time.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 pub struct RecordedInput {
     pub clicks: Vec<RecordedClick>,
-    pub keys: Vec<RecordedKeys>,
 }
 
-/// Recordings' clicks and keys, by file, until the editor opening it takes them (in memory only).
+/// Recordings' clicks, by file, until the editor opening it takes them (in memory only).
 static NOTED: Mutex<Vec<(PathBuf, RecordedInput)>> = Mutex::new(Vec::new());
 
-/// The clicks and keys noted while `path` was recorded, once: the editor turns them into markup
-/// as it opens the file.
+/// The clicks noted while `path` was recorded, once: the editor turns them into markup as it
+/// opens the file.
 pub fn take_input(path: &str) -> Option<RecordedInput> {
     let path = std::path::Path::new(path);
     let mut noted = NOTED.lock().unwrap();
@@ -279,8 +244,8 @@ fn recording_time(spans: &[(i64, i64)], qpc: i64) -> Option<f64> {
     None
 }
 
-/// The presses on the recording: each on its time (dropped in a pause) and its picture (a
-/// click off it dropped).
+/// The clicks on the recording: each on its time and its picture (dropped in a pause, or off
+/// it).
 fn recorded(presses: Vec<Press>, spans: &[(i64, i64)], target: &Target) -> RecordedInput {
     let mut out = RecordedInput::default();
     for p in presses {
@@ -305,11 +270,6 @@ fn recorded(presses: Vec<Press>, spans: &[(i64, i64)], target: &Target) -> Recor
                     button,
                     double,
                 });
-            }
-            Press::Keys { qpc, keys } => {
-                if let Some(time) = recording_time(spans, qpc) {
-                    out.keys.push(RecordedKeys { time, keys });
-                }
             }
         }
     }
@@ -369,17 +329,16 @@ fn hold_keys(app: &AppHandle, on: bool, mic: bool) {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
     let keys = app.global_shortcut();
     if !on {
-        for key in [MUTE_KEY, PAUSE_KEY, STOP_KEY, CLICKS_KEY, KEYS_KEY] {
+        for key in [MUTE_KEY, PAUSE_KEY, STOP_KEY, CLICKS_KEY] {
             let _ = keys.unregister(key);
         }
         return;
     }
-    let held: [(&str, KeyAction); 5] = [
+    let held: [(&str, KeyAction); 4] = [
         (MUTE_KEY, |app| mute(app, None)),
         (PAUSE_KEY, pause),
         (STOP_KEY, stop),
-        (CLICKS_KEY, |app| note(app, Some(None), None)),
-        (KEYS_KEY, |app| note(app, None, Some(None))),
+        (CLICKS_KEY, |app| note(app, None)),
     ];
     for (key, action) in held {
         if key == MUTE_KEY && !mic {
@@ -455,7 +414,6 @@ struct Early {
     mic: bool,
     muted: bool,
     clicks: bool,
-    keys: bool,
 }
 static EARLY: Mutex<Option<Early>> = Mutex::new(None);
 
@@ -741,15 +699,8 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
         mic,
         muted: false,
         clicks: settings.clicks,
-        keys: settings.keys != input::KeyMode::Off,
     });
-    open_control(
-        app,
-        &target.screen,
-        mic,
-        count,
-        (settings.clicks, settings.keys != input::KeyMode::Off),
-    );
+    open_control(app, &target.screen, mic, count, settings.clicks);
     if count > 0 {
         open_countdown(app, target, count);
         let until = Instant::now() + Duration::from_secs(u64::from(count));
@@ -765,22 +716,17 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
     // The overlays, the countdown and the editor out of the way before the first frame.
     std::thread::sleep(Duration::from_millis(250));
 
-    let key_mode = if settings.keys == input::KeyMode::Off {
-        input::KeyMode::Shortcuts
-    } else {
-        settings.keys
-    };
     // Noting from before ffmpeg starts, not once it's seen to: its frames are from the start of
-    // its clock, and a click in its first moments would be lost (the control's toggles set it).
+    // its clock, and a click in its first moments would be lost (the control's toggle sets it).
     let mut noting = EARLY
         .lock()
         .unwrap()
         .as_ref()
-        .filter(|e| e.clicks || e.keys)
-        .and_then(|e| {
+        .filter(|e| e.clicks)
+        .and_then(|_| {
             let window = target.window.map(|w| w.0 as isize);
-            input::Watch::start(e.clicks, e.keys, key_mode, window)
-                .inspect_err(|e| logln!("[recording] clicks and keys: {e}"))
+            input::Watch::start(true, window)
+                .inspect_err(|e| logln!("[recording] clicks: {e}"))
                 .ok()
         });
 
@@ -817,8 +763,6 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
                         spans: Vec::new(),
                         input: noting.take(),
                         clicks: false,
-                        keys: false,
-                        key_mode,
                         base,
                         target: target.clone(),
                         encoder,
@@ -830,8 +774,8 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
                         muted,
                     });
                     drop(early);
-                    if let Some(e) = set.filter(|e| e.clicks || e.keys) {
-                        note(app, Some(Some(e.clicks)), Some(Some(e.keys)));
+                    if set.is_some_and(|e| e.clicks) {
+                        note(app, Some(true));
                     }
                     return Ok(true);
                 }
@@ -1150,16 +1094,11 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
             r.spans.push(span);
         }
     }
-    // The clicks and keys, on the recording (5b.6b-c make markup of them). Their keys never go
-    // in the log: how many, only.
+    // The clicks, on the recording (5b.6b makes markup of them).
     let presses = r.input.take().map(input::Watch::stop).unwrap_or_default();
     let noted = recorded(presses, &r.spans, &r.target);
-    if !noted.clicks.is_empty() || !noted.keys.is_empty() {
-        logln!(
-            "[recording] {} clicks, {} keys noted",
-            noted.clicks.len(),
-            noted.keys.len()
-        );
+    if !noted.clicks.is_empty() {
+        logln!("[recording] {} clicks noted", noted.clicks.len());
     }
     show_editor(app);
     let joined = match r.parts.len() {
@@ -1182,7 +1121,7 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
                 message: r.warning.take(),
             }
             .emit_to(app, LABEL);
-            if !noted.clicks.is_empty() || !noted.keys.is_empty() {
+            if !noted.clicks.is_empty() {
                 NOTED.lock().unwrap().push((r.file.clone(), noted));
             }
             crate::editor::request_open(app, r.file, r.add);
@@ -1249,20 +1188,14 @@ fn join(parts: &[PathBuf], base: &std::path::Path, file: &PathBuf) -> Result<(),
 
 /// The control: a small window at the top of `screen`, over everything, not in the taskbar, and
 /// left out of the recording.
-fn open_control(
-    app: &AppHandle,
-    screen: &Screen,
-    mic: bool,
-    countdown: u32,
-    (clicks, keys): (bool, bool),
-) {
+fn open_control(app: &AppHandle, screen: &Screen, mic: bool, countdown: u32, clicks: bool) {
     let width = CONTROL.0 + if mic { CONTROL_MIC } else { 0.0 };
     let builder = WebviewWindowBuilder::new(app, RECORDER, WebviewUrl::App("recorder.html".into()))
         // The microphone's mute button, when it's recorded; the countdown it shows first; the
-        // clicks and keys noted at the start.
+        // clicks noted at the start.
         .initialization_script(format!(
             "window.recordingMic = {mic}; window.recordingCountdown = {countdown}; \
-             window.recordingInput = {{ clicks: {clicks}, keys: {keys} }};"
+             window.recordingClicks = {clicks};"
         ));
     let built = crate::appearance::themed(app, builder)
         .title("Recording")
@@ -1521,15 +1454,18 @@ mod tests {
                 double: false,
                 window: None,
             },
-            Press::Keys {
+            Press::Click {
                 qpc: 30_000_000,
-                keys: vec!["Ctrl".into(), "S".into()],
+                x: 100,
+                y: 20,
+                button: input::Button::Left,
+                double: false,
+                window: None,
             },
         ];
         let r = recorded(presses, &spans, &t);
         assert_eq!(r.clicks.len(), 1);
         assert_eq!((r.clicks[0].x, r.clicks[0].time), (20.0, 0.5));
-        assert!(r.keys.is_empty());
     }
 
     #[test]

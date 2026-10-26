@@ -138,12 +138,11 @@ export const commands = {
 	muteRecording: (muted: boolean) => __TAURI_INVOKE<void>("mute_recording", { muted }),
 	/**  The control's Pause: pauses the recording, or resumes it. */
 	pauseRecording: () => __TAURI_INVOKE<void>("pause_recording"),
-	/**  The control's clicks and keys buttons: each noted or not (None: as it is). */
-	noteRecordingInput: (clicks: boolean | null, keys: boolean | null) => __TAURI_INVOKE<void>("note_recording_input", { clicks, keys }),
+	/**  The control's clicks button: noted or not. */
+	noteRecordingClicks: (on: boolean) => __TAURI_INVOKE<void>("note_recording_clicks", { on }),
 	/**  The clicks and keys noted while the file at `path` was recorded, once (PLAN 5b.6b). */
 	takeRecordedInput: (path: string) => __TAURI_INVOKE<{
 	clicks: RecordedClick[],
-	keys: RecordedKeys[],
 } | null>("take_recorded_input", { path }),
 	/**  The microphones connected now, and which is the default (Settings › Recording). */
 	microphones: () => __TAURI_INVOKE<Microphones>("microphones"),
@@ -201,12 +200,12 @@ export const commands = {
 /** Events */
 export const events = {
 	checkFrames: makeEvent<CheckFrames>("check-frames"),
+	clicksNoted: makeEvent<ClicksNoted>("clicks-noted"),
 	convertEnded: makeEvent<ConvertEnded>("convert-ended"),
 	convertProgress: makeEvent<ConvertProgress>("convert-progress"),
 	dropHover: makeEvent<DropHover>("drop-hover"),
 	exportEnded: makeEvent<ExportEnded>("export-ended"),
 	exportProgress: makeEvent<ExportProgress>("export-progress"),
-	inputNoted: makeEvent<InputNoted>("input-noted"),
 	micMuted: makeEvent<MicMuted>("mic-muted"),
 	openFailed: makeEvent<OpenFailed>("open-failed"),
 	openOffered: makeEvent<OpenOffered>("open-offered"),
@@ -257,6 +256,9 @@ export type CheckFrames = {
 	/**  Check the layout at the smallest window instead. */
 	layout: boolean,
 };
+
+/**  Rust → the control: clicks noted or not. */
+export type ClicksNoted = boolean;
 
 /**
  *  A clip at another speed than 100% (PLAN §7, Clip speed; the page's speed.ts): `num` source
@@ -510,15 +512,6 @@ export type GrowSide = {
  */
 export type GrowUnit = "px" | "percent";
 
-/**  Rust → the control: clicks and keys noted or not. */
-export type InputNoted = {
-	clicks: boolean,
-	keys: boolean,
-};
-
-/**  Which keys are noted (Settings › Recording). */
-export type KeyMode = "off" | "shortcuts" | "all";
-
 /**  What an item of markup is to the export, as the page names it. */
 export type MarkLayer = 
 /**  Laid over the frame. */
@@ -707,16 +700,9 @@ export type RecordedClick = {
 	double: boolean,
 };
 
-/**  The clicks and keys of a recording, on its picture and its time. */
+/**  The clicks of a recording, on its picture and its time. */
 export type RecordedInput = {
 	clicks: RecordedClick[],
-	keys: RecordedKeys[],
-};
-
-/**  Keys pressed together, and when (s). */
-export type RecordedKeys = {
-	time: number | null,
-	keys: string[],
 };
 
 /**  Settings › Recording (PLAN 5b). */
@@ -745,8 +731,6 @@ export type Recording = {
 	countdown?: number,
 	/**  Clicks noted while recording, to become markup (PLAN 5b.6); off until chosen. */
 	clicks?: boolean,
-	/**  Which keys are noted: none until chosen, shortcuts only, or all. */
-	keys?: KeyMode,
 };
 
 /**

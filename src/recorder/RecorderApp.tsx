@@ -1,6 +1,6 @@
 // The recording's floating control (PLAN 5b.2; recording.rs): a red dot, the time recorded, the
-// microphone's mute button when it's recorded (5b.4d; Ctrl+Alt+M too), clicks and keys noted or
-// not (5b.6a; Ctrl+Alt+C and K), Pause (5b.5c; Ctrl+Alt+P)
+// microphone's mute button when it's recorded (5b.4d; Ctrl+Alt+M too), clicks noted or not
+// (5b.6a; Ctrl+Alt+C), Pause (5b.5c; Ctrl+Alt+P)
 // and Stop (Ctrl+Alt+S), at the top of the monitor being recorded and left out of the
 // recording. In the countdown (5b.5b) it says when recording starts, and Stop is Cancel. Dragged
 // by anything but its buttons.
@@ -15,8 +15,8 @@ declare global {
      *  loads). */
     recordingMic?: boolean;
     recordingCountdown?: number;
-    /** Clicks and keys noted at the start. */
-    recordingInput?: { clicks: boolean; keys: boolean };
+    /** Clicks noted at the start. */
+    recordingClicks?: boolean;
   }
 }
 import styles from "./RecorderApp.module.css";
@@ -38,7 +38,7 @@ export function RecorderApp() {
   const [now, setNow] = useState(() => performance.now());
   const [stopping, setStopping] = useState(false);
   const [muted, setMuted] = useState(false);
-  const [noted, setNoted] = useState(() => window.recordingInput ?? { clicks: false, keys: false });
+  const [clicks, setClicks] = useState(() => window.recordingClicks ?? false);
   const [paused, setPaused] = useState(false);
   /** Pausing or resuming takes a moment (a segment ends, or starts): the button waits for it. */
   const [switching, setSwitching] = useState(false);
@@ -48,7 +48,7 @@ export function RecorderApp() {
     const timer = window.setInterval(() => setNow(performance.now()), 250);
     // Muted, or paused, by the keys too: Rust says.
     const offMute = events.micMuted.listen(({ payload }) => setMuted(payload));
-    const offNoted = events.inputNoted.listen(({ payload }) => setNoted(payload));
+    const offNoted = events.clicksNoted.listen(({ payload }) => setClicks(payload));
     const offPause = events.recordingPaused.listen(({ payload }) => {
       const t = performance.now();
       setPauses((p) => {
@@ -105,30 +105,16 @@ export function RecorderApp() {
       <button
         type="button"
         className={styles.mic}
-        aria-pressed={noted.clicks}
-        data-off={!noted.clicks || undefined}
-        title={noted.clicks ? "Clicks noted (Ctrl+Alt+C)" : "Clicks not noted (Ctrl+Alt+C)"}
+        aria-pressed={clicks}
+        data-off={!clicks || undefined}
+        title={clicks ? "Clicks noted (Ctrl+Alt+C)" : "Clicks not noted (Ctrl+Alt+C)"}
         aria-label="Note clicks"
-        onClick={() => void commands.noteRecordingInput(!noted.clicks, null)}
+        onClick={() => void commands.noteRecordingClicks(!clicks)}
       >
         {/* A mouse, upright: the slash crosses it, never runs along it. */}
-        <Struck off={!noted.clicks}>
+        <Struck off={!clicks}>
           <rect x="6.5" y="3" width="11" height="18" rx="5.5" fill="none" />
           <path d="M12 3v6.5" fill="none" />
-        </Struck>
-      </button>
-      <button
-        type="button"
-        className={styles.mic}
-        aria-pressed={noted.keys}
-        data-off={!noted.keys || undefined}
-        title={noted.keys ? "Keys noted (Ctrl+Alt+K)" : "Keys not noted (Ctrl+Alt+K)"}
-        aria-label="Note keys"
-        onClick={() => void commands.noteRecordingInput(null, !noted.keys)}
-      >
-        <Struck off={!noted.keys}>
-          <rect x="3" y="6" width="18" height="12" rx="2.5" fill="none" />
-          <path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8" fill="none" />
         </Struck>
       </button>
       <button

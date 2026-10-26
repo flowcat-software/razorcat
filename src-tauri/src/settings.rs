@@ -103,8 +103,6 @@ pub struct Recording {
     pub countdown: u32,
     /// Clicks noted while recording, to become markup (PLAN 5b.6); off until chosen.
     pub clicks: bool,
-    /// Which keys are noted: none until chosen, shortcuts only, or all.
-    pub keys: crate::input::KeyMode,
 }
 
 /// The frame rates a recording can have.
@@ -130,7 +128,6 @@ impl Default for Recording {
             fps: 60,
             countdown: 3,
             clicks: false,
-            keys: crate::input::KeyMode::Off,
         }
     }
 }
