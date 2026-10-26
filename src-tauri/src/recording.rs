@@ -13,6 +13,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Stdio};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -181,7 +182,7 @@ pub fn note(app: &AppHandle, clicks: Option<bool>) {
     r.clicks = clicks.unwrap_or(!r.clicks);
     if r.input.is_none() && r.clicks {
         let window = r.target.window.map(|w| w.0 as isize);
-        match input::Watch::start(false, window) {
+        match input::Watch::start(false, window, LIVE.lock().unwrap().clone()) {
             Ok(w) => r.input = Some(w),
             Err(e) => {
                 logln!("[recording] clicks: {e}");
@@ -684,11 +685,16 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
         .unwrap()
         .recording
         .clone();
-    // The marks first: the control is shown after, so it's in front of their dimming.
-    if let Some(area) = target.area {
-        if settings.corners || settings.dim {
-            open_outline(app, &target.screen, area, &settings);
-        }
+    // The marks first: the control is shown after, so it's in front of their dimming. Clicks
+    // shown live (PLAN 5b.6f) are drawn there too, whatever's recorded.
+    let marks = target.area.is_some() && (settings.corners || settings.dim);
+    if marks || settings.live_clicks {
+        open_outline(app, &target.screen, target.area, &settings);
+    }
+    if settings.live_clicks {
+        let (tx, rx) = channel();
+        *LIVE.lock().unwrap() = Some(tx);
+        show_live(app.clone(), target.clone(), rx);
     }
     let mut sources = sound_sources(app);
     let mic = sources
@@ -725,7 +731,7 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
         .filter(|e| e.clicks)
         .and_then(|_| {
             let window = target.window.map(|w| w.0 as isize);
-            input::Watch::start(true, window)
+            input::Watch::start(true, window, LIVE.lock().unwrap().clone())
                 .inspect_err(|e| logln!("[recording] clicks: {e}"))
                 .ok()
         });
@@ -1228,13 +1234,13 @@ fn open_control(app: &AppHandle, screen: &Screen, mic: bool, countdown: u32, cli
     }
 }
 
-/// The marks round `area` (the monitor's physical pixels), over all of `screen`, as Settings ›
-/// Recording has them: transparent, over everything, clicks through to what's under it, and left
-/// out of the recording.
+/// The marks round `area` (the monitor's physical pixels), if one's recorded, and the clicks
+/// shown live, over all of `screen`, as Settings › Recording has them: transparent, over
+/// everything, clicks through to what's under it, and left out of the recording.
 fn open_outline(
     app: &AppHandle,
     screen: &Screen,
-    (x, y, width, height): (u32, u32, u32, u32),
+    area: Option<(u32, u32, u32, u32)>,
     marks: &crate::settings::Recording,
 ) {
     let corners = if marks.corners {
@@ -1243,12 +1249,22 @@ fn open_outline(
         "null".into()
     };
     let dim = if marks.dim { marks.dim_opacity } else { 0.0 };
+    let mut script = String::new();
+    if let Some((x, y, width, height)) = area {
+        script += &format!(
+            "window.recordingArea = {{ x: {x}, y: {y}, width: {width}, height: {height} }};\
+             window.recordingMarks = {{ corners: {corners}, dim: {dim} }};"
+        );
+    }
+    // How clicks look: Settings › Recording's, whose click fields the page takes.
+    if marks.live_clicks {
+        if let Ok(json) = serde_json::to_string(marks) {
+            script += &format!("window.liveClickStyle = {json};");
+        }
+    }
     let built =
         WebviewWindowBuilder::new(app, OUTLINE_LABEL, WebviewUrl::App("outline.html".into()))
-            .initialization_script(format!(
-                "window.recordingArea = {{ x: {x}, y: {y}, width: {width}, height: {height} }};\
-                 window.recordingMarks = {{ corners: {corners}, dim: {dim} }};"
-            ))
+            .initialization_script(script)
             .title("Recording area")
             .decorations(false)
             .resizable(false)
@@ -1330,8 +1346,49 @@ fn exclude_from_capture(window: &tauri::WebviewWindow) {
     }
 }
 
-/// The control, the outline and the countdown go.
+/// Clicks shown live (PLAN 5b.6f): to the hook, while recording.
+static LIVE: Mutex<Option<Sender<Press>>> = Mutex::new(None);
+
+/// Shows each click noted (the hook's, through `rx`) in the outline window as it's made, if it's
+/// on what's recorded and the recording isn't paused: where it is on the monitor (physical px),
+/// its button, and whether it's a double-click (the same `id` again as it becomes one). Till the
+/// hook and the recording are done with it.
+fn show_live(app: AppHandle, target: Target, rx: Receiver<Press>) {
+    std::thread::spawn(move || {
+        for press in rx {
+            let Press::Click {
+                qpc,
+                x,
+                y,
+                button,
+                double,
+                window,
+            } = press;
+            let paused = NOW
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|r| r.seg.is_none());
+            if paused || target.on_picture(x, y, window).is_none() {
+                continue;
+            }
+            let (Some(outline), Ok(button)) = (
+                app.get_webview_window(OUTLINE_LABEL),
+                serde_json::to_string(&button),
+            ) else {
+                continue;
+            };
+            let (x, y) = (x - target.screen.x, y - target.screen.y);
+            let _ = outline.eval(format!(
+                "window.liveClick?.({{ id: {qpc}, x: {x}, y: {y}, button: {button}, double: {double} }})"
+            ));
+        }
+    });
+}
+
+/// The control, the outline and the countdown go (and the clicks shown live with them).
 fn close_control(app: &AppHandle) {
+    LIVE.lock().unwrap().take();
     for label in [RECORDER, OUTLINE_LABEL, COUNTDOWN_LABEL] {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.destroy();

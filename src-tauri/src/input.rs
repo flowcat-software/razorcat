@@ -4,7 +4,7 @@
 //! branch: not every key pressed reaches an app, PLAN 5b.6c.)
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
@@ -51,6 +51,9 @@ struct Sink {
     presses: Vec<Press>,
     /// When the last click was (100 ns): a run of quick clicks joins the first.
     last: i64,
+    /// Each click as it's noted, to be shown live (PLAN 5b.6f): a new one, or the one before
+    /// becoming a double-click (the same `qpc`). Sending never waits.
+    live: Option<Sender<Press>>,
 }
 
 static SINK: Mutex<Option<Sink>> = Mutex::new(None);
@@ -63,14 +66,20 @@ pub struct Watch {
 }
 
 impl Watch {
-    /// Starts watching: noting clicks if `clicks`; `window` is the window recorded.
-    pub fn start(clicks: bool, window: Option<isize>) -> Result<Watch, String> {
+    /// Starts watching: noting clicks if `clicks`; `window` is the window recorded. Each click
+    /// noted also goes to `live`, if given.
+    pub fn start(
+        clicks: bool,
+        window: Option<isize>,
+        live: Option<Sender<Press>>,
+    ) -> Result<Watch, String> {
         let clicks = Arc::new(AtomicBool::new(clicks));
         *SINK.lock().unwrap() = Some(Sink {
             clicks: clicks.clone(),
             window,
             presses: Vec::new(),
             last: 0,
+            live,
         });
         let (tx, rx) = channel();
         let handle = std::thread::spawn(move || unsafe {
@@ -142,6 +151,9 @@ unsafe extern "system" fn on_mouse(code: i32, w: WPARAM, l: LPARAM) -> LRESULT {
                         button,
                         window,
                     );
+                    if let (Some(live), Some(press)) = (&sink.live, sink.presses.last()) {
+                        let _ = live.send(press.clone());
+                    }
                 }
             }
         }

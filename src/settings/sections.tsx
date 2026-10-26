@@ -854,6 +854,15 @@ export const sections: Section[] = [
             keywords: ["clicks", "mouse", "pointer", "show clicks", "highlight", "tutorial"],
           },
           {
+            id: "recordingLiveClicks",
+            kind: "toggle",
+            path: "recording.liveClicks",
+            label: "Show clicks while recording",
+            description:
+              "Each click shows on your screen as you record, the same way it will look in the video. This is only a preview; the click will remain editable after you stop recording.",
+            keywords: ["clicks", "live", "see", "screen", "feedback", "preview", "while"],
+          },
+          {
             id: "recordingClickLook",
             kind: "choice",
             path: "recording.clickLook",

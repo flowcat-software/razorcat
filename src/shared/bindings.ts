@@ -740,6 +740,11 @@ export type Recording = {
 	/**  Clicks noted while recording, to become markup (PLAN 5b.6); off until chosen. */
 	clicks?: boolean,
 	/**
+	 *  While clicks are noted, each shows on the screen as it's made, as it'll look (PLAN
+	 *  5b.6f): left out of the recording. On by default: it shows they're being caught.
+	 */
+	liveClicks?: boolean,
+	/**
 	 *  How a recording's clicks look (PLAN 5b.6d): the look; the left, right and middle buttons'
 	 *  colours; the size (px across); how long each shows and fades in and out over (s); and a
 	 *  double-click's second ring.

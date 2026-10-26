@@ -103,6 +103,9 @@ pub struct Recording {
     pub countdown: u32,
     /// Clicks noted while recording, to become markup (PLAN 5b.6); off until chosen.
     pub clicks: bool,
+    /// While clicks are noted, each shows on the screen as it's made, as it'll look (PLAN
+    /// 5b.6f): left out of the recording. On by default: it shows they're being caught.
+    pub live_clicks: bool,
     /// How a recording's clicks look (PLAN 5b.6d): the look; the left, right and middle buttons'
     /// colours; the size (px across); how long each shows and fades in and out over (s); and a
     /// double-click's second ring.
@@ -198,6 +201,7 @@ impl Default for Recording {
             fps: 60,
             countdown: 3,
             clicks: false,
+            live_clicks: true,
             click_look: ClickLook::Ripple,
             click_color: "#ffd60a".into(),
             click_color_right: "#ff4fd8".into(),
