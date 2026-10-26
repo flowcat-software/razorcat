@@ -1,0 +1,53 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* The area, clear; the rest of the monitor dimmed as on the picker. */
+.area {
+  --dim: 0.4;
+  --mark: #e5484d;
+  --mark-length: 24px;
+  --mark-width: 3px;
+  position: absolute;
+  box-shadow: 0 0 0 200vmax rgb(0 0 0 / var(--dim));
+}
+
+/* Each corner an L just outside the area, so it covers nothing recorded. */
+.corner {
+  position: absolute;
+  width: var(--mark-length);
+  height: var(--mark-length);
+  border: 0 solid var(--mark);
+}
+
+.nw {
+  left: calc(-1 * var(--mark-width));
+  top: calc(-1 * var(--mark-width));
+  border-top-width: var(--mark-width);
+  border-left-width: var(--mark-width);
+}
+
+.ne {
+  right: calc(-1 * var(--mark-width));
+  top: calc(-1 * var(--mark-width));
+  border-top-width: var(--mark-width);
+  border-right-width: var(--mark-width);
+}
+
+.se {
+  right: calc(-1 * var(--mark-width));
+  bottom: calc(-1 * var(--mark-width));
+  border-bottom-width: var(--mark-width);
+  border-right-width: var(--mark-width);
+}
+
+.sw {
+  left: calc(-1 * var(--mark-width));
+  bottom: calc(-1 * var(--mark-width));
+  border-bottom-width: var(--mark-width);
+  border-left-width: var(--mark-width);
+}

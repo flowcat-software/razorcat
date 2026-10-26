@@ -28,6 +28,9 @@ use crate::state::AppState;
 
 /// The control's window.
 pub const RECORDER: &str = "recorder";
+/// The marks round an area being recorded (PLAN 5b.3c; outline.html): its corners, the rest of
+/// its monitor dimmed.
+const OUTLINE_LABEL: &str = "recording-outline";
 /// The recording's frame rate (5b.5 makes it a choice).
 const FPS: u32 = 60;
 /// The control's size (logical px) and its gap from the monitor's top.
@@ -254,6 +257,10 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<(), String> {
     if let Some(editor) = app.get_webview_window(LABEL) {
         let _ = editor.minimize();
     }
+    // The marks first: the control is shown after, so it's in front of their dimming.
+    if let Some(area) = target.area {
+        open_outline(app, &target.screen, area);
+    }
     open_control(app, &target.screen);
     // The overlays and the editor out of the way before the first frame.
     std::thread::sleep(Duration::from_millis(250));
@@ -430,6 +437,11 @@ fn open_control(app: &AppHandle, screen: &Screen) {
         .title("Recording")
         .inner_size(CONTROL.0, CONTROL.1)
         .decorations(false)
+        // With a shadow, resizing a window with no frame adds the frame's size back.
+        .shadow(false)
+        // See-through, so the bar's corners are rounded (RecorderApp.module.css).
+        .transparent(true)
+        .background_color(tauri::webview::Color(0, 0, 0, 0))
         .resizable(false)
         .always_on_top(true)
         .skip_taskbar(true)
@@ -452,6 +464,38 @@ fn open_control(app: &AppHandle, screen: &Screen) {
     }
 }
 
+/// The marks round `area` (the monitor's physical pixels), over all of `screen`: transparent,
+/// over everything, clicks through to what's under it, and left out of the recording.
+fn open_outline(app: &AppHandle, screen: &Screen, (x, y, width, height): (u32, u32, u32, u32)) {
+    let built =
+        WebviewWindowBuilder::new(app, OUTLINE_LABEL, WebviewUrl::App("outline.html".into()))
+            .initialization_script(format!(
+                "window.recordingArea = {{ x: {x}, y: {y}, width: {width}, height: {height} }};"
+            ))
+            .title("Recording area")
+            .decorations(false)
+            .resizable(false)
+            .shadow(false)
+            .transparent(true)
+            .background_color(tauri::webview::Color(0, 0, 0, 0))
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .focused(false)
+            .visible(false)
+            .build();
+    match built {
+        Ok(window) => {
+            exclude_from_capture(&window);
+            let _ = window.set_ignore_cursor_events(true);
+            // Position first, then size: moving onto a monitor of another scale rescales it.
+            let _ = window.set_position(tauri::PhysicalPosition::new(screen.x, screen.y));
+            let _ = window.set_size(tauri::PhysicalSize::new(screen.width, screen.height));
+            let _ = window.show();
+        }
+        Err(e) => logln!("[recording] the outline failed: {e}"),
+    }
+}
+
 /// Leaves `window` out of screen captures (Windows 10 2004 and later; earlier, it shows black).
 fn exclude_from_capture(window: &tauri::WebviewWindow) {
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -459,14 +503,20 @@ fn exclude_from_capture(window: &tauri::WebviewWindow) {
     };
     if let Ok(hwnd) = window.hwnd() {
         if let Err(e) = unsafe { SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) } {
-            logln!("[recording] the control may show in the recording: {e}");
+            logln!(
+                "[recording] {} may show in the recording: {e}",
+                window.label()
+            );
         }
     }
 }
 
+/// The control and the outline go.
 fn close_control(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window(RECORDER) {
-        let _ = w.destroy();
+    for label in [RECORDER, OUTLINE_LABEL] {
+        if let Some(w) = app.get_webview_window(label) {
+            let _ = w.destroy();
+        }
     }
 }
 

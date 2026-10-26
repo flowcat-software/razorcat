@@ -19,6 +19,7 @@ export default defineConfig(() => ({
         settings: page("settings"),
         recorder: page("recorder"),
         picker: page("picker"),
+        outline: page("outline"),
       },
     },
   },

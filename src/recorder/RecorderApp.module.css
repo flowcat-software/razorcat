@@ -1,9 +1,15 @@
+/* The window is see-through, so the bar's corners are rounded. */
+:global(html),
+:global(body) {
+  background: transparent;
+}
+
 .bar {
   display: flex;
   align-items: center;
   gap: 10px;
   height: 100vh;
-  padding: 0 6px 0 14px;
+  padding: 7px;
   box-sizing: border-box;
   background: var(--surface, #1f1f1f);
   color: var(--text, #f2f2f2);
@@ -12,6 +18,7 @@
     "Segoe UI",
     system-ui;
   border: 1px solid var(--border, rgb(255 255 255 / 0.12));
+  border-radius: 8px;
   cursor: default;
   user-select: none;
 }
@@ -19,6 +26,7 @@
 .dot {
   width: 10px;
   height: 10px;
+  margin-left: 5px;
   border-radius: 50%;
   background: #e5484d;
   animation: pulse 1.6s ease-in-out infinite;
