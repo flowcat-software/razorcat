@@ -21,6 +21,7 @@ use specta::Type;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_specta::Event;
 
+use crate::audio::{self, Capture, Clock};
 use crate::editor::LABEL;
 use crate::export::{bitrate, encoders, Encoder};
 use crate::sidecar::{self, Tool};
@@ -58,6 +59,18 @@ struct Running {
     /// Added to the timeline when done (else it replaces it).
     add: bool,
     log: Arc<Mutex<Vec<String>>>,
+    /// The sound being taken, into ffmpeg (PLAN 5b.4).
+    sound: Option<Capture>,
+}
+
+/// The sound to record. For now (5b.4a, the sync test) `RAZORCAT_RECORD_SOUND` = `system` or
+/// `mic`; the Record bar's toggles take over in 5b.4b-c.
+fn sound_source() -> Option<audio::Source> {
+    match std::env::var("RAZORCAT_RECORD_SOUND").ok()?.as_str() {
+        "system" => Some(audio::Source::System),
+        "mic" => Some(audio::Source::Microphone),
+        _ => None,
+    }
 }
 
 static NOW: Mutex<Option<Running>> = Mutex::new(None);
@@ -276,10 +289,11 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<(), String> {
 
     let (w, h) = target.size();
     let mut why = String::from("no encoder worked");
+    let source = sound_source();
     for encoder in encoders(app) {
-        match spawn(target, encoder, &part) {
+        match spawn(target, encoder, &part, source) {
             Ok(running) => {
-                logln!("[recording] {w}×{h} with {encoder:?}");
+                logln!("[recording] {w}×{h} with {encoder:?}, sound {source:?}");
                 *NOW.lock().unwrap() = Some(Running {
                     file,
                     add,
@@ -310,27 +324,73 @@ fn file_name(dir: &std::path::Path) -> String {
     name
 }
 
-/// ffmpeg recording `target` with `encoder` to `part`, once it's running; its error if it
-/// stopped at once.
-fn spawn(target: &Target, encoder: Encoder, part: &PathBuf) -> Result<Running, String> {
+/// ffmpeg recording `target` with `encoder` to `part`, with sound from `source` if any, once
+/// it's running; its error if it stopped at once.
+///
+/// With sound, both are on one clock (audio.rs): the frames are stamped by the wall clock as
+/// they come, from the moment the sound starts, and the timestamps are kept as they are
+/// (`-copyts`: else ffmpeg starts each at 0, and the capture's start-up becomes an offset).
+fn spawn(
+    target: &Target,
+    encoder: Encoder,
+    part: &PathBuf,
+    source: Option<audio::Source>,
+) -> Result<Running, String> {
     let (w, h) = target.size();
+    let clock = Clock::now();
+    let sound = source.map(|s| Capture::start(s, clock)).transpose()?;
+    let stamp = if sound.is_some() {
+        format!("setpts=(RTCTIME-{})/1000000/TB,", clock.unix_us)
+    } else {
+        String::new()
+    };
     let mut cmd = sidecar::command(Tool::Ffmpeg)?;
     cmd.args(["-hide_banner", "-nostats", "-loglevel", "error", "-y", "-f", "lavfi", "-i"])
         .arg(format!(
-            "gfxcapture={}:max_framerate={FPS}:capture_cursor=1,hwdownload,format=bgra,fps={FPS}:start_time=0,scale=out_color_matrix=bt709:out_range=tv,format={}",
+            "gfxcapture={}:max_framerate={FPS}:capture_cursor=1,{stamp}hwdownload,format=bgra,fps={FPS}:start_time=0,scale=out_color_matrix=bt709:out_range=tv,format={}",
             target.source(),
             encoder.pixels()
-        ))
-        .args(encoder.args(bitrate(w, h, f64::from(FPS))))
+        ));
+    if let Some(s) = &sound {
+        let f = &s.format;
+        cmd.args(["-thread_queue_size", "4096", "-f", f.sample, "-ar"])
+            .arg(f.rate.to_string())
+            .arg("-ac")
+            .arg(f.channels.to_string())
+            .arg("-i")
+            .arg(&s.pipe)
+            .args([
+                "-copyts", "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "192k",
+            ]);
+    }
+    cmd.args(encoder.args(bitrate(w, h, f64::from(FPS))))
         .args([
-            "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
-            "-color_range", "tv", "-movflags", "+faststart", "-f", "mp4",
+            "-colorspace",
+            "bt709",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-color_range",
+            "tv",
+            "-movflags",
+            "+faststart",
+            "-f",
+            "mp4",
         ])
         .arg(part)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
-    let mut child = sidecar::spawn(&mut cmd).map_err(|e| format!("ffmpeg didn't start: {e}"))?;
+    let mut child = match sidecar::spawn(&mut cmd) {
+        Ok(c) => c,
+        Err(e) => {
+            if let Some(s) = sound {
+                s.stop();
+            }
+            return Err(format!("ffmpeg didn't start: {e}"));
+        }
+    };
     let stdin = child.stdin.take().ok_or("no input to ffmpeg")?;
     // Its errors read as they come (a full pipe would stall it).
     let log = Arc::new(Mutex::new(Vec::new()));
@@ -351,6 +411,9 @@ fn spawn(target: &Target, encoder: Encoder, part: &PathBuf) -> Result<Running, S
         if let Ok(Some(status)) = child.try_wait() {
             std::thread::sleep(Duration::from_millis(50));
             let said = log.lock().unwrap().last().cloned().unwrap_or_default();
+            if let Some(s) = sound {
+                s.stop();
+            }
             return Err(format!("ffmpeg stopped ({status}): {said}"));
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -362,6 +425,7 @@ fn spawn(target: &Target, encoder: Encoder, part: &PathBuf) -> Result<Running, S
         file: PathBuf::new(),
         add: false,
         log,
+        sound,
     })
 }
 
@@ -395,6 +459,10 @@ pub fn stop(app: &AppHandle) {
 /// file, or says why there isn't one.
 fn finish(app: &AppHandle, mut r: Running, ended: bool) {
     close_control(app);
+    // The sound first: its pipe closing ends ffmpeg's sound, then `q` its video.
+    if let Some(s) = r.sound.take() {
+        s.stop();
+    }
     if !ended {
         let _ = r.stdin.write_all(b"q\n");
         let _ = r.stdin.flush();

@@ -3,6 +3,7 @@
 mod log;
 
 mod appearance;
+mod audio;
 mod check;
 mod cli;
 mod commands;
