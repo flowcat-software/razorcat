@@ -62,6 +62,12 @@ export interface ColorItem extends BaseItem {
   presets: readonly { color: string; name: string }[];
 }
 
+/** Which microphone records (Settings › Recording): the default, or one connected. */
+export interface MicrophoneItem extends BaseItem {
+  kind: "microphone";
+  path: PathOf<Settings, string>;
+}
+
 /** A number dragged along a slider, `min`–`max` by `step`, shown by `format`. */
 export interface SliderItem extends BaseItem {
   kind: "slider";
@@ -173,6 +179,7 @@ export type Item =
   | AccentItem
   | ColorItem
   | SliderItem
+  | MicrophoneItem
   | FolderItem
   | ProxyLimitItem
   | GrowPresetsItem

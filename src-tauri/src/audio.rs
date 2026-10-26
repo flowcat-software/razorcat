@@ -16,16 +16,19 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use serde::Serialize;
+use specta::Type;
 use windows::core::{GUID, HSTRING};
+use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::{
-    eCapture, eConsole, eRender, IAudioCaptureClient, IAudioClient, IMMDeviceEnumerator,
+    eCapture, eConsole, eRender, IAudioCaptureClient, IAudioClient, IMMDevice, IMMDeviceEnumerator,
     MMDeviceEnumerator, AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED,
-    AUDCLNT_STREAMFLAGS_LOOPBACK, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
+    AUDCLNT_STREAMFLAGS_LOOPBACK, DEVICE_STATE_ACTIVE, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
 };
 use windows::Win32::Storage::FileSystem::PIPE_ACCESS_OUTBOUND;
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_ALL,
-    COINIT_MULTITHREADED,
+    COINIT_MULTITHREADED, STGM_READ,
 };
 use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 use windows::Win32::System::Pipes::{
@@ -33,12 +36,86 @@ use windows::Win32::System::Pipes::{
 };
 
 /// Where the sound comes from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
     /// What the computer plays (the default output, looped back).
     System,
-    /// The default microphone.
-    Microphone,
+    /// A microphone, by its Windows id; None, the default one.
+    Microphone(Option<String>),
+}
+
+/// A microphone Windows has connected.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct Microphone {
+    pub id: String,
+    pub name: String,
+}
+
+/// The microphones connected, and the default one's name (None: there isn't one).
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct Microphones {
+    pub default: Option<String>,
+    pub devices: Vec<Microphone>,
+}
+
+/// A device's name as Windows shows it (`PKEY_Device_FriendlyName`).
+const FRIENDLY_NAME: PROPERTYKEY = PROPERTYKEY {
+    fmtid: GUID::from_u128(0xa45c254e_df1c_4efd_8020_67d146a850e0),
+    pid: 14,
+};
+
+/// The microphones connected now (on a thread of its own, for COM).
+pub fn microphones() -> Microphones {
+    let none = Microphones {
+        default: None,
+        devices: Vec::new(),
+    };
+    std::thread::spawn(|| unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let found = list_microphones();
+        CoUninitialize();
+        found
+    })
+    .join()
+    .ok()
+    .flatten()
+    .unwrap_or(none)
+}
+
+unsafe fn list_microphones() -> Option<Microphones> {
+    let devices: IMMDeviceEnumerator =
+        CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+    let default = devices
+        .GetDefaultAudioEndpoint(eCapture, eConsole)
+        .ok()
+        .map(|d| device_name(&d));
+    let all = devices
+        .EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)
+        .ok()?;
+    let mut found = Vec::new();
+    for i in 0..all.GetCount().unwrap_or(0) {
+        let Ok(device) = all.Item(i) else { continue };
+        let Ok(id) = device.GetId() else { continue };
+        let text = id.to_string().unwrap_or_default();
+        CoTaskMemFree(Some(id.0 as *const _));
+        found.push(Microphone {
+            id: text,
+            name: device_name(&device),
+        });
+    }
+    found.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Some(Microphones {
+        default,
+        devices: found,
+    })
+}
+
+unsafe fn device_name(device: &IMMDevice) -> String {
+    device
+        .OpenPropertyStore(STGM_READ)
+        .and_then(|store| store.GetValue(&FRIENDLY_NAME))
+        .map(|v| v.to_string())
+        .unwrap_or_else(|_| "Microphone".into())
 }
 
 /// The moment a recording starts, on both clocks: the performance counter (100 ns units, as
@@ -268,13 +345,19 @@ unsafe fn open(source: Source) -> Result<(IAudioClient, IAudioCaptureClient, For
     let e = |what: &str, err: windows::core::Error| format!("{what}: {err}");
     let devices: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
         .map_err(|err| e("the sound devices", err))?;
-    let (flow, flags) = match source {
-        Source::System => (eRender, AUDCLNT_STREAMFLAGS_LOOPBACK),
-        Source::Microphone => (eCapture, 0),
+    let (device, flags) = match &source {
+        Source::System => (
+            devices.GetDefaultAudioEndpoint(eRender, eConsole),
+            AUDCLNT_STREAMFLAGS_LOOPBACK,
+        ),
+        Source::Microphone(None) => (devices.GetDefaultAudioEndpoint(eCapture, eConsole), 0),
+        Source::Microphone(Some(id)) => (devices.GetDevice(&HSTRING::from(id.as_str())), 0),
     };
-    let device = devices
-        .GetDefaultAudioEndpoint(flow, eConsole)
-        .map_err(|err| e("no sound device", err))?;
+    let device = device.map_err(|err| match source {
+        Source::Microphone(Some(_)) => e("the microphone chosen isn't connected", err),
+        Source::Microphone(None) => e("no microphone", err),
+        Source::System => e("no sound output", err),
+    })?;
     let client: IAudioClient = device
         .Activate(CLSCTX_ALL, None)
         .map_err(|err| e("the sound device", err))?;

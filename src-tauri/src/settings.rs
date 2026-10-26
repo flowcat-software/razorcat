@@ -89,6 +89,10 @@ pub struct Recording {
     /// While an area records, the rest of its monitor is dimmed, `dim_opacity` dark.
     pub dim: bool,
     pub dim_opacity: f64,
+    /// The microphone is recorded (PLAN 5b.4b; the Record bar's toggle too), the one with this
+    /// Windows id, or empty: the default one.
+    pub microphone: bool,
+    pub microphone_device: String,
 }
 
 /// How dark the dimming can be, either way.
@@ -102,6 +106,8 @@ impl Default for Recording {
             corner_color: "#00ff27".into(),
             dim: true,
             dim_opacity: 0.3,
+            microphone: true,
+            microphone_device: String::new(),
         }
     }
 }

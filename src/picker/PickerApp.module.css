@@ -161,6 +161,36 @@
   color: rgb(255 255 255 / 0.9);
 }
 
+/* The microphone toggle: lit when it records. */
+.mic {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgb(255 255 255 / 0.1);
+  color: rgb(255 255 255 / 0.55);
+}
+
+.mic:hover {
+  background: rgb(255 255 255 / 0.16);
+}
+
+.mic[aria-pressed="true"] {
+  color: #fff;
+}
+
+.mic svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
 .cancel:hover {
   background: rgb(255 255 255 / 0.16);
 }

@@ -42,6 +42,8 @@ pub struct PickLoad {
     pub x: i32,
     pub y: i32,
     pub windows: Vec<WinRect>,
+    /// The microphone is recorded (Settings › Recording; the bar's toggle).
+    pub microphone: bool,
 }
 
 /// An area of a monitor, in its own physical pixels.
@@ -181,7 +183,14 @@ fn close(app: &AppHandle) {
 }
 
 /// Overlay `index`'s monitor and the windows; None once picking is over.
-pub fn load(index: u32) -> Option<PickLoad> {
+pub fn load(app: &AppHandle, index: u32) -> Option<PickLoad> {
+    let microphone = app
+        .state::<crate::state::AppState>()
+        .settings
+        .read()
+        .unwrap()
+        .recording
+        .microphone;
     let guard = PICKING.lock().unwrap();
     let p = guard.as_ref()?;
     let s = p.screens.get(index as usize)?;
@@ -189,6 +198,7 @@ pub fn load(index: u32) -> Option<PickLoad> {
         x: s.x,
         y: s.y,
         windows: p.windows.iter().map(|w| w.rect).collect(),
+        microphone,
     })
 }
 

@@ -712,7 +712,8 @@ export const sections: Section[] = [
     id: "recording",
     title: "Recording",
     icon: RecordIcon,
-    description: "Where screen recordings go, and how an area looks while it records.",
+    description:
+      "Where screen recordings go, the sound they take, and how an area looks while it records.",
     groups: [
       {
         title: "Files",
@@ -727,6 +728,29 @@ export const sections: Section[] = [
             defaultFolder: commands.defaultRecordingFolder,
             showSize: true,
             keywords: ["recording", "record", "screen", "capture", "folder", "location", "path"],
+          },
+        ],
+      },
+      {
+        title: "Sound",
+        items: [
+          {
+            id: "recordingMicrophone",
+            kind: "toggle",
+            path: "recording.microphone",
+            label: "Record the microphone",
+            description:
+              "Your voice, for narration. Also turned on or off as you record: the microphone button by Record, or M.",
+            keywords: ["microphone", "mic", "voice", "sound", "audio", "narration", "record"],
+          },
+          {
+            id: "recordingMicrophoneDevice",
+            kind: "microphone",
+            path: "recording.microphoneDevice",
+            label: "Microphone",
+            description: "The default follows Windows' choice.",
+            disabled: (s) => !s.recording.microphone,
+            keywords: ["microphone", "mic", "device", "input", "headset", "audio"],
           },
         ],
       },

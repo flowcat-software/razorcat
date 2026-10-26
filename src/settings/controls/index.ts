@@ -10,6 +10,7 @@ import { FolderInput } from "./FolderInput";
 import { FontPickerSetting } from "./FontPickerEditor";
 import { GrowPresetsEditor } from "./GrowPresetsEditor";
 import { LogButtons } from "./LogButtons";
+import { MicrophonePicker } from "./MicrophonePicker";
 import { NumberInput } from "./NumberInput";
 import { NumberPickerSetting } from "./NumberPickerEditor";
 import { PaletteSetting } from "./PaletteEditor";
@@ -46,6 +47,7 @@ export const controls: Registry = {
   accent: { component: AccentPicker, layout: "stacked" },
   color: { component: ColorSetting, layout: "stacked" },
   slider: { component: Slider, layout: "inline" },
+  microphone: { component: MicrophonePicker, layout: "inline" },
   folder: { component: FolderInput, layout: "stacked" },
   proxyLimit: { component: ProxyLimit, layout: "inline" },
   growPresets: { component: GrowPresetsEditor, layout: "stacked" },

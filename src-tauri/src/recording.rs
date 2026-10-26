@@ -61,21 +61,41 @@ struct Running {
     log: Arc<Mutex<Vec<String>>>,
     /// The sound being taken, into ffmpeg (PLAN 5b.4).
     sound: Option<Capture>,
+    /// What to say when it's done: why the sound isn't as asked.
+    warning: Option<String>,
 }
 
-/// The sound to record. For now (5b.4a, the sync test) `RAZORCAT_RECORD_SOUND` = `system` or
-/// `mic`; the Record bar's toggles take over in 5b.4b-c.
-fn sound_source() -> Option<audio::Source> {
-    match std::env::var("RAZORCAT_RECORD_SOUND").ok()?.as_str() {
-        "system" => Some(audio::Source::System),
-        "mic" => Some(audio::Source::Microphone),
-        _ => None,
+/// The sound to record, as Settings › Recording has it: the microphone (the one chosen, or the
+/// default). Until system sound has its toggle (5b.4c), `RAZORCAT_RECORD_SOUND=system` takes it
+/// instead, for testing.
+fn sound_source(app: &AppHandle) -> Option<audio::Source> {
+    if std::env::var("RAZORCAT_RECORD_SOUND").is_ok_and(|v| v == "system") {
+        return Some(audio::Source::System);
     }
+    let r = app
+        .state::<AppState>()
+        .settings
+        .read()
+        .unwrap()
+        .recording
+        .clone();
+    r.microphone
+        .then(|| audio::Source::Microphone(Some(r.microphone_device).filter(|d| !d.is_empty())))
+}
+
+/// Why ffmpeg didn't start: the sound couldn't be had (record without it), or ffmpeg itself
+/// (try the next encoder).
+enum Failed {
+    Sound(String),
+    Ffmpeg(String),
 }
 
 static NOW: Mutex<Option<Running>> = Mutex::new(None);
 /// Set while a recording starts (before it's `NOW`), so a second can't.
 static STARTING: Mutex<bool> = Mutex::new(false);
+/// Stop was asked for while it started (the control is up before ffmpeg is): it stops as soon as
+/// it's under way.
+static STOP_ASKED: Mutex<bool> = Mutex::new(false);
 
 /// Where recordings go: Settings › Recording › Folder, else the default.
 fn folder(app: &AppHandle) -> PathBuf {
@@ -230,18 +250,22 @@ pub fn start(app: &AppHandle, add: bool, target: Target) -> Result<(), String> {
             return Err("A recording is under way.".into());
         }
         *starting = true;
+        *STOP_ASKED.lock().unwrap() = false;
     }
     let app = app.clone();
     std::thread::spawn(move || {
         let started = begin(&app, add, &target);
-        *STARTING.lock().unwrap() = false;
+        // Under the same lock as `stop` checks it: a Stop now is either seen there, or asked.
+        let asked = {
+            let mut starting = STARTING.lock().unwrap();
+            *starting = false;
+            std::mem::take(&mut *STOP_ASKED.lock().unwrap())
+        };
         match started {
             Ok(()) => {
-                let _ = RecordingChanged {
-                    recording: true,
-                    message: None,
+                if asked {
+                    stop(&app);
                 }
-                .emit_to(&app, LABEL);
                 watch(app);
             }
             Err(message) => {
@@ -289,21 +313,45 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<(), String> {
 
     let (w, h) = target.size();
     let mut why = String::from("no encoder worked");
-    let source = sound_source();
+    let mut source = sound_source(app);
+    let mut warning = None;
     for encoder in encoders(app) {
-        match spawn(target, encoder, &part, source) {
-            Ok(running) => {
-                logln!("[recording] {w}×{h} with {encoder:?}, sound {source:?}");
-                *NOW.lock().unwrap() = Some(Running {
-                    file,
-                    add,
-                    ..running
-                });
-                return Ok(());
-            }
-            Err(e) => {
-                logln!("[recording] {encoder:?} didn't start: {e}");
-                why = e;
+        loop {
+            match spawn(target, encoder, &part, source.clone()) {
+                Ok(running) => {
+                    logln!("[recording] {w}×{h} with {encoder:?}, sound {source:?}");
+                    // Said before it can be stopped, so "stopped" always comes after.
+                    let _ = RecordingChanged {
+                        recording: true,
+                        message: None,
+                    }
+                    .emit_to(app, LABEL);
+                    *NOW.lock().unwrap() = Some(Running {
+                        file,
+                        add,
+                        warning,
+                        ..running
+                    });
+                    return Ok(());
+                }
+                // The microphone chosen isn't there: the default one; no sound at all: the
+                // video alone, and it's said when done.
+                Err(Failed::Sound(e)) => {
+                    logln!("[recording] no sound from {source:?}: {e}");
+                    if matches!(source, Some(audio::Source::Microphone(Some(_)))) {
+                        source = Some(audio::Source::Microphone(None));
+                        warning =
+                            Some("The microphone chosen in Settings wasn't found: the default one was used.".into());
+                    } else {
+                        source = None;
+                        warning = Some(format!("Recorded without sound: {e}."));
+                    }
+                }
+                Err(Failed::Ffmpeg(e)) => {
+                    logln!("[recording] {encoder:?} didn't start: {e}");
+                    why = e;
+                    break;
+                }
             }
         }
     }
@@ -335,16 +383,19 @@ fn spawn(
     encoder: Encoder,
     part: &PathBuf,
     source: Option<audio::Source>,
-) -> Result<Running, String> {
+) -> Result<Running, Failed> {
     let (w, h) = target.size();
     let clock = Clock::now();
-    let sound = source.map(|s| Capture::start(s, clock)).transpose()?;
+    let sound = source
+        .map(|s| Capture::start(s, clock))
+        .transpose()
+        .map_err(Failed::Sound)?;
     let stamp = if sound.is_some() {
         format!("setpts=(RTCTIME-{})/1000000/TB,", clock.unix_us)
     } else {
         String::new()
     };
-    let mut cmd = sidecar::command(Tool::Ffmpeg)?;
+    let mut cmd = sidecar::command(Tool::Ffmpeg).map_err(Failed::Ffmpeg)?;
     cmd.args(["-hide_banner", "-nostats", "-loglevel", "error", "-y", "-f", "lavfi", "-i"])
         .arg(format!(
             "gfxcapture={}:max_framerate={FPS}:capture_cursor=1,{stamp}hwdownload,format=bgra,fps={FPS}:start_time=0,scale=out_color_matrix=bt709:out_range=tv,format={}",
@@ -388,10 +439,13 @@ fn spawn(
             if let Some(s) = sound {
                 s.stop();
             }
-            return Err(format!("ffmpeg didn't start: {e}"));
+            return Err(Failed::Ffmpeg(format!("ffmpeg didn't start: {e}")));
         }
     };
-    let stdin = child.stdin.take().ok_or("no input to ffmpeg")?;
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| Failed::Ffmpeg("no input to ffmpeg".into()))?;
     // Its errors read as they come (a full pipe would stall it).
     let log = Arc::new(Mutex::new(Vec::new()));
     if let Some(stderr) = child.stderr.take() {
@@ -414,7 +468,7 @@ fn spawn(
             if let Some(s) = sound {
                 s.stop();
             }
-            return Err(format!("ffmpeg stopped ({status}): {said}"));
+            return Err(Failed::Ffmpeg(format!("ffmpeg stopped ({status}): {said}")));
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -426,6 +480,7 @@ fn spawn(
         add: false,
         log,
         sound,
+        warning: None,
     })
 }
 
@@ -448,7 +503,15 @@ fn watch(app: AppHandle) {
 
 /// Stops the recording (the control's Stop, or the editor's): its file finished and opened.
 pub fn stop(app: &AppHandle) {
-    let Some(r) = NOW.lock().unwrap().take() else {
+    let r = {
+        let starting = STARTING.lock().unwrap();
+        let r = NOW.lock().unwrap().take();
+        if r.is_none() && *starting {
+            *STOP_ASKED.lock().unwrap() = true;
+        }
+        r
+    };
+    let Some(r) = r else {
         return;
     };
     let app = app.clone();
@@ -486,7 +549,7 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
         logln!("[recording] done");
         let _ = RecordingChanged {
             recording: false,
-            message: None,
+            message: r.warning.take(),
         }
         .emit_to(app, LABEL);
         crate::editor::request_open(app, r.file, r.add);

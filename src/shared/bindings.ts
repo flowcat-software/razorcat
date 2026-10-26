@@ -122,7 +122,13 @@ export const commands = {
 	x: number,
 	y: number,
 	windows: WinRect[],
+	/**  The microphone is recorded (Settings › Recording; the bar's toggle). */
+	microphone: boolean,
 } | null>("pick_load", { index }),
+	/**  The Record bar's microphone toggle (Settings › Recording's too). */
+	setRecordMicrophone: (on: boolean) => typedError<null, string>(__TAURI_INVOKE("set_record_microphone", { on })),
+	/**  The microphones connected now, and which is the default (Settings › Recording). */
+	microphones: () => __TAURI_INVOKE<Microphones>("microphones"),
 	/**  Window mode on or off, and the window under the pointer, on one overlay: all follow. */
 	pickWindowChanged: (picking: boolean, hovered: number | null) => __TAURI_INVOKE<void>("pick_window_changed", { picking, hovered }),
 	/**  Window `index` of the overlays' list is recorded. */
@@ -529,6 +535,18 @@ export type MediaTools = {
 	gifski: string | null,
 };
 
+/**  A microphone Windows has connected. */
+export type Microphone = {
+	id: string,
+	name: string,
+};
+
+/**  The microphones connected, and the default one's name (None: there isn't one). */
+export type Microphones = {
+	default: string | null,
+	devices: Microphone[],
+};
+
 /**
  *  A number control: a free range, or a list of presets shown as a stepped
  *  slider, a dropdown or buttons. Lists are kept ascending.
@@ -563,6 +581,8 @@ export type PickLoad = {
 	x: number,
 	y: number,
 	windows: WinRect[],
+	/**  The microphone is recorded (Settings › Recording; the bar's toggle). */
+	microphone: boolean,
 };
 
 /**  An area of a monitor, in its own physical pixels. */
@@ -649,6 +669,12 @@ export type Recording = {
 	/**  While an area records, the rest of its monitor is dimmed, `dim_opacity` dark. */
 	dim?: boolean,
 	dimOpacity?: number | null,
+	/**
+	 *  The microphone is recorded (PLAN 5b.4b; the Record bar's toggle too), the one with this
+	 *  Windows id, or empty: the default one.
+	 */
+	microphone?: boolean,
+	microphoneDevice?: string,
 };
 
 /**

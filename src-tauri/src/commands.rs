@@ -280,8 +280,29 @@ pub fn pick_area(
 /// Overlay `index`'s monitor and the windows it can pick; None once picking is over.
 #[tauri::command]
 #[specta::specta]
-pub fn pick_load(index: u32) -> Option<crate::picker::PickLoad> {
-    crate::picker::load(index)
+pub fn pick_load(app: AppHandle, index: u32) -> Option<crate::picker::PickLoad> {
+    crate::picker::load(&app, index)
+}
+
+/// The Record bar's microphone toggle (Settings › Recording's too).
+#[tauri::command]
+#[specta::specta]
+pub fn set_record_microphone(app: AppHandle, on: bool) -> Result<(), String> {
+    let mut s = app
+        .state::<crate::state::AppState>()
+        .settings
+        .read()
+        .unwrap()
+        .clone();
+    s.recording.microphone = on;
+    settings::update(&app, s).map(drop)
+}
+
+/// The microphones connected now, and which is the default (Settings › Recording).
+#[tauri::command]
+#[specta::specta]
+pub async fn microphones() -> crate::audio::Microphones {
+    crate::audio::microphones()
 }
 
 /// Window mode on or off, and the window under the pointer, on one overlay: all follow.
