@@ -71,7 +71,9 @@
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.25);
 }
 
-.paletteSwatch:hover:not(:disabled) {
+/* Hover rings only the swatches not chosen: the chosen one keeps its ring under the pointer, so
+   a click shows at once. */
+.paletteSwatch:hover:not(:disabled, [aria-checked="true"]) {
   box-shadow:
     inset 0 0 0 1px rgb(0 0 0 / 0.25),
     0 0 0 2px var(--control-border);
@@ -80,6 +82,13 @@
 .paletteSwatch[aria-checked="true"] {
   box-shadow:
     inset 0 0 0 1px rgb(0 0 0 / 0.25),
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--text);
+}
+
+/* The custom swatch (the markup's), chosen. */
+.palette > [aria-checked="true"]:not(.paletteSwatch) {
+  box-shadow:
     0 0 0 2px var(--bg),
     0 0 0 4px var(--text);
 }

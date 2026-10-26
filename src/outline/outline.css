@@ -8,8 +8,8 @@ body {
 
 /* The area, clear; the rest of the monitor dimmed as on the picker. */
 .area {
-  --dim: 0.4;
-  --mark: #e5484d;
+  --dim: 0.3;
+  --mark: #00ff27;
   --mark-length: 24px;
   --mark-width: 3px;
   position: absolute;

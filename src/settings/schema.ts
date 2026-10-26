@@ -55,6 +55,23 @@ export interface AccentItem extends BaseItem {
   path: PathOf<Settings, string>;
 }
 
+/** One color: a preset, or any color from the picker. */
+export interface ColorItem extends BaseItem {
+  kind: "color";
+  path: PathOf<Settings, string>;
+  presets: readonly { color: string; name: string }[];
+}
+
+/** A number dragged along a slider, `min`–`max` by `step`, shown by `format`. */
+export interface SliderItem extends BaseItem {
+  kind: "slider";
+  path: PathOf<Settings, number>;
+  min: number;
+  max: number;
+  step: number;
+  format?: (value: number) => string;
+}
+
 /** A whole number typed in, kept to `min`–`max`, with its unit after it. */
 export interface NumberItem extends BaseItem {
   kind: "number";
@@ -152,6 +169,8 @@ export type Item =
   | NumberChoiceItem
   | TextItem
   | AccentItem
+  | ColorItem
+  | SliderItem
   | FolderItem
   | ProxyLimitItem
   | GrowPresetsItem

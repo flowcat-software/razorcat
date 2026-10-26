@@ -259,7 +259,16 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<(), String> {
     }
     // The marks first: the control is shown after, so it's in front of their dimming.
     if let Some(area) = target.area {
-        open_outline(app, &target.screen, area);
+        let marks = app
+            .state::<AppState>()
+            .settings
+            .read()
+            .unwrap()
+            .recording
+            .clone();
+        if marks.corners || marks.dim {
+            open_outline(app, &target.screen, area, &marks);
+        }
     }
     open_control(app, &target.screen);
     // The overlays and the editor out of the way before the first frame.
@@ -464,13 +473,26 @@ fn open_control(app: &AppHandle, screen: &Screen) {
     }
 }
 
-/// The marks round `area` (the monitor's physical pixels), over all of `screen`: transparent,
-/// over everything, clicks through to what's under it, and left out of the recording.
-fn open_outline(app: &AppHandle, screen: &Screen, (x, y, width, height): (u32, u32, u32, u32)) {
+/// The marks round `area` (the monitor's physical pixels), over all of `screen`, as Settings ›
+/// Recording has them: transparent, over everything, clicks through to what's under it, and left
+/// out of the recording.
+fn open_outline(
+    app: &AppHandle,
+    screen: &Screen,
+    (x, y, width, height): (u32, u32, u32, u32),
+    marks: &crate::settings::Recording,
+) {
+    let corners = if marks.corners {
+        format!("{:?}", marks.corner_color)
+    } else {
+        "null".into()
+    };
+    let dim = if marks.dim { marks.dim_opacity } else { 0.0 };
     let built =
         WebviewWindowBuilder::new(app, OUTLINE_LABEL, WebviewUrl::App("outline.html".into()))
             .initialization_script(format!(
-                "window.recordingArea = {{ x: {x}, y: {y}, width: {width}, height: {height} }};"
+                "window.recordingArea = {{ x: {x}, y: {y}, width: {width}, height: {height} }};\
+                 window.recordingMarks = {{ corners: {corners}, dim: {dim} }};"
             ))
             .title("Recording area")
             .decorations(false)

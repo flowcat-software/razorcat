@@ -78,11 +78,32 @@ pub struct Playback {
 }
 
 /// Settings › Recording (PLAN 5b).
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Recording {
     /// Where recordings go, `%VARS%` allowed; empty: the Videos folder's Razorcat\Recordings.
     pub folder: String,
+    /// While an area records, its corners are marked (PLAN 5b.3d), in `corner_color`.
+    pub corners: bool,
+    pub corner_color: String,
+    /// While an area records, the rest of its monitor is dimmed, `dim_opacity` dark.
+    pub dim: bool,
+    pub dim_opacity: f64,
+}
+
+/// How dark the dimming can be, either way.
+pub const DIM_RANGE: std::ops::RangeInclusive<f64> = 0.05..=0.9;
+
+impl Default for Recording {
+    fn default() -> Self {
+        Self {
+            folder: String::new(),
+            corners: true,
+            corner_color: "#00ff27".into(),
+            dim: true,
+            dim_opacity: 0.3,
+        }
+    }
 }
 
 /// Settings › About › Debugging.
@@ -513,6 +534,15 @@ pub fn validate(mut s: Settings) -> Result<Settings, String> {
         1.0
     };
     s.styles = s.styles.normalized();
+    s.recording.corner_color = normalize_color(&s.recording.corner_color)
+        .unwrap_or_else(|| Recording::default().corner_color);
+    s.recording.dim_opacity = if s.recording.dim_opacity.is_finite() {
+        s.recording
+            .dim_opacity
+            .clamp(*DIM_RANGE.start(), *DIM_RANGE.end())
+    } else {
+        Recording::default().dim_opacity
+    };
     if !GIF_RATES.contains(&s.export.gif_fps) {
         s.export.gif_fps = Export::default().gif_fps;
     }
@@ -734,6 +764,21 @@ mod tests {
         let (loaded, changed) = migrate(Some(serde_json::to_value(&s).unwrap()));
         assert_eq!(loaded, s);
         assert!(!changed);
+    }
+
+    #[test]
+    fn recording_marks_are_a_color_and_a_dimming_that_can_work() {
+        let mut s = Settings::default();
+        s.recording.corner_color = "#ABC".into();
+        s.recording.dim_opacity = 2.0;
+        let v = validate(s.clone()).unwrap();
+        assert_eq!(v.recording.corner_color, "#aabbcc");
+        assert_eq!(v.recording.dim_opacity, 0.9);
+        s.recording.corner_color = "red".into();
+        s.recording.dim_opacity = f64::NAN;
+        let v = validate(s).unwrap();
+        assert_eq!(v.recording.corner_color, "#00ff27");
+        assert_eq!(v.recording.dim_opacity, 0.3);
     }
 
     #[test]

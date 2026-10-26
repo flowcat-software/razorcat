@@ -711,7 +711,7 @@ export const sections: Section[] = [
     id: "recording",
     title: "Recording",
     icon: RecordIcon,
-    description: "Where screen recordings go.",
+    description: "Where screen recordings go, and how an area looks while it records.",
     groups: [
       {
         title: "Files",
@@ -725,6 +725,58 @@ export const sections: Section[] = [
               "Where screen recordings are saved, named by the date and time they were made. They open in Razorcat when you stop.",
             defaultFolder: commands.defaultRecordingFolder,
             keywords: ["recording", "record", "screen", "capture", "folder", "location", "path"],
+          },
+        ],
+      },
+      {
+        title: "While recording an area",
+        items: [
+          {
+            id: "recordingCorners",
+            kind: "toggle",
+            path: "recording.corners",
+            label: "Mark the corners",
+            description:
+              "Corner marks just outside the area, so you can see what's being recorded. They're never in the recording.",
+            keywords: ["corners", "marks", "outline", "border", "frame", "area", "region"],
+          },
+          {
+            id: "recordingCornerColor",
+            kind: "color",
+            path: "recording.cornerColor",
+            label: "Corner color",
+            presets: [
+              { color: "#00ff27", name: "Green" },
+              { color: "#00d5ff", name: "Cyan" },
+              { color: "#ff2bd6", name: "Magenta" },
+              { color: "#ff2d2d", name: "Red" },
+              { color: "#ff8a00", name: "Orange" },
+              { color: "#ffe600", name: "Yellow" },
+              { color: "#ffffff", name: "White" },
+            ],
+            disabled: (s) => !s.recording.corners,
+            keywords: ["corners", "marks", "color", "colour"],
+          },
+          {
+            id: "recordingDim",
+            kind: "toggle",
+            path: "recording.dim",
+            label: "Dim the rest of the screen",
+            description:
+              "Darkens the screen around the area while it records. The recording isn't darkened.",
+            keywords: ["dim", "darken", "shade", "overlay", "focus", "area", "region"],
+          },
+          {
+            id: "recordingDimOpacity",
+            kind: "slider",
+            path: "recording.dimOpacity",
+            label: "How dark",
+            min: 0.05,
+            max: 0.9,
+            step: 0.05,
+            format: (v) => `${Math.round(v * 100)}%`,
+            disabled: (s) => !s.recording.dim,
+            keywords: ["dim", "darken", "opacity", "dark"],
           },
         ],
       },

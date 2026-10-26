@@ -638,6 +638,12 @@ export type ProxyStopped = {
 export type Recording = {
 	/**  Where recordings go, `%VARS%` allowed; empty: the Videos folder's Razorcat\Recordings. */
 	folder?: string,
+	/**  While an area records, its corners are marked (PLAN 5b.3d), in `corner_color`. */
+	corners?: boolean,
+	cornerColor?: string,
+	/**  While an area records, the rest of its monitor is dimmed, `dim_opacity` dark. */
+	dim?: boolean,
+	dimOpacity?: number | null,
 };
 
 /**

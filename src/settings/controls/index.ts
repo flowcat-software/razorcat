@@ -5,6 +5,7 @@ import type { Item, ItemKind } from "../schema";
 import { AboutCard } from "./AboutCard";
 import { AccentPicker } from "./AccentPicker";
 import { Choice, NumberChoice } from "./Choice";
+import { ColorSetting } from "./ColorSetting";
 import { FolderInput } from "./FolderInput";
 import { FontPickerSetting } from "./FontPickerEditor";
 import { GrowPresetsEditor } from "./GrowPresetsEditor";
@@ -13,6 +14,7 @@ import { NumberInput } from "./NumberInput";
 import { NumberPickerSetting } from "./NumberPickerEditor";
 import { PaletteSetting } from "./PaletteEditor";
 import { ProxyLimit } from "./ProxyLimit";
+import { Slider } from "./Slider";
 import { TextInput } from "./TextInput";
 import { Toggle } from "./Toggle";
 import { ToolStyleSetting } from "./ToolStyleEditor";
@@ -42,6 +44,8 @@ export const controls: Registry = {
   number: { component: NumberInput, layout: "inline" },
   text: { component: TextInput, layout: "stacked" },
   accent: { component: AccentPicker, layout: "stacked" },
+  color: { component: ColorSetting, layout: "stacked" },
+  slider: { component: Slider, layout: "inline" },
   folder: { component: FolderInput, layout: "stacked" },
   proxyLimit: { component: ProxyLimit, layout: "inline" },
   growPresets: { component: GrowPresetsEditor, layout: "stacked" },
