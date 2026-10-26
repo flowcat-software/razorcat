@@ -70,6 +70,7 @@ import {
 import type { Rect, Size } from "./fit";
 import type { RecordedInput } from "../shared/ipc";
 import { withRecordedClicks, type RecordedClickStyle } from "./recordedInput";
+import { restyleClicks, type ClickFrames, type ClickStyle } from "./clickStyles";
 import type { Grow } from "./frame";
 import { setClipSpeed, setClipsSpeed, type Speed } from "./speed";
 
@@ -199,6 +200,9 @@ export interface DocState {
     size: Size,
     style: RecordedClickStyle,
   ) => boolean;
+  /** Every click mark in `style`, and with `timing` that long and fading so (PLAN 5b.6h): one
+   *  undo step. */
+  restyleClicks: (style: ClickStyle, timing?: ClickFrames) => boolean;
   /** Moves or resizes markup `id` to timeline frames `start` to `end`, in `lane`. */
   setMark: (id: MarkId, start: number, end: number, lane: number) => boolean;
   /** Markup `id` shows `object` now (moved, resized or restyled on the preview). */
@@ -449,6 +453,7 @@ export const useDoc = create<DocState>()((set, get) => {
     },
     addRecordedClicks: (clip, input, fps, size, style) =>
       apply((doc) => withRecordedClicks(doc, clip, input, fps, size, style)),
+    restyleClicks: (style, timing) => apply((doc) => restyleClicks(doc, style, timing)),
     setMark: (id, start, end, lane) => apply((doc) => setMark(doc, id, start, end, lane), [id]),
     setMarkObject: (id, object) => apply((doc) => setMarkObject(doc, id, object)),
     stepMark: (id, dir) => apply((doc) => stepLane(doc, id, dir)),

@@ -103,6 +103,8 @@ export interface NumberItem extends BaseItem {
 export interface ToggleItem extends BaseItem {
   kind: "toggle";
   path: PathOf<Settings, boolean>;
+  /** Ask this before turning it on (it changes work elsewhere). */
+  confirmOn?: { title: string; body: string; confirm: string };
 }
 
 /** A folder: typed (`%VARS%` allowed), browsed for, or opened in Explorer. */

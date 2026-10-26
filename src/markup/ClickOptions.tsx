@@ -1,10 +1,20 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import {
+  clickCount,
+  clickSyncEffect,
+  recordingStyleOf,
+  type ClickStyle,
+} from "../editor/clickStyles";
+import { useDoc as useEdit } from "../editor/docStore";
 import { doublesShown, useClickSettings } from "./clickSettings";
+import { setRecordingClicks, syncClickStyles } from "./clickSync";
+import { ConfirmButton } from "./ConfirmButton";
 import { Dropdown } from "./Dropdown";
 import { hint } from "./HintLine";
 import type { ClickButton, ClickLook } from "./model/types";
 import { NumberPickerControl } from "./NumberPickerControl";
 import { MARKER_SIZE_ICON } from "./pickerIcons";
+import { timelineFps } from "./model/store";
 import { applyStyle, beginStyleDrag, endStyleDrag, type TargetValues } from "./restyle";
 import { useStyleConfig } from "./styles";
 import styles from "./options.module.css";
@@ -176,7 +186,109 @@ export function ClickOptions({ click, locked, hints, showKeys, showButtonKeys }:
           />
         </span>
       </div>
+      {/* Unlocked, clicks can drift apart: ways to bring them in line (PLAN 5b.6h). */}
+      {!locked && (
+        <div className={styles.section}>
+          <SyncClicks style={{ look: click.look, size: click.size }} />
+          <SetRecordingStyle />
+        </div>
+      )}
     </>
+  );
+}
+
+/**
+ * Gives every click the style on show, after asking: it undoes work when they differ. Can also
+ * make it Recording's, so new recordings match.
+ */
+function SyncClicks({ style }: { style: ClickStyle }) {
+  const doc = useEdit((s) => s.doc);
+  const recorded = useClickSettings();
+  const [alsoRecording, setAlsoRecording] = useState(false);
+  const effect = clickSyncEffect(doc, style);
+  const n = clickCount(doc);
+  const recordingHasIt = recorded.look === style.look && recorded.size === style.size;
+  return (
+    <ConfirmButton
+      label="Sync style"
+      hintId="click.syncStyles"
+      disabled={effect === "none"}
+      question={
+        effect === "mixed"
+          ? `Your clicks have different styles. Give all ${n} of them this style?`
+          : n === 1
+            ? "Give the click this style?"
+            : `Give all ${n} clicks this style?`
+      }
+      extra={
+        !recordingHasIt && (
+          <label className={styles.confirmCheck}>
+            <input
+              type="checkbox"
+              checked={alsoRecording}
+              onChange={(e) => setAlsoRecording(e.target.checked)}
+            />
+            Also use it for new recordings
+          </label>
+        )
+      }
+      onConfirm={() => {
+        syncClickStyles(style);
+        if (alsoRecording && !recordingHasIt) void setRecordingClicks(style);
+        setAlsoRecording(false);
+      }}
+    />
+  );
+}
+
+/** A camcorder: what's recorded. */
+const RECORDING_ICON = (
+  <>
+    <rect x="3" y="6.5" width="12.5" height="11" rx="2" />
+    <path d="M15.5 10.5 21 7.5v9l-5.5-3" />
+  </>
+);
+
+/**
+ * Makes the one selected click's style, size, length and fades Settings › Recording's (asked
+ * first: a setting can't be undone), so a click adjusted by eye sets how recordings show them.
+ */
+function SetRecordingStyle() {
+  const doc = useEdit((s) => s.doc);
+  const selected = useEdit((s) => s.selectedMarks);
+  const recorded = useClickSettings();
+  const mark =
+    selected.length === 1
+      ? doc.marks.find((m) => m.id === selected[0] && m.object.kind === "click")
+      : undefined;
+  const style = mark ? recordingStyleOf(mark, timelineFps()) : null;
+  const same =
+    style !== null &&
+    style.look === recorded.look &&
+    style.size === recorded.size &&
+    style.seconds === recorded.seconds &&
+    style.fadeIn === recorded.fadeIn &&
+    style.fadeOut === recorded.fadeOut;
+  return (
+    <ConfirmButton
+      label="Set recording style"
+      hintId="click.setRecordingStyle"
+      icon={RECORDING_ICON}
+      title={
+        !style
+          ? "Select one click to make its style Settings › Recording's"
+          : same
+            ? "Settings › Recording's clicks already look and last like this one"
+            : undefined
+      }
+      disabled={!style || same}
+      undoable={false}
+      question={
+        style &&
+        "Make this click's style the default for recordings? New recordings' clicks will match its style, size, duration and fades."
+      }
+      onConfirm={() => style && void setRecordingClicks(style)}
+    />
   );
 }
 

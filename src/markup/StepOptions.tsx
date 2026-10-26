@@ -1,7 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
+import { ConfirmButton } from "./ConfirmButton";
 import { hint } from "./HintLine";
-import type { ControlHint } from "./hints";
-import { boxOf, useMenuPlacement } from "./menuPlacement";
 import { stepsDoc, useDoc } from "./model/store";
 import type { StepFormat, StepShape } from "./model/types";
 import { NumberPickerControl } from "./NumberPickerControl";
@@ -24,7 +23,6 @@ import {
 } from "./steps";
 import { stepFontChoices, stepFontPicker, useStyleConfig } from "./styles";
 import { FontPickerControl } from "./FontPickerControl";
-import { usePopover } from "./usePopover";
 import styles from "./options.module.css";
 
 const SHAPES: { id: StepShape; label: string; icon: ReactNode }[] = [
@@ -200,81 +198,5 @@ function ResetNumbering() {
       }
       onConfirm={resetStepNumbering}
     />
-  );
-}
-
-/**
- * A button that asks `question` in a popover before doing `onConfirm`
- * (Enter confirms, Esc cancels), or does it at once when `question` is null.
- */
-function ConfirmButton({
-  label,
-  hintId,
-  disabled,
-  question,
-  onConfirm,
-}: {
-  label: string;
-  hintId: ControlHint;
-  disabled: boolean;
-  question: string | null;
-  onConfirm: () => void;
-}) {
-  const [confirming, setConfirming] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  useMenuPlacement(confirming, menuRef, () => boxOf(buttonRef.current));
-  usePopover(
-    confirming,
-    rootRef,
-    (keep) => {
-      setConfirming(false);
-      if (keep) onConfirm();
-    },
-    "cancel",
-  );
-  return (
-    <div ref={rootRef} className={styles.dropdownRoot}>
-      <button
-        ref={buttonRef}
-        type="button"
-        className={`${styles.toggle} ${styles.labelled}`}
-        {...hint(hintId)}
-        disabled={disabled}
-        aria-expanded={confirming}
-        onClick={() => (question ? setConfirming((c) => !c) : onConfirm())}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden>
-          <path d="M4 12a8 8 0 1 0 2.3-5.7" />
-          <path d="M4 4v4h4" />
-        </svg>
-        <span>{label}</span>
-      </button>
-      {confirming && (
-        <div ref={menuRef} className={`${styles.menu} ${styles.confirm}`} role="alertdialog">
-          <p>{question} You can undo it with Ctrl+Z.</p>
-          <div className={styles.colorActions}>
-            <button
-              type="button"
-              className={styles.ghostButton}
-              onClick={() => setConfirming(false)}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className={styles.accentButton}
-              onClick={() => {
-                setConfirming(false);
-                onConfirm();
-              }}
-            >
-              {label}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
   );
 }

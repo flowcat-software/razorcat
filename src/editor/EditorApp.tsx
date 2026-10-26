@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { hint } from "../markup/HintLine";
 import { sayWhy, useHintSources } from "../markup/hints";
-import { annotationId, docStore as markupDoc } from "../markup/model/store";
+import { clickTiming } from "../markup/click";
+import { annotationId, docStore as markupDoc, timelineFps } from "../markup/model/store";
 import { startToolStylesSync } from "../markup/toolStylesSync";
 import { useMarkupKeys } from "../markup/useMarkupKeys";
-import { clickSettingsOf, useClickSettings } from "../markup/clickSettings";
+import { clickSettingsOf, useClickSettings, type ClickSettings } from "../markup/clickSettings";
 import { applyStyleSettings, loadFonts } from "../markup/useStyleSettings";
 import { ConfirmDialog } from "../settings/controls/ConfirmDialog";
 import { isTyping } from "../shared/dom";
@@ -96,9 +97,26 @@ const PLAYBACK_SAVE_MS = 600;
 const applySettings = (s: Settings) => {
   rangeOptions(s);
   applyStyleSettings(s);
-  useClickSettings.setState(clickSettingsOf(s.recording));
+  const was = useClickSettings.getState();
+  const now = clickSettingsOf(s.recording);
+  useClickSettings.setState(now);
+  // Locked (PLAN 5b.6h): as the lock is turned on (Settings asked first), and while it's on,
+  // every click takes Recording's style and timing, as one undo step.
+  if (now.follow && (!was.follow || !sameClickStyle(was, now))) {
+    useDoc
+      .getState()
+      .restyleClicks({ look: now.look, size: now.size }, clickTiming(timelineFps(), now));
+  }
   useTool.getState().setDragSpeed(s.editing.numberDragSpeed);
 };
+
+/** Recording's clicks look and last the same in `a` and `b` (their colours aside). */
+const sameClickStyle = (a: ClickSettings, b: ClickSettings) =>
+  a.look === b.look &&
+  a.size === b.size &&
+  a.seconds === b.seconds &&
+  a.fadeIn === b.fadeIn &&
+  a.fadeOut === b.fadeOut;
 
 /**
  * The transport's and the timeline's keys (mockup's keys table), M and Shift+M only with sound

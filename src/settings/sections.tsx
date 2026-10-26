@@ -951,8 +951,14 @@ export const sections: Section[] = [
             path: "recording.placedClicksFollow",
             label: "Lock click styles in the editor",
             description:
-              "Clicks you place in the editor with the Click tool look and last as these, so they match the recorded ones: their style and size are set here, not on the options bar. Off, the Click tool has its own. Either way, every click is in its button's color from here, and changing a color here changes the clicks already in your videos.",
+              "Every click in the editor, recorded or placed with the Click tool, looks and lasts as set here: its style and size are set here, not on the options bar, and changing them here changes the clicks already in your video. Off, the Click tool has its own, and each click keeps its own. Either way, every click is in its button's color from here.",
             keywords: ["click", "tool", "match", "sync", "follow", "editor", "same", "placed"],
+            // It restyles the clicks in the editor (PLAN 5b.6h).
+            confirmOn: {
+              title: "Lock click styles in the editor?",
+              body: "Every click in your timeline will be changed to match the settings here, including style, size, duration, and fades. While this switch is on, all click markers will be locked to these settings in the editor. If you change your mind after, use Ctrl+Z to undo.",
+              confirm: "Lock",
+            },
           },
         ],
       },

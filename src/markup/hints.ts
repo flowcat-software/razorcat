@@ -81,6 +81,9 @@ export const CONTROL_HINTS = {
   "click.double": "A double-click: a second ring round it",
   "click.doublesOff":
     "Double-clicks are off in Settings › Recording · turn on “Show double-clicks” there, or off “Lock click styles in the editor”",
+  "click.syncStyles": "Give every click the style and size shown here · [Ctrl+Z] undoes it",
+  "click.setRecordingStyle":
+    "Make the selected click's style, size, length and fades Settings › Recording's, for new recordings",
   "click.locked":
     "Locked to Settings › Recording, so placed clicks match recorded ones · turn off “Lock click styles in the editor” there to choose here",
   "step.format": "Numbers or letters · shared by every marker",

@@ -1054,6 +1054,14 @@
   white-space: normal;
 }
 
+/* A choice that goes with the answer (Sync style: also for new recordings). */
+.confirmCheck {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: normal;
+}
+
 /* ---- Razorcat ---- */
 
 /* A colour that opens the picker (ColorSwatch: the grow's colours). */
