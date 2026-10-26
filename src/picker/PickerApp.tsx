@@ -2,7 +2,8 @@
 // screen live under it. Vandal's overlay, for video: drag an area (Shift: a square), adjust it by
 // its edges or the keys, then Enter or the Record bar records it; F records this whole screen;
 // W picks a window (a click, or Enter, records it); Esc or a right-click goes back. The
-// microphone is turned on or off by the bar's button or M (Settings › Recording's setting). One selection over every monitor: starting one here clears the
+// microphone and the system's sound are turned on or off by the bar's buttons, or M and S
+// (Settings › Recording's settings). One selection over every monitor: starting one here clears the
 // others'. Selections are in the monitor's physical pixels, shown in CSS px.
 
 import {
@@ -67,6 +68,7 @@ export function PickerApp() {
   /** The window a click started on; it's picked if the click ends there too. */
   const pressedWindow = useRef<number | null>(null);
   const [mic, setMic] = useState(false);
+  const [system, setSystem] = useState(false);
 
   // The window is sized to its monitor after it's made: follow it.
   useEffect(() => {
@@ -93,12 +95,16 @@ export function PickerApp() {
         setDrag(null);
       }
     });
-    const settings = events.settingsChanged.listen(({ payload }) =>
-      setMic(!!payload.recording?.microphone),
-    );
+    const settings = events.settingsChanged.listen(({ payload }) => {
+      setMic(!!payload.recording?.microphone);
+      setSystem(!!payload.recording?.systemSound);
+    });
     void commands.pickLoad(index).then((l) => {
       setLoad(l);
-      if (l) setMic(l.microphone);
+      if (l) {
+        setMic(l.microphone);
+        setSystem(l.systemSound);
+      }
     });
     return () => {
       window.removeEventListener("resize", measure);
@@ -118,7 +124,13 @@ export function PickerApp() {
   const cancel = useCallback(() => void commands.pickCancel(), []);
   const toggleMic = useCallback(() => {
     setMic((on) => {
-      void commands.setRecordMicrophone(!on);
+      void commands.setRecordSound(!on, null);
+      return !on;
+    });
+  }, []);
+  const toggleSystem = useCallback(() => {
+    setSystem((on) => {
+      void commands.setRecordSound(null, !on);
       return !on;
     });
   }, []);
@@ -146,6 +158,7 @@ export function PickerApp() {
       const plain = !e.repeat && !e.ctrlKey && !e.altKey && !e.shiftKey;
       const plainW = plain && e.code === "KeyW";
       if (plain && e.code === "KeyM") return toggleMic();
+      if (plain && e.code === "KeyS") return toggleSystem();
       if (picking) {
         // Esc / W go back to selecting an area; Enter records the window lit.
         if (e.key === "Escape" || plainW) return setWindowPick(false, null);
@@ -199,6 +212,7 @@ export function PickerApp() {
     windowUnder,
     pickWindow,
     toggleMic,
+    toggleSystem,
   ]);
 
   const toLocal = (e: PointerEvent): Point =>
@@ -393,6 +407,16 @@ export function PickerApp() {
           >
             <MicIcon on={mic} />
           </button>
+          <button
+            type="button"
+            className={styles.mic}
+            aria-pressed={system}
+            title={system ? "System sound on (S)" : "System sound off (S)"}
+            aria-label="Record system sound"
+            onClick={toggleSystem}
+          >
+            <SpeakerIcon on={system} />
+          </button>
           <button type="button" className={styles.record} onClick={() => record(selection)}>
             <span className={styles.dot} aria-hidden />
             Record
@@ -405,6 +429,7 @@ export function PickerApp() {
       {focused && !drag && (
         <HintBar
           mic={mic}
+          system={system}
           picking={picking}
           hasSelection={!!selection}
           atBottom={!!selection && css(selection.y) < 72}
@@ -424,11 +449,13 @@ function screenSize(): Size {
 
 function HintBar({
   mic,
+  system,
   picking,
   hasSelection,
   atBottom,
 }: {
   mic: boolean;
+  system: boolean;
   picking: boolean;
   hasSelection: boolean;
   atBottom: boolean;
@@ -441,6 +468,7 @@ function HintBar({
           <Hint keys={["W"]} label="select area" />
           <Hint keys={["F"]} label="this screen" />
           <Hint keys={["M"]} label={mic ? "mic on" : "mic off"} />
+          <Hint keys={["S"]} label={system ? "sound on" : "sound off"} />
           <Hint keys={["Esc"]} label="back" />
         </>
       ) : hasSelection ? (
@@ -451,6 +479,7 @@ function HintBar({
           <Hint keys={["←↑↓→"]} label="nudge" />
           <Hint keys={["Ctrl", "←↑↓→"]} label="resize" />
           <Hint keys={["M"]} label={mic ? "mic on" : "mic off"} />
+          <Hint keys={["S"]} label={system ? "sound on" : "sound off"} />
           <Hint keys={["Esc"]} label="cancel" />
         </>
       ) : (
@@ -460,6 +489,7 @@ function HintBar({
           <Hint keys={["W"]} label="window" />
           <Hint keys={["F"]} label="this screen" />
           <Hint keys={["M"]} label={mic ? "mic on" : "mic off"} />
+          <Hint keys={["S"]} label={system ? "sound on" : "sound off"} />
           <Hint keys={["Esc"]} label="cancel" />
         </>
       )}
@@ -485,6 +515,20 @@ function MicIcon({ on }: { on: boolean }) {
       <rect x="9" y="3" width="6" height="11" rx="3" />
       <path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" fill="none" />
       {!on && <path d="M4 4l16 16" fill="none" />}
+    </svg>
+  );
+}
+
+/** A speaker; off, struck through. */
+function SpeakerIcon({ on }: { on: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <path d="M4 9h4l5-4v14l-5-4H4z" />
+      {on ? (
+        <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" fill="none" />
+      ) : (
+        <path d="M4 4l16 16" fill="none" />
+      )}
     </svg>
   );
 }

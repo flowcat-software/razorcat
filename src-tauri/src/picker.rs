@@ -38,12 +38,15 @@ pub struct PickWindow {
 /// What an overlay needs: where its monitor is, and the windows that can be picked (topmost
 /// first), in virtual-desktop physical pixels.
 #[derive(Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct PickLoad {
     pub x: i32,
     pub y: i32,
     pub windows: Vec<WinRect>,
-    /// The microphone is recorded (Settings › Recording; the bar's toggle).
+    /// The microphone and the system's sound are recorded (Settings › Recording; the bar's
+    /// toggles).
     pub microphone: bool,
+    pub system_sound: bool,
 }
 
 /// An area of a monitor, in its own physical pixels.
@@ -184,13 +187,13 @@ fn close(app: &AppHandle) {
 
 /// Overlay `index`'s monitor and the windows; None once picking is over.
 pub fn load(app: &AppHandle, index: u32) -> Option<PickLoad> {
-    let microphone = app
+    let sound = app
         .state::<crate::state::AppState>()
         .settings
         .read()
         .unwrap()
         .recording
-        .microphone;
+        .clone();
     let guard = PICKING.lock().unwrap();
     let p = guard.as_ref()?;
     let s = p.screens.get(index as usize)?;
@@ -198,7 +201,8 @@ pub fn load(app: &AppHandle, index: u32) -> Option<PickLoad> {
         x: s.x,
         y: s.y,
         windows: p.windows.iter().map(|w| w.rect).collect(),
-        microphone,
+        microphone: sound.microphone,
+        system_sound: sound.system_sound,
     })
 }
 

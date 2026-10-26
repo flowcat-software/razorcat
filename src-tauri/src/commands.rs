@@ -284,17 +284,27 @@ pub fn pick_load(app: AppHandle, index: u32) -> Option<crate::picker::PickLoad> 
     crate::picker::load(&app, index)
 }
 
-/// The Record bar's microphone toggle (Settings › Recording's too).
+/// The Record bar's microphone and system sound toggles (Settings › Recording's too): each as
+/// given, or as it is.
 #[tauri::command]
 #[specta::specta]
-pub fn set_record_microphone(app: AppHandle, on: bool) -> Result<(), String> {
+pub fn set_record_sound(
+    app: AppHandle,
+    microphone: Option<bool>,
+    system: Option<bool>,
+) -> Result<(), String> {
     let mut s = app
         .state::<crate::state::AppState>()
         .settings
         .read()
         .unwrap()
         .clone();
-    s.recording.microphone = on;
+    if let Some(on) = microphone {
+        s.recording.microphone = on;
+    }
+    if let Some(on) = system {
+        s.recording.system_sound = on;
+    }
     settings::update(&app, s).map(drop)
 }
 

@@ -752,6 +752,15 @@ export const sections: Section[] = [
             disabled: (s) => !s.recording.microphone,
             keywords: ["microphone", "mic", "device", "input", "headset", "audio"],
           },
+          {
+            id: "recordingSystemSound",
+            kind: "toggle",
+            path: "recording.systemSound",
+            label: "Record system sound",
+            description:
+              "What the computer plays: videos, calls, alerts. Mixed with the microphone into one track. Also turned on or off as you record: the speaker button by Record, or S.",
+            keywords: ["system", "sound", "audio", "speaker", "desktop", "loopback", "computer"],
+          },
         ],
       },
       {

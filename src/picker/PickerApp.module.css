@@ -161,7 +161,7 @@
   color: rgb(255 255 255 / 0.9);
 }
 
-/* The microphone toggle: lit when it records. */
+/* The microphone and system sound toggles: lit when they record. */
 .mic {
   display: inline-grid;
   place-items: center;

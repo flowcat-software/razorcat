@@ -60,18 +60,14 @@ struct Running {
     add: bool,
     log: Arc<Mutex<Vec<String>>>,
     /// The sound being taken, into ffmpeg (PLAN 5b.4).
-    sound: Option<Capture>,
+    sound: Vec<Capture>,
     /// What to say when it's done: why the sound isn't as asked.
     warning: Option<String>,
 }
 
 /// The sound to record, as Settings › Recording has it: the microphone (the one chosen, or the
-/// default). Until system sound has its toggle (5b.4c), `RAZORCAT_RECORD_SOUND=system` takes it
-/// instead, for testing.
-fn sound_source(app: &AppHandle) -> Option<audio::Source> {
-    if std::env::var("RAZORCAT_RECORD_SOUND").is_ok_and(|v| v == "system") {
-        return Some(audio::Source::System);
-    }
+/// default), and what the computer plays.
+fn sound_sources(app: &AppHandle) -> Vec<audio::Source> {
     let r = app
         .state::<AppState>()
         .settings
@@ -79,15 +75,56 @@ fn sound_source(app: &AppHandle) -> Option<audio::Source> {
         .unwrap()
         .recording
         .clone();
-    r.microphone
-        .then(|| audio::Source::Microphone(Some(r.microphone_device).filter(|d| !d.is_empty())))
+    let mut sources = Vec::new();
+    if r.microphone {
+        sources.push(audio::Source::Microphone(
+            Some(r.microphone_device).filter(|d| !d.is_empty()),
+        ));
+    }
+    if r.system_sound {
+        sources.push(audio::Source::System);
+    }
+    sources
 }
 
-/// Why ffmpeg didn't start: the sound couldn't be had (record without it), or ffmpeg itself
+/// Why ffmpeg didn't start: source `n` couldn't be had (record without it), or ffmpeg itself
 /// (try the next encoder).
 enum Failed {
-    Sound(String),
+    Sound(usize, String),
     Ffmpeg(String),
+}
+
+/// One sound for ffmpeg: its raw format (`-f`), rate, channels, and pipe.
+type SoundInput<'a> = (&'a str, u32, u16, &'a str);
+
+/// ffmpeg's arguments for the sound, after the video's input: each source an input, kept on its
+/// timestamps (`-copyts`), and with more than one, mixed into one track at full level each
+/// (`normalize=0`: else each is halved), as stereo at 48 kHz.
+fn sound_args(inputs: &[SoundInput]) -> Vec<String> {
+    let mut a: Vec<String> = Vec::new();
+    for (sample, rate, channels, pipe) in inputs {
+        a.extend(["-thread_queue_size", "4096", "-f", sample, "-ar"].map(String::from));
+        a.extend([rate.to_string(), "-ac".into(), channels.to_string()]);
+        a.extend(["-i".to_string(), pipe.to_string()]);
+    }
+    a.extend(["-copyts", "-map", "0:v"].map(String::from));
+    match inputs.len() {
+        0 => return Vec::new(),
+        1 => a.extend(["-map", "1:a"].map(String::from)),
+        n => {
+            let each: String = (1..=n)
+                .map(|i| format!("[{i}:a]aresample=48000,aformat=channel_layouts=stereo[s{i}];"))
+                .collect();
+            let all: String = (1..=n).map(|i| format!("[s{i}]")).collect();
+            a.push("-filter_complex".into());
+            a.push(format!(
+                "{each}{all}amix=inputs={n}:duration=longest:normalize=0[sound]"
+            ));
+            a.extend(["-map", "[sound]"].map(String::from));
+        }
+    }
+    a.extend(["-c:a", "aac", "-b:a", "192k"].map(String::from));
+    a
 }
 
 static NOW: Mutex<Option<Running>> = Mutex::new(None);
@@ -313,13 +350,13 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<(), String> {
 
     let (w, h) = target.size();
     let mut why = String::from("no encoder worked");
-    let mut source = sound_source(app);
+    let mut sources = sound_sources(app);
     let mut warning = None;
     for encoder in encoders(app) {
         loop {
-            match spawn(target, encoder, &part, source.clone()) {
+            match spawn(target, encoder, &part, &sources) {
                 Ok(running) => {
-                    logln!("[recording] {w}×{h} with {encoder:?}, sound {source:?}");
+                    logln!("[recording] {w}×{h} with {encoder:?}, sound {sources:?}");
                     // Said before it can be stopped, so "stopped" always comes after.
                     let _ = RecordingChanged {
                         recording: true,
@@ -334,17 +371,22 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<(), String> {
                     });
                     return Ok(());
                 }
-                // The microphone chosen isn't there: the default one; no sound at all: the
-                // video alone, and it's said when done.
-                Err(Failed::Sound(e)) => {
-                    logln!("[recording] no sound from {source:?}: {e}");
-                    if matches!(source, Some(audio::Source::Microphone(Some(_)))) {
-                        source = Some(audio::Source::Microphone(None));
-                        warning =
-                            Some("The microphone chosen in Settings wasn't found: the default one was used.".into());
+                // The microphone chosen isn't there: the default one; a source not there at all:
+                // recorded without it, and it's said when done.
+                Err(Failed::Sound(n, e)) => {
+                    logln!("[recording] no sound from {:?}: {e}", sources[n]);
+                    if matches!(sources[n], audio::Source::Microphone(Some(_))) {
+                        sources[n] = audio::Source::Microphone(None);
+                        warning = Some(
+                            "The microphone chosen in Settings wasn't found: the default one was used."
+                                .into(),
+                        );
                     } else {
-                        source = None;
-                        warning = Some(format!("Recorded without sound: {e}."));
+                        let what = match sources.remove(n) {
+                            audio::Source::System => "the system's sound",
+                            audio::Source::Microphone(_) => "the microphone",
+                        };
+                        warning = Some(format!("Recorded without {what}: {e}."));
                     }
                 }
                 Err(Failed::Ffmpeg(e)) => {
@@ -382,15 +424,21 @@ fn spawn(
     target: &Target,
     encoder: Encoder,
     part: &PathBuf,
-    source: Option<audio::Source>,
+    sources: &[audio::Source],
 ) -> Result<Running, Failed> {
     let (w, h) = target.size();
     let clock = Clock::now();
-    let sound = source
-        .map(|s| Capture::start(s, clock))
-        .transpose()
-        .map_err(Failed::Sound)?;
-    let stamp = if sound.is_some() {
+    let mut sound = Vec::new();
+    for (n, s) in sources.iter().enumerate() {
+        match Capture::start(s.clone(), clock) {
+            Ok(c) => sound.push(c),
+            Err(e) => {
+                sound.into_iter().for_each(Capture::stop);
+                return Err(Failed::Sound(n, e));
+            }
+        }
+    }
+    let stamp = if !sound.is_empty() {
         format!("setpts=(RTCTIME-{})/1000000/TB,", clock.unix_us)
     } else {
         String::new()
@@ -402,18 +450,14 @@ fn spawn(
             target.source(),
             encoder.pixels()
         ));
-    if let Some(s) = &sound {
-        let f = &s.format;
-        cmd.args(["-thread_queue_size", "4096", "-f", f.sample, "-ar"])
-            .arg(f.rate.to_string())
-            .arg("-ac")
-            .arg(f.channels.to_string())
-            .arg("-i")
-            .arg(&s.pipe)
-            .args([
-                "-copyts", "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "192k",
-            ]);
-    }
+    let inputs: Vec<SoundInput> = sound
+        .iter()
+        .map(|s| {
+            let f = &s.format;
+            (f.sample, f.rate, f.channels, s.pipe.as_str())
+        })
+        .collect();
+    cmd.args(sound_args(&inputs));
     cmd.args(encoder.args(bitrate(w, h, f64::from(FPS))))
         .args([
             "-colorspace",
@@ -436,9 +480,7 @@ fn spawn(
     let mut child = match sidecar::spawn(&mut cmd) {
         Ok(c) => c,
         Err(e) => {
-            if let Some(s) = sound {
-                s.stop();
-            }
+            sound.into_iter().for_each(Capture::stop);
             return Err(Failed::Ffmpeg(format!("ffmpeg didn't start: {e}")));
         }
     };
@@ -465,9 +507,7 @@ fn spawn(
         if let Ok(Some(status)) = child.try_wait() {
             std::thread::sleep(Duration::from_millis(50));
             let said = log.lock().unwrap().last().cloned().unwrap_or_default();
-            if let Some(s) = sound {
-                s.stop();
-            }
+            sound.into_iter().for_each(Capture::stop);
             return Err(Failed::Ffmpeg(format!("ffmpeg stopped ({status}): {said}")));
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -523,9 +563,9 @@ pub fn stop(app: &AppHandle) {
 fn finish(app: &AppHandle, mut r: Running, ended: bool) {
     close_control(app);
     // The sound first: its pipe closing ends ffmpeg's sound, then `q` its video.
-    if let Some(s) = r.sound.take() {
-        s.stop();
-    }
+    std::mem::take(&mut r.sound)
+        .into_iter()
+        .for_each(Capture::stop);
     if !ended {
         let _ = r.stdin.write_all(b"q\n");
         let _ = r.stdin.flush();
@@ -731,6 +771,20 @@ mod tests {
             t.source(),
             "hwnd=4660:width=-2:height=-2:resize_mode=scale_aspect"
         );
+    }
+
+    #[test]
+    fn one_sound_is_mapped_and_two_are_mixed() {
+        assert!(sound_args(&[]).is_empty());
+        let one = sound_args(&[("f32le", 48000, 2, "P1")]).join(" ");
+        assert!(one.contains("-f f32le -ar 48000 -ac 2 -i P1"));
+        assert!(one.contains("-copyts -map 0:v -map 1:a -c:a aac"));
+        let two = sound_args(&[("f32le", 48000, 1, "P1"), ("s16le", 44100, 2, "P2")]).join(" ");
+        assert!(two.contains("-i P1") && two.contains("-f s16le -ar 44100 -ac 2 -i P2"));
+        assert!(two.contains(
+            "[1:a]aresample=48000,aformat=channel_layouts=stereo[s1];[2:a]aresample=48000,aformat=channel_layouts=stereo[s2];[s1][s2]amix=inputs=2:duration=longest:normalize=0[sound]"
+        ));
+        assert!(two.contains("-map 0:v -filter_complex") && two.contains("-map [sound] -c:a aac"));
     }
 
     #[test]

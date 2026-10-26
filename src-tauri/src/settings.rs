@@ -93,6 +93,8 @@ pub struct Recording {
     /// Windows id, or empty: the default one.
     pub microphone: bool,
     pub microphone_device: String,
+    /// What the computer plays is recorded too, mixed with the microphone (PLAN 5b.4c).
+    pub system_sound: bool,
 }
 
 /// How dark the dimming can be, either way.
@@ -108,6 +110,7 @@ impl Default for Recording {
             dim_opacity: 0.3,
             microphone: true,
             microphone_device: String::new(),
+            system_sound: false,
         }
     }
 }

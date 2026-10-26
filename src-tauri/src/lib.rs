@@ -79,7 +79,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::pick_area,
             commands::pick_cancel,
             commands::pick_load,
-            commands::set_record_microphone,
+            commands::set_record_sound,
             commands::microphones,
             commands::pick_window_changed,
             commands::pick_window,

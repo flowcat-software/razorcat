@@ -122,11 +122,18 @@ export const commands = {
 	x: number,
 	y: number,
 	windows: WinRect[],
-	/**  The microphone is recorded (Settings › Recording; the bar's toggle). */
+	/**
+	 *  The microphone and the system's sound are recorded (Settings › Recording; the bar's
+	 *  toggles).
+	 */
 	microphone: boolean,
+	systemSound: boolean,
 } | null>("pick_load", { index }),
-	/**  The Record bar's microphone toggle (Settings › Recording's too). */
-	setRecordMicrophone: (on: boolean) => typedError<null, string>(__TAURI_INVOKE("set_record_microphone", { on })),
+	/**
+	 *  The Record bar's microphone and system sound toggles (Settings › Recording's too): each as
+	 *  given, or as it is.
+	 */
+	setRecordSound: (microphone: boolean | null, system: boolean | null) => typedError<null, string>(__TAURI_INVOKE("set_record_sound", { microphone, system })),
 	/**  The microphones connected now, and which is the default (Settings › Recording). */
 	microphones: () => __TAURI_INVOKE<Microphones>("microphones"),
 	/**  Window mode on or off, and the window under the pointer, on one overlay: all follow. */
@@ -581,8 +588,12 @@ export type PickLoad = {
 	x: number,
 	y: number,
 	windows: WinRect[],
-	/**  The microphone is recorded (Settings › Recording; the bar's toggle). */
+	/**
+	 *  The microphone and the system's sound are recorded (Settings › Recording; the bar's
+	 *  toggles).
+	 */
 	microphone: boolean,
+	systemSound: boolean,
 };
 
 /**  An area of a monitor, in its own physical pixels. */
@@ -675,6 +686,8 @@ export type Recording = {
 	 */
 	microphone?: boolean,
 	microphoneDevice?: string,
+	/**  What the computer plays is recorded too, mixed with the microphone (PLAN 5b.4c). */
+	systemSound?: boolean,
 };
 
 /**
