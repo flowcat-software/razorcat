@@ -83,6 +83,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::start_recording,
             commands::stop_recording,
             commands::pick_started,
+            commands::pick_selection,
+            commands::camera_drag,
             commands::pick_area,
             commands::pick_cancel,
             commands::pick_load,
@@ -248,9 +250,11 @@ pub fn run() {
         // dragged over it), and its place on screen is remembered.
         .on_window_event(|window, event| {
             let app = window.app_handle();
-            // A picker overlay that takes the keys comes up over the camera's bubble.
+            // A picker overlay that takes the keys comes up over the camera's bubble, and is
+            // the one given them back after the bubble's clicked.
             if window.label().starts_with("pick-") {
                 if let tauri::WindowEvent::Focused(true) = event {
+                    picker::focused(window.label());
                     camera::raise(app);
                 }
                 return;

@@ -123,6 +123,21 @@ export const commands = {
 	stopRecording: () => __TAURI_INVOKE<void>("stop_recording"),
 	/**  An overlay's selection started: the other overlays drop theirs. */
 	pickStarted: (index: number) => __TAURI_INVOKE<void>("pick_started", { index }),
+	/**
+	 *  Overlay `index`'s selection is now `rect` (monitor pixels), or none: the camera's bubble
+	 *  follows it.
+	 */
+	pickSelection: (index: number, rect: {
+	x: number,
+	y: number,
+	width: number,
+	height: number,
+} | null) => __TAURI_INVOKE<void>("pick_selection", { index, rect }),
+	/**
+	 *  The camera's bubble is pressed (`at` "down"), moved while pressed ("move"), or let go ("up"):
+	 *  Rust drags it.
+	 */
+	cameraDrag: (at: string) => __TAURI_INVOKE<void>("camera_drag", { at }),
 	/**  Overlay `index`'s area `rect` (monitor pixels), or with none the whole monitor, is recorded. */
 	pickArea: (index: number, rect: {
 	x: number,

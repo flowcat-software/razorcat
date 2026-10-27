@@ -309,6 +309,26 @@ pub fn pick_started(app: AppHandle, index: u32) {
     crate::picker::started(&app, index);
 }
 
+/// Overlay `index`'s selection is now `rect` (monitor pixels), or none: the camera's bubble
+/// follows it.
+#[tauri::command]
+#[specta::specta]
+pub fn pick_selection(app: AppHandle, index: u32, rect: Option<crate::picker::PickRect>) {
+    crate::picker::selected(&app, index, rect);
+}
+
+/// The camera's bubble is pressed (`at` "down"), moved while pressed ("move"), or let go ("up"):
+/// Rust drags it.
+#[tauri::command]
+#[specta::specta]
+pub fn camera_drag(app: AppHandle, at: String) {
+    match at.as_str() {
+        "down" => crate::camera::grab(&app),
+        "move" => crate::camera::drag(&app),
+        _ => crate::camera::release(&app),
+    }
+}
+
 /// Overlay `index`'s area `rect` (monitor pixels), or with none the whole monitor, is recorded.
 #[tauri::command]
 #[specta::specta]

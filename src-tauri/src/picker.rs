@@ -12,6 +12,7 @@ use tauri::webview::Color;
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow};
 use tauri_specta::Event;
 
+use crate::camera::Area;
 use crate::editor::LABEL;
 use crate::recording::{Screen, Target};
 use crate::winenum::{self, SnapWindow, WinRect};
@@ -104,6 +105,7 @@ pub fn open(app: &AppHandle, add: bool) -> Result<(), String> {
         screens: screens.clone(),
         windows,
     });
+    crate::camera::unfollow();
     if let Some(editor) = editor {
         let _ = editor.minimize();
     }
@@ -234,6 +236,86 @@ pub fn window_changed(app: &AppHandle, picking: bool, hovered: Option<u32>) {
             let _ = PickWindow { picking, hovered }.emit_to(app, window.label());
         }
     }
+    // The bubble to the lit window's corner; out of window mode, its monitor's.
+    let area = {
+        let guard = PICKING.lock().unwrap();
+        let Some(p) = guard.as_ref() else {
+            return;
+        };
+        match (picking, hovered) {
+            (true, Some(w)) => p.windows.get(w as usize).and_then(|w| window_area(p, w)),
+            (true, None) => None,
+            (false, _) => {
+                let at = cursor();
+                p.screens
+                    .iter()
+                    .find(|s| at.is_some_and(|(x, y)| s.contains(x, y)))
+                    .map(Area::of)
+            }
+        }
+    };
+    if let Some(area) = area {
+        crate::camera::follow(app, WINDOWS, area, false);
+    }
+}
+
+/// Overlay `index`'s selection is now `rect`, or none (the whole monitor): the camera's bubble
+/// follows it to its bottom-right corner, until it's dragged.
+pub fn selected(app: &AppHandle, index: u32, rect: Option<PickRect>) {
+    let Some(screen) = PICKING
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|p| p.screens.get(index as usize).cloned())
+    else {
+        return;
+    };
+    let area = match rect {
+        Some(r) => Area::on(&screen, r.x as i32, r.y as i32, r.width, r.height),
+        None => Area::of(&screen),
+    };
+    crate::camera::follow(app, index, area, rect.is_none());
+}
+
+/// The bubble follows windows as one more overlay would, past the monitors' indexes.
+const WINDOWS: u32 = u32::MAX;
+
+/// Window `window`'s area, on the monitor that has its middle.
+fn window_area(p: &Picking, window: &SnapWindow) -> Option<Area> {
+    let r = window.rect;
+    let (cx, cy) = (r.x + r.width / 2, r.y + r.height / 2);
+    let screen = p
+        .screens
+        .iter()
+        .find(|s| s.contains(cx, cy))
+        .or(p.screens.first())?;
+    Some(Area {
+        x: r.x,
+        y: r.y,
+        width: r.width.max(0) as u32,
+        height: r.height.max(0) as u32,
+        scale: screen.scale,
+    })
+}
+
+/// The overlay that last had the keys.
+static FOCUSED: Mutex<Option<String>> = Mutex::new(None);
+
+/// Overlay `label` has the keys.
+pub fn focused(label: &str) {
+    *FOCUSED.lock().unwrap() = Some(label.to_string());
+}
+
+/// While picking, the keys back to the overlay that last had them: clicking the camera's bubble
+/// takes them (its webview takes the focus, though the window won't).
+pub fn refocus(app: &AppHandle) {
+    if PICKING.lock().unwrap().is_none() {
+        return;
+    }
+    let label = FOCUSED.lock().unwrap().clone();
+    if let Some(w) = label.and_then(|l| app.get_webview_window(&l)) {
+        let _ = w.set_focus();
+    }
 }
 
 /// A selection started on overlay `index`: the others drop theirs.
@@ -250,14 +332,19 @@ pub fn picked(app: &AppHandle, index: u32, rect: Option<PickRect>) -> Result<(),
     let Some(p) = PICKING.lock().unwrap().take() else {
         return Ok(());
     };
-    // The camera's bubble stays: the recording has the camera.
-    crate::camera::hold(app);
-    close(app);
     let screen = p
         .screens
         .get(index as usize)
         .cloned()
         .ok_or("That monitor has gone.")?;
+    // The camera's bubble stays, in what's recorded's corner: the recording has the camera.
+    let area = match rect {
+        Some(r) => Area::on(&screen, r.x as i32, r.y as i32, r.width, r.height),
+        None => Area::of(&screen),
+    };
+    crate::camera::follow(app, index, area, false);
+    crate::camera::hold(app);
+    close(app);
     let target = Target::of(screen, rect.map(|r| (r.x, r.y, r.width, r.height)));
     crate::recording::start(app, p.add, target)
 }
@@ -276,13 +363,16 @@ pub fn picked_window(app: &AppHandle, index: u32) -> Result<(), String> {
     let Some(p) = PICKING.lock().unwrap().take() else {
         return Ok(());
     };
-    // The camera's bubble stays: the recording has the camera.
-    crate::camera::hold(app);
-    close(app);
     let window = *p
         .windows
         .get(index as usize)
         .ok_or("That window has gone.")?;
+    // The camera's bubble stays, in the window's corner: the recording has the camera.
+    if let Some(area) = window_area(&p, &window) {
+        crate::camera::follow(app, WINDOWS, area, false);
+    }
+    crate::camera::hold(app);
+    close(app);
     let r = window.rect;
     let (cx, cy) = (r.x + r.width / 2, r.y + r.height / 2);
     let screen = p

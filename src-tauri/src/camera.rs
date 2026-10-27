@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use specta::Type;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::export::{bitrate, Encoder};
 use crate::recording::Screen;
@@ -520,6 +520,158 @@ fn why_stopped(said: &str) -> String {
     }
 }
 
+/// An area of the virtual desktop (physical px) the bubble sits in the corner of, and the scale
+/// of its monitor.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Area {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub scale: f64,
+}
+
+impl Area {
+    /// All of `screen`.
+    pub fn of(screen: &Screen) -> Self {
+        Self::on(screen, 0, 0, screen.width, screen.height)
+    }
+
+    /// Of `screen`, from (`x`, `y`) in its own pixels.
+    pub fn on(screen: &Screen, x: i32, y: i32, width: u32, height: u32) -> Self {
+        Self {
+            x: screen.x + x,
+            y: screen.y + y,
+            width,
+            height,
+            scale: screen.scale,
+        }
+    }
+
+    /// Where the bubble's window goes in its bottom-right corner (its margin inside it).
+    fn corner(&self) -> (i32, i32) {
+        let side = ((BUBBLE_SIZE + BUBBLE_MARGIN) * self.scale).round() as i32;
+        (
+            self.x + self.width as i32 - side,
+            self.y + self.height as i32 - side,
+        )
+    }
+}
+
+/// While picking, the bubble follows what's picked into its corner (Richard), until it's dragged:
+/// the area it's in, and which overlay's selection put it there (another's clearing its own
+/// selection doesn't move it).
+struct Follow {
+    dragged: bool,
+    by: Option<u32>,
+    area: Option<Area>,
+}
+
+static FOLLOW: Mutex<Follow> = Mutex::new(Follow {
+    dragged: false,
+    by: None,
+    area: None,
+});
+
+/// Picking starts: the bubble follows again.
+pub fn unfollow() {
+    *FOLLOW.lock().unwrap() = Follow {
+        dragged: false,
+        by: None,
+        area: None,
+    };
+}
+
+/// A drag of the bubble: where the pointer and the bubble were when it was pressed.
+struct Grab {
+    pointer: (i32, i32),
+    at: (i32, i32),
+}
+
+static GRAB: Mutex<Option<Grab>> = Mutex::new(None);
+
+/// How far the pointer goes before a press on the bubble is a drag (physical px).
+const DRAG_START: i32 = 4;
+
+/// The pointer, on the virtual desktop (physical px).
+fn pointer() -> Option<(i32, i32)> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    let mut p = POINT::default();
+    // SAFETY: a valid out pointer.
+    unsafe { GetCursorPos(&mut p).ok()? };
+    Some((p.x, p.y))
+}
+
+/// The bubble's pressed: a drag may start. Rust moves it, not the system's window drag, which
+/// can't tell a click from a drag.
+pub fn grab(app: &AppHandle) {
+    let at = app
+        .get_webview_window(BUBBLE)
+        .and_then(|w| w.outer_position().ok());
+    *GRAB.lock().unwrap() = match (pointer(), at) {
+        (Some(pointer), Some(at)) => Some(Grab {
+            pointer,
+            at: (at.x, at.y),
+        }),
+        _ => None,
+    };
+}
+
+/// The pointer's moved with the bubble pressed: the bubble goes with it. Once it's gone a few
+/// pixels it's been put somewhere, and no longer follows what's picked; a click alone isn't.
+pub fn drag(app: &AppHandle) {
+    let (Some(g), Some(p)) = (
+        GRAB.lock().unwrap().as_ref().map(|g| (g.pointer, g.at)),
+        pointer(),
+    ) else {
+        return;
+    };
+    let ((x0, y0), (wx, wy)) = g;
+    let (dx, dy) = (p.0 - x0, p.1 - y0);
+    {
+        let mut f = FOLLOW.lock().unwrap();
+        if !f.dragged && dx.abs().max(dy.abs()) < DRAG_START {
+            return;
+        }
+        f.dragged = true;
+    }
+    if let Some(w) = app.get_webview_window(BUBBLE) {
+        let _ = w.set_position(tauri::PhysicalPosition::new(wx + dx, wy + dy));
+    }
+}
+
+/// The bubble's let go: the picker's overlay has the keys back (the click took them; given back
+/// while it was pressed, the drag could end).
+pub fn release(app: &AppHandle) {
+    *GRAB.lock().unwrap() = None;
+    crate::picker::refocus(app);
+}
+
+/// Overlay `by` (or the window picking) has `area` picked, `cleared` if that's its selection
+/// gone: the bubble goes into its corner, if it hasn't been dragged.
+pub fn follow(app: &AppHandle, by: u32, area: Area, cleared: bool) {
+    {
+        let mut f = FOLLOW.lock().unwrap();
+        if f.dragged || (cleared && f.by.is_some_and(|b| b != by)) {
+            return;
+        }
+        f.by = Some(by);
+        f.area = Some(area);
+    }
+    if let Some(window) = app.get_webview_window(BUBBLE) {
+        put_bubble(&window, area);
+    }
+}
+
+/// The bubble's window into `area`'s corner, its size kept on that monitor.
+fn put_bubble(window: &WebviewWindow, area: Area) {
+    let (x, y) = area.corner();
+    // Position first, then size: moving onto a monitor of another scale rescales the window.
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+    let _ = window.set_size(tauri::LogicalSize::new(BUBBLE_SIZE, BUBBLE_SIZE));
+}
+
 /// One `sync` at a time: two would make two bubbles.
 static SYNCING: Mutex<()> = Mutex::new(());
 
@@ -552,7 +704,8 @@ pub fn sync(app: &AppHandle) {
                 }
                 drop(feed);
                 if bubble.is_none() {
-                    open_bubble(&app, &screen);
+                    let area = FOLLOW.lock().unwrap().area;
+                    open_bubble(&app, area.unwrap_or_else(|| Area::of(&screen)));
                 }
             }
             _ => {
@@ -832,9 +985,9 @@ pub fn fitted(app: &AppHandle, file: &Path) {
     }
 }
 
-/// The bubble, in the bottom-right corner of `screen`: round, over everything (the picker's
+/// The bubble, in the bottom-right corner of `area`: round, over everything (the picker's
 /// overlays too), never taking the keys from them, and left out of the recording.
-fn open_bubble(app: &AppHandle, screen: &Screen) {
+fn open_bubble(app: &AppHandle, area: Area) {
     let built = WebviewWindowBuilder::new(app, BUBBLE, WebviewUrl::App("camera.html".into()))
         .title("Camera")
         .decorations(false)
@@ -851,14 +1004,25 @@ fn open_bubble(app: &AppHandle, screen: &Screen) {
     match built {
         Ok(window) => {
             crate::recording::exclude_from_capture(&window);
-            let side = ((BUBBLE_SIZE + BUBBLE_MARGIN) * screen.scale).round() as i32;
-            let x = screen.x + screen.width as i32 - side;
-            let y = screen.y + screen.height as i32 - side;
-            let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-            let _ = window.set_size(tauri::LogicalSize::new(BUBBLE_SIZE, BUBBLE_SIZE));
-            let _ = window.show();
+            put_bubble(&window, area);
+            show_quietly(&window);
         }
         Err(e) => logln!("[camera] the bubble failed: {e}"),
+    }
+}
+
+/// Shows `window` without making it active: shown as usual, the bubble took the focus from the
+/// picker's overlay, whose shortcuts went with it.
+fn show_quietly(window: &WebviewWindow) {
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
+    match window.hwnd() {
+        // SAFETY: a valid window handle.
+        Ok(hwnd) => {
+            let _ = unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE) };
+        }
+        Err(_) => {
+            let _ = window.show();
+        }
     }
 }
 
@@ -887,6 +1051,23 @@ pub fn raise(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bubble_goes_in_the_corner_of_whats_picked() {
+        let screen = Screen {
+            hmonitor: 0,
+            x: -1920,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            scale: 1.5,
+        };
+        // (200 + 32) × 1.5 = 348 px from the corner, inside it.
+        assert_eq!(Area::of(&screen).corner(), (-348, 732));
+        let picked = Area::on(&screen, 100, 50, 800, 600);
+        assert_eq!((picked.x, picked.y), (-1820, 50));
+        assert_eq!(picked.corner(), (-1820 + 800 - 348, 50 + 600 - 348));
+    }
 
     const DEVICES: &str = r#"[in#0 @ 0000019d3eb32200] "Logitech StreamCam" (video)
 [in#0 @ 0000019d3eb32200]   Alternative name "@device_pnp_\\?\usb#vid_046d&pid_0893&mi_00#7&1935c54e&1&0000#{65e8773d-8f56-11d0-a3b9-00a0c9223196}\global"

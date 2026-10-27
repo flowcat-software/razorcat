@@ -126,6 +126,14 @@ export function PickerApp() {
     };
   }, []);
 
+  // The camera's bubble follows the selection into its corner (camera.rs), until it's dragged.
+  const followed = useRef(false);
+  useEffect(() => {
+    if (!selection && !followed.current) return;
+    followed.current = true;
+    void commands.pickSelection(index, selection);
+  }, [selection]);
+
   const record = useCallback((rect: Rect | null) => {
     void commands.pickArea(index, rect).then((r) => {
       if (r.status === "error") console.error("[picker]", r.error);

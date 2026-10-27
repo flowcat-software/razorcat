@@ -1,8 +1,9 @@
 // The camera's bubble (PLAN 5d.2; camera.rs): the camera, round, over what's being picked, left
-// out of the recording. Dragged anywhere. Its pictures are ffmpeg's preview, read one after
+// out of the recording. In the corner of what's picked until it's dragged; then where it's
+// put. Its pictures are ffmpeg's preview, read one after
 // another from the media protocol (the camera opens to one program, and ffmpeg has it); if the
 // camera stops, it says why.
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { commands } from "../shared/ipc";
 import "./camera.css";
 
 const CAMERA = "http://media.localhost/bubble";
@@ -16,9 +17,23 @@ bubble.append(canvas, note);
 document.body.append(bubble);
 const context = canvas.getContext("2d");
 
-bubble.addEventListener("mousedown", (e) => {
-  if (e.button === 0) void getCurrentWindow().startDragging();
+// Dragged by Rust, which moves the window with the pointer: dragged, not just clicked, it stays
+// where it's put. Let go, the picker's overlay has the keys back (the click took them).
+bubble.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0) return;
+  bubble.setPointerCapture(e.pointerId);
+  void commands.cameraDrag("down");
 });
+bubble.addEventListener("pointermove", (e) => {
+  if (bubble.hasPointerCapture(e.pointerId)) void commands.cameraDrag("move");
+});
+const release = (e: PointerEvent) => {
+  if (!bubble.hasPointerCapture(e.pointerId)) return;
+  bubble.releasePointerCapture(e.pointerId);
+  void commands.cameraDrag("up");
+};
+bubble.addEventListener("pointerup", release);
+bubble.addEventListener("pointercancel", release);
 
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
