@@ -931,12 +931,23 @@ fn file_name(dir: &std::path::Path, template: &str) -> String {
     name
 }
 
-/// The video's filters: the capture (`target`, the pointer or not, at most `fps`), stamped by
-/// the wall clock from `clock` when there's sound, made a steady `fps` from 0, and converted for
-/// the encoder (`pixels`).
+/// The video's filters: the capture (`target`, the pointer or not, at most `fps`), stamped on the
+/// wall clock from `clock` (µs since 1970), made a steady `fps` from 0, and converted for the
+/// encoder (`pixels`).
+///
+/// Each frame is stamped by when it was captured (the capture's own stamp, from Windows: its
+/// first frame is 0), moved onto the wall clock by where that first frame falls on it. That's
+/// each frame's `RTCTIME` (when the filter has it) less its capture stamp, at its least so far
+/// (`st`/`ld` keep it from frame to frame): a frame held up before it's taken (ffmpeg waiting on
+/// the sound) only says it later. `RTCTIME` alone stamped such frames late: up to ±60 ms off, a
+/// camera recorded with it showed (PLAN 5d.3).
 fn video_source(target: &Target, video: Video, stamp: Option<i64>, pixels: &str) -> String {
     let stamp = stamp.map_or(String::new(), |us| {
-        format!("setpts=(RTCTIME-{us})/1000000/TB,")
+        let captured = "PTS*TB*1000000";
+        let start = format!("RTCTIME-{captured}");
+        format!(
+            "setpts='({captured}+st(0,if(eq(N,0),{start},min(ld(0),{start})))-{us})/1000000/TB',"
+        )
     });
     let (fps, cursor) = (video.fps, u8::from(video.cursor));
     format!(
@@ -1659,7 +1670,11 @@ mod tests {
             Some(1234),
             "nv12",
         );
-        assert!(v.contains(":capture_cursor=1,setpts=(RTCTIME-1234)/1000000/TB,hwdownload"));
+        // Stamped by when each frame was captured, on the wall clock.
+        assert!(v.contains(
+            ":capture_cursor=1,setpts='(PTS*TB*1000000+st(0,if(eq(N,0),RTCTIME-PTS*TB*1000000,\
+             min(ld(0),RTCTIME-PTS*TB*1000000)))-1234)/1000000/TB',hwdownload"
+        ));
     }
 
     #[test]
