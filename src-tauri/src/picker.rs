@@ -47,6 +47,8 @@ pub struct PickLoad {
     /// toggles).
     pub microphone: bool,
     pub system_sound: bool,
+    /// Clicks are highlighted (Settings › Recording; the bar's toggle and the control's).
+    pub clicks: bool,
 }
 
 /// An area of a monitor, in its own physical pixels.
@@ -203,6 +205,7 @@ pub fn load(app: &AppHandle, index: u32) -> Option<PickLoad> {
         windows: p.windows.iter().map(|w| w.rect).collect(),
         microphone: sound.microphone,
         system_sound: sound.system_sound,
+        clicks: sound.clicks,
     })
 }
 

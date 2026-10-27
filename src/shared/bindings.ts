@@ -136,12 +136,14 @@ export const commands = {
 	 */
 	microphone: boolean,
 	systemSound: boolean,
+	/**  Clicks are highlighted (Settings › Recording; the bar's toggle and the control's). */
+	clicks: boolean,
 } | null>("pick_load", { index }),
 	/**
-	 *  The Record bar's microphone and system sound toggles (Settings › Recording's too): each as
-	 *  given, or as it is.
+	 *  The Record bar's microphone, system sound and clicks toggles (Settings › Recording's too):
+	 *  each as given, or as it is.
 	 */
-	setRecordSound: (microphone: boolean | null, system: boolean | null) => typedError<null, string>(__TAURI_INVOKE("set_record_sound", { microphone, system })),
+	setRecordSound: (microphone: boolean | null, system: boolean | null, clicks: boolean | null) => typedError<null, string>(__TAURI_INVOKE("set_record_sound", { microphone, system, clicks })),
 	/**  The control's microphone button: muted or not. */
 	muteRecording: (muted: boolean) => __TAURI_INVOKE<void>("mute_recording", { muted }),
 	/**  The control's Pause: pauses the recording, or resumes it. */
@@ -632,6 +634,8 @@ export type PickLoad = {
 	 */
 	microphone: boolean,
 	systemSound: boolean,
+	/**  Clicks are highlighted (Settings › Recording; the bar's toggle and the control's). */
+	clicks: boolean,
 };
 
 /**  An area of a monitor, in its own physical pixels. */

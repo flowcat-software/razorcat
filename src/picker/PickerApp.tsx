@@ -70,6 +70,8 @@ export function PickerApp() {
   const pressedWindow = useRef<number | null>(null);
   const [mic, setMic] = useState(false);
   const [system, setSystem] = useState(false);
+  /** Clicks highlighted (Settings › Recording; the control's button while recording). */
+  const [clicks, setClicks] = useState(false);
 
   // The window is sized to its monitor after it's made: follow it.
   useEffect(() => {
@@ -99,12 +101,14 @@ export function PickerApp() {
     const settings = events.settingsChanged.listen(({ payload }) => {
       setMic(!!payload.recording?.microphone);
       setSystem(!!payload.recording?.systemSound);
+      setClicks(!!payload.recording?.clicks);
     });
     void commands.pickLoad(index).then((l) => {
       setLoad(l);
       if (l) {
         setMic(l.microphone);
         setSystem(l.systemSound);
+        setClicks(l.clicks);
       }
     });
     return () => {
@@ -125,13 +129,19 @@ export function PickerApp() {
   const cancel = useCallback(() => void commands.pickCancel(), []);
   const toggleMic = useCallback(() => {
     setMic((on) => {
-      void commands.setRecordSound(!on, null);
+      void commands.setRecordSound(!on, null, null);
       return !on;
     });
   }, []);
   const toggleSystem = useCallback(() => {
     setSystem((on) => {
-      void commands.setRecordSound(null, !on);
+      void commands.setRecordSound(null, !on, null);
+      return !on;
+    });
+  }, []);
+  const toggleClicks = useCallback(() => {
+    setClicks((on) => {
+      void commands.setRecordSound(null, null, !on);
       return !on;
     });
   }, []);
@@ -160,6 +170,7 @@ export function PickerApp() {
       const plainW = plain && e.code === "KeyW";
       if (plain && e.code === "KeyM") return toggleMic();
       if (plain && e.code === "KeyS") return toggleSystem();
+      if (plain && e.code === "KeyC") return toggleClicks();
       if (picking) {
         // Esc / W go back to selecting an area; Enter records the window lit.
         if (e.key === "Escape" || plainW) return setWindowPick(false, null);
@@ -214,6 +225,7 @@ export function PickerApp() {
     pickWindow,
     toggleMic,
     toggleSystem,
+    toggleClicks,
   ]);
 
   const toLocal = (e: PointerEvent): Point =>
@@ -418,6 +430,16 @@ export function PickerApp() {
           >
             <SpeakerIcon on={system} />
           </button>
+          <button
+            type="button"
+            className={styles.mic}
+            aria-pressed={clicks}
+            title={clicks ? "Highlighting clicks (C)" : "Not highlighting clicks (C)"}
+            aria-label="Highlight clicks in video"
+            onClick={toggleClicks}
+          >
+            <MouseIcon on={clicks} />
+          </button>
           <button type="button" className={styles.record} onClick={() => record(selection)}>
             <span className={styles.dot} aria-hidden />
             Record
@@ -431,6 +453,7 @@ export function PickerApp() {
         <HintBar
           mic={mic}
           system={system}
+          clicks={clicks}
           picking={picking}
           hasSelection={!!selection}
           atBottom={!!selection && css(selection.y) < 72}
@@ -451,12 +474,14 @@ function screenSize(): Size {
 function HintBar({
   mic,
   system,
+  clicks,
   picking,
   hasSelection,
   atBottom,
 }: {
   mic: boolean;
   system: boolean;
+  clicks: boolean;
   picking: boolean;
   hasSelection: boolean;
   atBottom: boolean;
@@ -470,6 +495,7 @@ function HintBar({
           <Hint keys={["F"]} label="this screen" />
           <Hint keys={["M"]} label={mic ? "mic on" : "mic off"} />
           <Hint keys={["S"]} label={system ? "sound on" : "sound off"} />
+          <Hint keys={["C"]} label={clicks ? "clicks on" : "clicks off"} />
           <Hint keys={["Esc"]} label="back" />
         </>
       ) : hasSelection ? (
@@ -481,6 +507,7 @@ function HintBar({
           <Hint keys={["Ctrl", "←↑↓→"]} label="resize" />
           <Hint keys={["M"]} label={mic ? "mic on" : "mic off"} />
           <Hint keys={["S"]} label={system ? "sound on" : "sound off"} />
+          <Hint keys={["C"]} label={clicks ? "clicks on" : "clicks off"} />
           <Hint keys={["Esc"]} label="cancel" />
         </>
       ) : (
@@ -491,6 +518,7 @@ function HintBar({
           <Hint keys={["F"]} label="this screen" />
           <Hint keys={["M"]} label={mic ? "mic on" : "mic off"} />
           <Hint keys={["S"]} label={system ? "sound on" : "sound off"} />
+          <Hint keys={["C"]} label={clicks ? "clicks on" : "clicks off"} />
           <Hint keys={["Esc"]} label="cancel" />
         </>
       )}
@@ -515,6 +543,16 @@ function MicIcon({ on }: { on: boolean }) {
     <Struck off={!on}>
       <rect x="9" y="3" width="6" height="11" rx="3" />
       <path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" fill="none" />
+    </Struck>
+  );
+}
+
+/** A mouse, upright (as the control's: the slash crosses it); off, struck through. */
+function MouseIcon({ on }: { on: boolean }) {
+  return (
+    <Struck off={!on}>
+      <rect x="6.5" y="3" width="11" height="18" rx="5.5" fill="none" />
+      <path d="M12 3v6.5" fill="none" />
     </Struck>
   );
 }
