@@ -164,6 +164,7 @@ export const commands = {
 	/**  The clicks and keys noted while the file at `path` was recorded, once (PLAN 5b.6b). */
 	takeRecordedInput: (path: string) => __TAURI_INVOKE<{
 	clicks: RecordedClick[],
+	camera: RecordedCamera | null,
 } | null>("take_recorded_input", { path }),
 	/**  The microphones connected now, and which is the default (Settings › Recording). */
 	microphones: () => __TAURI_INVOKE<Microphones>("microphones"),
@@ -747,6 +748,17 @@ export type ProxyStopped = {
 /**  Rust → the editor: the tray's Record (the editor's own Record, its questions and all). */
 export type RecordAsked = null;
 
+/**
+ *  The camera recorded with it (PLAN 5d.3): its file (once fitted to the recording, after it
+ *  opens), and where the bubble was left: its top-left and across on the picture (px).
+ */
+export type RecordedCamera = {
+	file: string,
+	x: number | null,
+	y: number | null,
+	size: number | null,
+};
+
 /**  A click where it lands on the recorded picture, and when (s). */
 export type RecordedClick = {
 	time: number | null,
@@ -756,9 +768,10 @@ export type RecordedClick = {
 	double: boolean,
 };
 
-/**  The clicks of a recording, on its picture and its time. */
+/**  The clicks of a recording, on its picture and its time, and its camera. */
 export type RecordedInput = {
 	clicks: RecordedClick[],
+	camera: RecordedCamera | null,
 };
 
 /**  Settings › Recording (PLAN 5b). */

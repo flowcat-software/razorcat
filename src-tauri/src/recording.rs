@@ -75,6 +75,11 @@ struct Running {
     /// where a press falls in the joined recording.
     parts: Vec<PathBuf>,
     spans: Vec<(i64, i64)>,
+    /// When each segment's picture starts (µs since 1970, its frame 0): the camera's fitted to
+    /// these (camera.rs).
+    starts: Vec<i64>,
+    /// The camera's being recorded (PLAN 5d.3), into `{base}.camera.mkv`.
+    camera: bool,
     /// Clicks being noted (PLAN 5b.6), once they're on.
     input: Option<input::Watch>,
     clicks: bool,
@@ -269,10 +274,21 @@ pub struct RecordedClick {
     pub double: bool,
 }
 
-/// The clicks of a recording, on its picture and its time.
+/// The camera recorded with it (PLAN 5d.3): its file (once fitted to the recording, after it
+/// opens), and where the bubble was left: its top-left and across on the picture (px).
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+pub struct RecordedCamera {
+    pub file: String,
+    pub x: f64,
+    pub y: f64,
+    pub size: f64,
+}
+
+/// The clicks of a recording, on its picture and its time, and its camera.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 pub struct RecordedInput {
     pub clicks: Vec<RecordedClick>,
+    pub camera: Option<RecordedCamera>,
 }
 
 /// Recordings' clicks, by file, until the editor opening it takes them (in memory only).
@@ -658,7 +674,7 @@ impl Target {
 
     /// Where it is on its monitor, in the monitor's physical pixels (the countdown's place): the
     /// area, the window (as picked), or all of it.
-    fn on_screen(&self) -> (i32, i32, u32, u32) {
+    pub fn on_screen(&self) -> (i32, i32, u32, u32) {
         let s = &self.screen;
         match (self.area, self.window, self.at) {
             (Some((x, y, w, h)), _, _) => (x as i32, y as i32, w, h),
@@ -668,7 +684,7 @@ impl Target {
     }
 
     /// The picture's size.
-    fn size(&self) -> (u32, u32) {
+    pub fn size(&self) -> (u32, u32) {
         match (self.window, self.area) {
             (Some((_, w, h)), _) => (w & !1, h & !1),
             (None, Some((_, _, w, h))) => (w, h),
@@ -730,6 +746,7 @@ pub fn start(app: &AppHandle, add: bool, target: Target) -> Result<(), String> {
             // Cancelled in the countdown: nothing recorded, nothing to say.
             Ok(false) => {
                 EARLY.lock().unwrap().take();
+                drop_camera(&app);
                 logln!("[recording] cancelled in the countdown");
                 close_control(&app);
                 show_editor(&app);
@@ -741,6 +758,7 @@ pub fn start(app: &AppHandle, add: bool, target: Target) -> Result<(), String> {
             }
             Err(message) => {
                 EARLY.lock().unwrap().take();
+                drop_camera(&app);
                 logln!("[recording] couldn't start: {message}");
                 close_control(&app);
                 show_editor(&app);
@@ -805,6 +823,16 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
         clicks: settings.clicks,
     });
     open_control(app, &target.screen, mic, system, count, settings.clicks);
+    let mut warning = None;
+    // The camera from now, so it's going when the screen starts (it takes a moment to open);
+    // fitted to the recording when it's done.
+    let camera = crate::camera::held()
+        && match encoders(app).first() {
+            Some(&encoder) => crate::camera::record(app, camera_take(&base), encoder)
+                .inspect_err(|e| warning = Some(format!("Recorded without the camera: {e}.")))
+                .is_ok(),
+            None => false,
+        };
     if count > 0 {
         open_countdown(app, target, count);
         let until = Instant::now() + Duration::from_secs(u64::from(count));
@@ -837,7 +865,6 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
     let (w, h) = target.size();
     let video = video(app);
     let mut why = String::from("no encoder worked");
-    let mut warning = None;
     for encoder in encoders(app) {
         loop {
             let part = segment_path(&base, 0);
@@ -865,6 +892,8 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
                         seg: Some(seg),
                         parts: Vec::new(),
                         spans: Vec::new(),
+                        starts: Vec::new(),
+                        camera,
                         input: noting.take(),
                         clicks: false,
                         base,
@@ -1135,10 +1164,12 @@ pub fn pause(app: &AppHandle) {
         };
         if let Some(seg) = r.seg.take() {
             drop(now);
+            let start = seg.clock.unix_us;
             let done = end_segment(seg, false);
             if let (Some(r), Some((part, span))) = (NOW.lock().unwrap().as_mut(), done) {
                 r.parts.push(part);
                 r.spans.push(span);
+                r.starts.push(start);
             }
             logln!("[recording] paused");
             let _ = RecordingPaused(true).emit_to(&app, RECORDER);
@@ -1200,7 +1231,10 @@ pub fn stop(app: &AppHandle) {
 fn finish(app: &AppHandle, mut r: Running, ended: bool) {
     close_control(app);
     hold_keys(app, false, false, false);
+    // Where the bubble was left, before it goes.
+    let circle = crate::camera::bubble_circle(app);
     if let Some(seg) = r.seg.take() {
+        let start = seg.clock.unix_us;
         let done = end_segment(seg, ended);
         if ended && done.is_some() && !r.parts.is_empty() {
             r.warning = Some("The recording stopped on its own: what was recorded is kept.".into());
@@ -1208,11 +1242,20 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
         if let Some((part, span)) = done {
             r.parts.push(part);
             r.spans.push(span);
+            r.starts.push(start);
         }
     }
+    let take = crate::camera::stop_recording(app).filter(|_| r.camera);
+    // Each part's length, read before they're joined, for the camera.
+    let fps = f64::from(r.video.fps);
+    let lengths: Vec<f64> = r
+        .parts
+        .iter()
+        .map(|p| crate::media::mp4::read(p).map_or(0.0, |i| i.video.len() as f64 / fps))
+        .collect();
     // The clicks, on the recording (5b.6b makes markup of them).
     let presses = r.input.take().map(input::Watch::stop).unwrap_or_default();
-    let noted = recorded(presses, &r.spans, &r.target);
+    let mut noted = recorded(presses, &r.spans, &r.target);
     if !noted.clicks.is_empty() {
         logln!("[recording] {} clicks noted", noted.clicks.len());
     }
@@ -1237,7 +1280,25 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
                 message: r.warning.take(),
             }
             .emit_to(app, LABEL);
-            if !noted.clicks.is_empty() {
+            if let Some(take) = take {
+                let file = camera_file(&r.file);
+                let parts: Vec<(i64, f64)> = r.starts.iter().copied().zip(lengths).collect();
+                let (x, y, _, _) = r.target.on_screen();
+                let s = &r.target.screen;
+                let origin = (f64::from(s.x + x), f64::from(s.y + y));
+                let (w, h) = r.target.size();
+                let (x, y, size) = circle.map_or((0.0, 0.0, 0.0), |c| {
+                    crate::camera::on_picture(c, origin, (f64::from(w), f64::from(h)))
+                });
+                noted.camera = Some(RecordedCamera {
+                    file: file.to_string_lossy().into_owned(),
+                    x,
+                    y,
+                    size,
+                });
+                fit_camera(take, parts, r.encoder, file);
+            }
+            if !noted.clicks.is_empty() || noted.camera.is_some() {
                 NOTED.lock().unwrap().push((r.file.clone(), noted));
             }
             crate::editor::request_open(app, r.file, r.add);
@@ -1250,6 +1311,45 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
             }
             .emit_to(app, LABEL);
         }
+    }
+}
+
+/// Where the camera's recorded while recording to `base`.
+fn camera_take(base: &std::path::Path) -> PathBuf {
+    let mut name = base.as_os_str().to_owned();
+    name.push(".camera.mkv");
+    PathBuf::from(name)
+}
+
+/// The camera's file beside the recording `file`: "Recording 2026-10-27 10-00-00 (camera).mp4".
+fn camera_file(file: &std::path::Path) -> PathBuf {
+    let stem = file.file_stem().unwrap_or_default().to_string_lossy();
+    file.with_file_name(format!("{stem} (camera).mp4"))
+}
+
+/// Fits the camera's take to the recording's `parts` (each's start and length), into `file`, in
+/// the background: the recording opens meanwhile. If it fails, the take is kept.
+fn fit_camera(take: crate::camera::Take, parts: Vec<(i64, f64)>, encoder: Encoder, file: PathBuf) {
+    std::thread::spawn(move || {
+        let t0 = Instant::now();
+        match crate::camera::fit(&take, &parts, encoder, &file) {
+            Ok(()) => logln!(
+                "[recording] the camera fitted in {:.1} s: {}",
+                t0.elapsed().as_secs_f64(),
+                file.display()
+            ),
+            Err(e) => logln!(
+                "[recording] the camera couldn't be fitted ({} is kept): {e}",
+                take.path.display()
+            ),
+        }
+    });
+}
+
+/// A recording that didn't start: the camera's stopped, and anything it took deleted.
+fn drop_camera(app: &AppHandle) {
+    if let Some(take) = crate::camera::stop_recording(app) {
+        let _ = std::fs::remove_file(take.path);
     }
 }
 

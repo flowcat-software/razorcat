@@ -56,6 +56,7 @@ describe("onFrame", () => {
 describe("withRecordedClicks", () => {
   const input: RecordedInput = {
     clicks: [click(1, 100, 50), click(2.5, 300, 200, "right")],
+    camera: null,
   };
 
   it("marks each click where and when it was, a moment long, fading out", () => {
@@ -80,7 +81,7 @@ describe("withRecordedClicks", () => {
     const after = withRecordedClicks(
       doc,
       2,
-      { clicks: [click(1, 10, 10), click(5, 10, 10)] },
+      { clicks: [click(1, 10, 10), click(5, 10, 10)], camera: null },
       30,
       { width: 1920, height: 1080 },
       look,
@@ -98,7 +99,10 @@ describe("withRecordedClicks", () => {
 
 describe("withRecordedClicks, as Settings › Recording says", () => {
   it("leaves out a double-click's second ring when they're not shown, and fades in", () => {
-    const input: RecordedInput = { clicks: [{ ...click(1, 10, 10), double: true }] };
+    const input: RecordedInput = {
+      clicks: [{ ...click(1, 10, 10), double: true }],
+      camera: null,
+    };
     const doc = withRecordedClicks(
       wholeSource(300, { width: 1920, height: 1080 }),
       1,

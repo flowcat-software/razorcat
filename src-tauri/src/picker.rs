@@ -250,6 +250,8 @@ pub fn picked(app: &AppHandle, index: u32, rect: Option<PickRect>) -> Result<(),
     let Some(p) = PICKING.lock().unwrap().take() else {
         return Ok(());
     };
+    // The camera's bubble stays: the recording has the camera.
+    crate::camera::hold(app);
     close(app);
     let screen = p
         .screens
@@ -274,6 +276,8 @@ pub fn picked_window(app: &AppHandle, index: u32) -> Result<(), String> {
     let Some(p) = PICKING.lock().unwrap().take() else {
         return Ok(());
     };
+    // The camera's bubble stays: the recording has the camera.
+    crate::camera::hold(app);
     close(app);
     let window = *p
         .windows

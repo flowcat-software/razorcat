@@ -4,17 +4,24 @@
 //!
 //! A camera opens to one program at a time (spike 5d.1), so the page never opens it: ffmpeg
 //! does, and sends a small preview (JPEGs on its stdout), which the bubble reads from
-//! `media://camera/{after}` (protocol.rs). Recording it (5d.3) will tee the same feed.
+//! `media://camera/{after}` (protocol.rs). While recording (5d.3), the same ffmpeg records the
+//! camera too, each frame stamped by the wall clock as the screen's are; at Stop, its file is
+//! fitted to the recording (`fit`): its delay taken off, the pauses cut as the screen's were, a
+//! steady 30 fps from the recording's first frame. So the camera's time is the recording's.
 
-use std::io::Read;
-use std::process::{Child, Stdio};
+use std::ffi::OsString;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Child, ChildStdin, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use specta::Type;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
+use crate::export::{bitrate, Encoder};
 use crate::recording::Screen;
 use crate::sidecar::{self, Tool};
 
@@ -22,12 +29,19 @@ pub const BUBBLE: &str = "camera";
 /// The bubble's window, CSS px square, and its gap from the monitor's corner.
 const BUBBLE_SIZE: f64 = 200.0;
 const BUBBLE_MARGIN: f64 = 32.0;
+/// The circle's gap from the window's edge, CSS px (camera.css: room for its shadow).
+const BUBBLE_INSET: f64 = 8.0;
 /// The preview: a square this many pixels across, at this rate.
 const PREVIEW_SIDE: u32 = 320;
 const PREVIEW_FPS: u32 = 15;
 /// The tallest picture a camera is opened at, and the rate wanted.
 const MAX_HEIGHT: u32 = 1080;
 const FPS: f64 = 30.0;
+/// How far the camera's frames trail what they show (spike 5d.1: 70 to 90 ms behind the
+/// screen's), taken off its stamps to line it up.
+const DELAY: f64 = 0.08;
+/// How long a recording's ffmpeg has to finish its file once asked.
+const FINISHING: Duration = Duration::from_secs(10);
 
 /// A camera connected: its name, as Windows shows it (what Settings keeps), and DirectShow's
 /// name for its device, which ffmpeg opens.
@@ -237,8 +251,31 @@ static FRAMES: Mutex<Frames> = Mutex::new(Frames {
 });
 static NEW_FRAME: Condvar = Condvar::new();
 
-/// The preview's ffmpeg, and the camera it has.
-static PREVIEW: Mutex<Option<(Child, String)>> = Mutex::new(None);
+/// The camera's ffmpeg: the camera it has (as Settings names it), its input (`q` ends a
+/// recording cleanly), and what it records, if it does.
+struct Feed {
+    child: Child,
+    name: String,
+    stdin: Option<ChildStdin>,
+    take: Option<Take>,
+}
+
+static FEED: Mutex<Option<Feed>> = Mutex::new(None);
+
+/// A recording with the camera is starting or under way: it has the camera, and the bubble
+/// stays up.
+static TAKING: AtomicBool = AtomicBool::new(false);
+
+/// The camera as recorded (5d.3): its file (Matroska, which keeps the stamps as they come), the
+/// moment its stamps count from (µs since 1970, the wall clock the screen is stamped by), and
+/// its picture's size.
+#[derive(Debug, Clone)]
+pub struct Take {
+    pub path: PathBuf,
+    pub origin_us: i64,
+    pub width: u32,
+    pub height: u32,
+}
 
 /// What `next_frame` found.
 pub enum Next {
@@ -276,16 +313,64 @@ fn ended(preview: u64, why: String) {
     }
 }
 
-/// Starts the preview of the camera named `name` (empty: the first), unless it's running.
-fn start_preview(name: &str) {
-    let mut preview = PREVIEW.lock().unwrap();
-    if preview.as_ref().is_some_and(|(_, n)| n == name) {
-        return;
-    }
-    if let Some((mut child, _)) = preview.take() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
+/// The preview's filters: a square from the middle, small and slow.
+fn preview_filter() -> String {
+    let side = PREVIEW_SIDE;
+    format!("fps={PREVIEW_FPS},crop='min(iw,ih)':'min(iw,ih)',scale={side}:{side}")
+}
+
+/// What the feed also records: to `path` (Matroska), its stamps counted from `origin_us`, with
+/// `encoder` at `bitrate`.
+struct Recorded<'a> {
+    path: &'a Path,
+    origin_us: i64,
+    encoder: Encoder,
+    bitrate: u64,
+}
+
+/// ffmpeg's arguments for the feed of `input`: the preview on stdout, JPEG after JPEG; and if it
+/// records, the camera too, each frame stamped by the wall clock as it comes (as the spike
+/// measured the delay by), from `origin_us`.
+fn feed_args(input: &[String], record: Option<&Recorded>) -> Vec<OsString> {
+    let mut a: Vec<OsString> = ["-hide_banner", "-loglevel", "error"]
+        .map(OsString::from)
+        .into();
+    let preview = preview_filter();
+    let jpegs = ["-c:v", "mjpeg", "-q:v", "6", "-f", "image2pipe", "pipe:1"];
+    let Some(r) = record else {
+        a.extend(input.iter().map(OsString::from));
+        a.extend(["-vf".into(), preview.into()]);
+        a.extend(jpegs.map(OsString::from));
+        return a;
+    };
+    a.extend(["-use_wallclock_as_timestamps", "1"].map(OsString::from));
+    a.extend(input.iter().map(OsString::from));
+    let origin = r.origin_us as f64 / 1e6;
+    let pixels = r.encoder.pixels();
+    a.extend(["-copyts".into(), "-filter_complex".into()]);
+    a.push(
+        format!(
+            "[0:v]setpts=PTS-{origin:.6}/TB,split=2[rec][pv];[rec]format={pixels}[out];[pv]{preview}[pvo]"
+        )
+        .into(),
+    );
+    a.extend(["-map", "[out]", "-fps_mode", "passthrough"].map(OsString::from));
+    a.extend(r.encoder.args(r.bitrate).into_iter().map(OsString::from));
+    a.extend(["-f", "matroska"].map(OsString::from));
+    a.push(r.path.as_os_str().to_owned());
+    a.extend(["-map", "[pvo]"].map(OsString::from));
+    a.extend(jpegs.map(OsString::from));
+    a
+}
+
+/// Starts the camera named `name` (empty: the first), previewing, and recording to `record`'s
+/// file with its encoder if asked (`feed` is ended first). Why if it couldn't.
+fn start_feed(
+    feed: &mut Option<Feed>,
+    name: &str,
+    record: Option<(PathBuf, Encoder)>,
+) -> Result<(), String> {
+    end_feed(feed.take());
     let this = {
         let mut f = FRAMES.lock().unwrap();
         f.preview += 1;
@@ -293,42 +378,60 @@ fn start_preview(name: &str) {
         f.ended = None;
         f.preview
     };
+    let fail = |why: String| {
+        ended(this, why.clone());
+        Err(why)
+    };
     let camera = match chosen(name) {
         Ok(c) => c,
-        Err(e) => return ended(this, e),
+        Err(e) => return fail(e),
     };
     let mode = mode_of(&camera);
     logln!("[camera] {} at {:?}", camera.name, mode);
-    let mut args: Vec<String> = ["-hide_banner", "-loglevel", "error"]
-        .map(String::from)
-        .into();
-    args.extend(input_args(&camera, mode.as_ref()));
-    let side = PREVIEW_SIDE;
-    args.extend([
-        "-vf".into(),
-        format!("fps={PREVIEW_FPS},crop='min(iw,ih)':'min(iw,ih)',scale={side}:{side}"),
-        "-c:v".into(),
-        "mjpeg".into(),
-        "-q:v".into(),
-        "6".into(),
-        "-f".into(),
-        "image2pipe".into(),
-        "pipe:1".into(),
-    ]);
+    let (width, height) = mode
+        .as_ref()
+        .map_or((1920, 1080), |(m, _)| (m.width, m.height));
+    let take = record.as_ref().map(|(path, _)| Take {
+        path: path.clone(),
+        origin_us: crate::audio::Clock::now().unix_us,
+        width,
+        height,
+    });
+    let recorded = match (&record, &take) {
+        (Some((_, encoder)), Some(t)) => Some(Recorded {
+            path: &t.path,
+            origin_us: t.origin_us,
+            encoder: *encoder,
+            // Twice the usual: it's encoded again when fitted to the recording.
+            bitrate: 2 * bitrate(width, height, FPS),
+        }),
+        _ => None,
+    };
+    let args = feed_args(&input_args(&camera, mode.as_ref()), recorded.as_ref());
     let spawned = sidecar::command(Tool::Ffmpeg).and_then(|mut c| {
         c.args(&args)
-            .stdin(Stdio::null())
+            .stdin(if take.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         sidecar::spawn(&mut c).map_err(|e| e.to_string())
     });
     let mut child = match spawned {
         Ok(c) => c,
-        Err(e) => return ended(this, format!("The camera didn't start: {e}")),
+        Err(e) => return fail(format!("The camera didn't start: {e}")),
     };
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
-    *preview = Some((child, name.to_string()));
+    let stdin = child.stdin.take();
+    *feed = Some(Feed {
+        child,
+        name: name.to_string(),
+        stdin,
+        take,
+    });
     std::thread::spawn(move || {
         let said = std::thread::spawn(move || {
             let mut text = String::new();
@@ -346,6 +449,34 @@ fn start_preview(name: &str) {
         }
         ended(this, why_stopped(&said));
     });
+    Ok(())
+}
+
+/// Ends `feed`: a recording asked to finish (`q`), so its file is whole; else stopped.
+fn end_feed(feed: Option<Feed>) -> Option<Take> {
+    let mut f = feed?;
+    let Some(take) = f.take.take() else {
+        let _ = f.child.kill();
+        let _ = f.child.wait();
+        return None;
+    };
+    if let Some(mut stdin) = f.stdin.take() {
+        let _ = stdin.write_all(b"q");
+    }
+    let t0 = Instant::now();
+    loop {
+        match f.child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if t0.elapsed() < FINISHING => std::thread::sleep(Duration::from_millis(50)),
+            _ => {
+                let _ = f.child.kill();
+                let _ = f.child.wait();
+                break;
+            }
+        }
+    }
+    let whole = std::fs::metadata(&take.path).is_ok_and(|m| m.len() > 0);
+    whole.then_some(take)
 }
 
 /// Each JPEG on preview `preview`'s stdout (each ends FF D9, which can't occur inside one) as
@@ -389,23 +520,20 @@ fn why_stopped(said: &str) -> String {
     }
 }
 
-fn stop_preview() {
-    if let Some((mut child, _)) = PREVIEW.lock().unwrap().take() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-}
-
 /// One `sync` at a time: two would make two bubbles.
 static SYNCING: Mutex<()> = Mutex::new(());
 
 /// The bubble is up while what to record is picked and Settings › Recording records the camera
-/// (the picker's toggle sets it), showing the camera chosen; else it's gone.
+/// (the picker's toggle sets it), showing the camera chosen; else it's gone. While a recording
+/// has the camera, it's left as it is.
 pub fn sync(app: &AppHandle) {
     let app = app.clone();
     // Windows aren't made from a command's thread (it can deadlock).
     std::thread::spawn(move || {
         let _one = SYNCING.lock().unwrap();
+        if TAKING.load(Ordering::SeqCst) {
+            return;
+        }
         let recording = app
             .state::<crate::state::AppState>()
             .settings
@@ -417,7 +545,12 @@ pub fn sync(app: &AppHandle) {
         let bubble = app.get_webview_window(BUBBLE);
         match (recording.camera, screen) {
             (true, Some(screen)) => {
-                start_preview(&recording.camera_device);
+                let name = &recording.camera_device;
+                let mut feed = FEED.lock().unwrap();
+                if feed.as_ref().is_none_or(|f| &f.name != name) {
+                    let _ = start_feed(&mut feed, name, None);
+                }
+                drop(feed);
                 if bubble.is_none() {
                     open_bubble(&app, &screen);
                 }
@@ -426,10 +559,144 @@ pub fn sync(app: &AppHandle) {
                 if let Some(w) = bubble {
                     let _ = w.destroy();
                 }
-                stop_preview();
+                end_feed(FEED.lock().unwrap().take());
             }
         }
     });
+}
+
+/// What to record is picked: if the camera's on, the recording will have it, so the bubble
+/// stays as the picker goes.
+pub fn hold(app: &AppHandle) {
+    let on = app
+        .state::<crate::state::AppState>()
+        .settings
+        .read()
+        .unwrap()
+        .recording
+        .camera;
+    TAKING.store(on, Ordering::SeqCst);
+}
+
+/// Whether the recording starting has the camera.
+pub fn held() -> bool {
+    TAKING.load(Ordering::SeqCst)
+}
+
+/// Records the camera to `path` with `encoder` (its preview goes on), from now on: the preview's
+/// ffmpeg gives way to one that does both, as only one can have the camera.
+pub fn record(app: &AppHandle, path: PathBuf, encoder: Encoder) -> Result<(), String> {
+    let name = app
+        .state::<crate::state::AppState>()
+        .settings
+        .read()
+        .unwrap()
+        .recording
+        .camera_device
+        .clone();
+    start_feed(&mut FEED.lock().unwrap(), &name, Some((path, encoder)))
+}
+
+/// The recording's done with the camera: its file, whole, if it was recorded. The bubble goes.
+pub fn stop_recording(app: &AppHandle) -> Option<Take> {
+    let take = end_feed(FEED.lock().unwrap().take());
+    TAKING.store(false, Ordering::SeqCst);
+    sync(app);
+    take
+}
+
+/// Where the bubble's circle is on the screen (virtual-desktop px): its middle, and across.
+pub fn bubble_circle(app: &AppHandle) -> Option<(f64, f64, f64)> {
+    let w = app.get_webview_window(BUBBLE)?;
+    let (at, size, scale) = (
+        w.outer_position().ok()?,
+        w.outer_size().ok()?,
+        w.scale_factor().ok()?,
+    );
+    let across = f64::from(size.width) - 2.0 * BUBBLE_INSET * scale;
+    Some((
+        f64::from(at.x) + f64::from(size.width) / 2.0,
+        f64::from(at.y) + f64::from(size.height) / 2.0,
+        across,
+    ))
+}
+
+/// The camera's file fitted to the recording, at `out`: from the take's frames, the stretch of
+/// each of the recording's parts (each started at µs since 1970, lasting s), less the camera's
+/// delay, one after another, at a steady 30 fps from the recording's first frame. Then the take
+/// is deleted.
+pub fn fit(take: &Take, parts: &[(i64, f64)], encoder: Encoder, out: &Path) -> Result<(), String> {
+    let (filter, _) = fit_filter(take.origin_us, parts, encoder.pixels());
+    let mut writing = out.as_os_str().to_owned();
+    writing.push(".part");
+    let writing = PathBuf::from(writing);
+    let mut cmd = sidecar::background(Tool::Ffmpeg)?;
+    cmd.args(["-hide_banner", "-loglevel", "error", "-y", "-copyts", "-i"])
+        .arg(&take.path)
+        .args(["-vf", &filter, "-an"])
+        .args(encoder.args(bitrate(take.width, take.height, FPS)))
+        .args(["-movflags", "+faststart", "-f", "mp4"])
+        .arg(&writing);
+    let done = cmd.output().map_err(|e| e.to_string())?;
+    if !done.status.success() {
+        let _ = std::fs::remove_file(&writing);
+        return Err(String::from_utf8_lossy(&done.stderr).trim().to_string());
+    }
+    std::fs::rename(&writing, out).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&take.path);
+    Ok(())
+}
+
+/// The filters fitting a take whose stamps count from `origin_us` to the recording's `parts`
+/// (each started at µs since 1970, lasting s), in `pixels`; and the frames that makes. Each
+/// part's stretch of the take, its stamps less the delay, is kept (`select`) and moved on to
+/// follow the last (`setpts`); `fps` holds each frame till the next, from 0 (the first frame
+/// filling in before the camera started), and `tpad` the last, to the end.
+fn fit_filter(origin_us: i64, parts: &[(i64, f64)], pixels: &str) -> (String, u64) {
+    let mut windows = Vec::new();
+    let mut before = 0.0;
+    for &(start_us, seconds) in parts {
+        let a = (start_us - origin_us) as f64 / 1e6 + DELAY;
+        windows.push((a, a + seconds, before));
+        before += seconds;
+    }
+    let frames = (before * FPS).round() as u64;
+    let keep: Vec<String> = windows
+        .iter()
+        .map(|(a, b, _)| format!("gte(t,{a:.6})*lt(t,{b:.6})"))
+        .collect();
+    let mut moved = String::new();
+    for (k, (a, b, at)) in windows.iter().enumerate().rev() {
+        let here = format!("T-{a:.6}+{at:.6}");
+        moved = if k + 1 == windows.len() {
+            here
+        } else {
+            format!("if(lt(T,{b:.6}),{here},{moved})")
+        };
+    }
+    let fps = FPS;
+    (
+        format!(
+            "select='{}',setpts='({moved})/TB',fps={fps}:start_time=0,tpad=stop_mode=clone:stop=-1,trim=end_frame={frames},format={pixels}",
+            keep.join("+")
+        ),
+        frames,
+    )
+}
+
+/// Where the bubble (its circle: middle and across, virtual-desktop px) goes on a picture
+/// `size` whose top-left is at `origin` on the screen: its top-left and across on the picture,
+/// kept on it (as large as the picture, at most).
+pub fn on_picture(
+    circle: (f64, f64, f64),
+    origin: (f64, f64),
+    size: (f64, f64),
+) -> (f64, f64, f64) {
+    let (cx, cy, across) = circle;
+    let across = across.min(size.0).min(size.1).max(0.0);
+    let x = (cx - origin.0 - across / 2.0).clamp(0.0, size.0 - across);
+    let y = (cy - origin.1 - across / 2.0).clamp(0.0, size.1 - across);
+    (x, y, across)
 }
 
 /// The bubble, in the bottom-right corner of `screen`: round, over everything (the picker's
@@ -628,5 +895,85 @@ Error opening input file dummy."#;
             "The camera is in use by another app"
         );
         assert_eq!(why_stopped(""), "The camera stopped");
+    }
+
+    fn joined(a: &[OsString]) -> String {
+        a.iter()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    #[test]
+    fn previews_or_records_and_previews() {
+        let input: Vec<String> = ["-f", "dshow", "-i", "video=Cam"].map(String::from).into();
+        let preview = joined(&feed_args(&input, None));
+        assert_eq!(
+            preview,
+            "-hide_banner -loglevel error -f dshow -i video=Cam -vf \
+             fps=15,crop='min(iw,ih)':'min(iw,ih)',scale=320:320 \
+             -c:v mjpeg -q:v 6 -f image2pipe pipe:1"
+        );
+        let path = PathBuf::from(r"D:\Takes\Recording.camera.mkv");
+        let r = Recorded {
+            path: &path,
+            origin_us: 1_700_000_000_250_000,
+            encoder: Encoder::Nvenc,
+            bitrate: 12_000_000,
+        };
+        let both = joined(&feed_args(&input, Some(&r)));
+        // Stamped as they come, kept as they are, from the origin.
+        assert!(both.starts_with(
+            "-hide_banner -loglevel error -use_wallclock_as_timestamps 1 -f dshow -i video=Cam \
+             -copyts -filter_complex [0:v]setpts=PTS-1700000000.250000/TB,split=2[rec][pv];\
+             [rec]format=yuv420p[out];[pv]fps=15,"
+        ));
+        assert!(both.contains(
+            "-map [out] -fps_mode passthrough -c:v h264_nvenc -preset p2 -tune hq -rc vbr \
+             -b:v 12000000"
+        ));
+        assert!(both.ends_with(
+            r"-f matroska D:\Takes\Recording.camera.mkv -map [pvo] -c:v mjpeg -q:v 6 -f image2pipe pipe:1"
+        ));
+    }
+
+    #[test]
+    fn fits_the_take_to_the_recordings_parts() {
+        // The take's stamps from 1000 s; the recording's parts from 1001.5 s for 5 s, and from
+        // 1010 s for 3 s: each 80 ms later on the take.
+        let s = 1_000_000_000;
+        let (filter, frames) =
+            fit_filter(s, &[(s + 1_500_000, 5.0), (s + 10_000_000, 3.0)], "nv12");
+        assert_eq!(frames, 240);
+        assert_eq!(
+            filter,
+            "select='gte(t,1.580000)*lt(t,6.580000)+gte(t,10.080000)*lt(t,13.080000)',\
+             setpts='(if(lt(T,6.580000),T-1.580000+0.000000,T-10.080000+5.000000))/TB',\
+             fps=30:start_time=0,tpad=stop_mode=clone:stop=-1,trim=end_frame=240,format=nv12"
+        );
+        // One part: no `if`.
+        let (one, frames) = fit_filter(s, &[(s, 2.0)], "yuv420p");
+        assert_eq!(frames, 60);
+        assert!(one.contains("setpts='(T-0.080000+0.000000)/TB'"));
+    }
+
+    #[test]
+    fn the_bubble_stays_on_the_picture() {
+        // Middle at (500, 400), 180 across; the picture at (100, 100), 1280 × 720.
+        let picture = ((100.0, 100.0), (1280.0, 720.0));
+        assert_eq!(
+            on_picture((500.0, 400.0, 180.0), picture.0, picture.1),
+            (310.0, 210.0, 180.0)
+        );
+        // Off its bottom-right corner: pulled in.
+        assert_eq!(
+            on_picture((1500.0, 900.0, 180.0), picture.0, picture.1),
+            (1100.0, 540.0, 180.0)
+        );
+        // Bigger than the picture: as large as it.
+        assert_eq!(
+            on_picture((0.0, 0.0, 500.0), (0.0, 0.0), (400.0, 300.0)),
+            (0.0, 0.0, 300.0)
+        );
     }
 }
