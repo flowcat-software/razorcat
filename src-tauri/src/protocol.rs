@@ -13,7 +13,9 @@
 //! `POST /markup/{id}`: the page sends an item of markup's pixels for the next export
 //! (markup.rs), raw straight-alpha RGBA.
 //!
-//! `/camera/{after}`: the camera's preview (camera.rs), its first picture numbered past `after`
+//! `/camera/{generation}` is the camera recorded with it (camera.rs, PLAN 5d.4), once found.
+//!
+//! `/bubble/{after}`: the camera's live preview (camera.rs), its first picture numbered past `after`
 //! (a JPEG, its number in `x-frame`), waited for a while: 204 if none came, 410 and why if the
 //! camera stopped.
 
@@ -59,6 +61,11 @@ pub fn thumbs_url(generation: u64) -> String {
     format!("http://{SCHEME}.localhost/thumbs/{generation}")
 }
 
+/// Where the page reads the camera recorded with the source opened as `generation`.
+pub fn camera_url(generation: u64) -> String {
+    format!("http://{SCHEME}.localhost/camera/{generation}")
+}
+
 /// Where the page reads the waveform of the source opened as `generation`.
 pub fn wave_url(generation: u64) -> String {
     format!("http://{SCHEME}.localhost/wave/{generation}")
@@ -79,8 +86,10 @@ enum Route {
     Wave(u64),
     /// An item of markup's pixels, sent (POST).
     Markup(u32),
-    /// The camera's next picture after this one.
+    /// The camera recorded with a source.
     Camera(u64),
+    /// The camera's next live picture after this one.
+    Bubble(u64),
 }
 
 pub fn handle<R: Runtime>(
@@ -117,7 +126,10 @@ pub fn handle<R: Runtime>(
                 crate::markup::upload(&app, id, req.into_body());
                 bytes_for_page(vec![])
             }
-            Some(route @ (Route::Source(_) | Route::Playable(_) | Route::Proxy(_))) => {
+            Some(
+                route
+                @ (Route::Source(_) | Route::Playable(_) | Route::Proxy(_) | Route::Camera(_)),
+            ) => {
                 let file = {
                     let sources = state.sources.lock().unwrap();
                     let find = |asked| sources.iter().find(|s| s.generation == asked);
@@ -125,6 +137,7 @@ pub fn handle<R: Runtime>(
                         Route::Source(asked) => find(asked).map(|s| s.path.clone()),
                         Route::Playable(asked) => find(asked).and_then(|s| s.playable.clone()),
                         Route::Proxy(asked) => find(asked).and_then(|s| s.proxy.clone()),
+                        Route::Camera(asked) => find(asked).and_then(|s| s.camera.clone()),
                         _ => None,
                     }
                 };
@@ -184,7 +197,7 @@ pub fn handle<R: Runtime>(
                     _ => reply(StatusCode::NOT_FOUND, vec![]),
                 }
             }
-            Some(Route::Camera(after)) => camera(after),
+            Some(Route::Bubble(after)) => bubble(after),
             None => reply(StatusCode::NOT_FOUND, vec![]),
         };
         responder.respond(resp);
@@ -207,7 +220,8 @@ fn route(path: &str) -> Option<Route> {
         "frames" => Some(Route::Frames(generation)),
         "wave" => Some(Route::Wave(generation)),
         "markup" => Some(Route::Markup(rest.parse().ok()?)),
-        "camera" => Some(Route::Camera(rest.parse().ok()?)),
+        "camera" => Some(Route::Camera(generation)),
+        "bubble" => Some(Route::Bubble(rest.parse().ok()?)),
         _ => None,
     }
 }
@@ -222,8 +236,8 @@ fn frames(times: &[(f64, f64)]) -> Response<Vec<u8>> {
     bytes_for_page(body)
 }
 
-/// The camera's picture after `after`, or why there's none.
-fn camera(after: u64) -> Response<Vec<u8>> {
+/// The camera's live picture after `after`, or why there's none.
+fn bubble(after: u64) -> Response<Vec<u8>> {
     let (status, kind, frame, body) = match crate::camera::next_frame(after) {
         crate::camera::Next::Frame(n, jpeg) => (StatusCode::OK, "image/jpeg", n, jpeg.to_vec()),
         crate::camera::Next::Waiting => (StatusCode::NO_CONTENT, "text/plain", after, vec![]),
@@ -317,6 +331,7 @@ mod tests {
         assert_eq!(route("/wave/7"), Some(Route::Wave(7)));
         assert_eq!(route("/markup/8"), Some(Route::Markup(8)));
         assert_eq!(route("/camera/9"), Some(Route::Camera(9)));
+        assert_eq!(route("/bubble/10"), Some(Route::Bubble(10)));
         assert_eq!(route("/thumbs/6"), None);
         assert_eq!(route("/thumbs/6/x"), None);
         assert_eq!(route("/source/x"), None);

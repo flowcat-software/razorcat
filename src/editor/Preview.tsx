@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { MarkupDrawing } from "../markup/MarkupDrawing";
 import { MarkupLayer } from "../markup/MarkupLayer";
 import { connectMarkup } from "../markup/model/store";
-import type { SourceInfo } from "../shared/ipc";
+import type { SourceCamera, SourceInfo } from "../shared/ipc";
+import { CameraLayer } from "./CameraLayer";
+import { cameraOnStage, type Square } from "./cameraPlace";
 import { CropOverlay } from "./CropOverlay";
 import {
   clipFadeColourAt,
@@ -30,6 +32,8 @@ interface Props {
   player: Player;
   /** Each file's proxy, once it's ready (proxy.rs), by its id. */
   proxyUrls: Readonly<Record<string, string | null>>;
+  /** The cameras recorded with files, once found (camera.rs), by file id. */
+  cameras: Readonly<Record<string, SourceCamera>>;
   /** A picture can't be shown, even from a converted copy. */
   onError: (message: string) => void;
   /** A file's original can't be played here (its codec): convert it (convert.rs). */
@@ -47,9 +51,10 @@ const MARGIN = 16;
  * Markup sits over the whole frame (Vandal's markup layer, over the whole preview so its handles
  * reach past the frame): what's at the playhead, which the select and markup tools edit. Under
  * it, the clips' fades: black over the whole frame (`ClipFade`); under those, the redactions
- * (RedactLayer.tsx), which work on the picture.
+ * (RedactLayer.tsx), which work on the picture. Over everything, a recording's camera
+ * (CameraLayer.tsx).
  */
-export function Preview({ sources, player, proxyUrls, onError, onUnplayable }: Props) {
+export function Preview({ sources, player, proxyUrls, cameras, onError, onUnplayable }: Props) {
   const source = sources[0];
   const areaRef = useRef<HTMLDivElement>(null);
   const [area, setArea] = useState({ width: 0, height: 0 });
@@ -101,6 +106,19 @@ export function Preview({ sources, player, proxyUrls, onError, onUnplayable }: P
     width: source.width * scale,
     height: source.height * scale,
   };
+  // Each camera on the finished frame.
+  const places: Record<string, Square> = {};
+  for (const s of sources) {
+    const c = cameras[s.id];
+    if (!c) continue;
+    places[s.id] = cameraOnStage(
+      { x: c.place.x ?? 0, y: c.place.y ?? 0, size: c.place.size ?? 0 },
+      s,
+      source,
+      { ...picture, left: inner.x + picture.left, top: inner.y + picture.top },
+      { width: stage.width, height: stage.height },
+    );
+  }
   const one = growMode(grow) === "one";
   // The grown sides (one colour: the frame's background).
   const sides = one
@@ -178,6 +196,14 @@ export function Preview({ sources, player, proxyUrls, onError, onUnplayable }: P
             y: [0, grow.top, grow.top + shown.height, out.height],
           }}
         />
+      )}
+      {!cropping && (
+        <div
+          className={styles.cameraLayer}
+          style={{ left: stage.x, top: stage.y, width: stage.width, height: stage.height }}
+        >
+          <CameraLayer player={player} sources={sources} cameras={cameras} places={places} />
+        </div>
       )}
       {tool === "grow" && (
         <div

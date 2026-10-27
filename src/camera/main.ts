@@ -5,7 +5,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./camera.css";
 
-const CAMERA = "http://media.localhost/camera";
+const CAMERA = "http://media.localhost/bubble";
 
 const bubble = document.createElement("div");
 bubble.className = "bubble";

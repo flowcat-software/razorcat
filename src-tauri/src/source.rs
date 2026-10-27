@@ -30,6 +30,8 @@ pub struct Source {
     pub thumbs: Option<Thumbs>,
     /// Its waveform, once made or being made (wave.rs).
     pub wave: Option<Wave>,
+    /// Its camera, recorded with it and found beside it (camera.rs, PLAN 5d.4).
+    pub camera: Option<PathBuf>,
 }
 
 /// What the page shows about the open source.
@@ -192,6 +194,7 @@ pub fn open(
         playable,
         thumbs: None,
         wave: None,
+        camera: None,
     })
 }
 

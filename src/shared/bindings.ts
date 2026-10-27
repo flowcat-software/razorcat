@@ -164,7 +164,6 @@ export const commands = {
 	/**  The clicks and keys noted while the file at `path` was recorded, once (PLAN 5b.6b). */
 	takeRecordedInput: (path: string) => __TAURI_INVOKE<{
 	clicks: RecordedClick[],
-	camera: RecordedCamera | null,
 } | null>("take_recorded_input", { path }),
 	/**  The microphones connected now, and which is the default (Settings › Recording). */
 	microphones: () => __TAURI_INVOKE<Microphones>("microphones"),
@@ -223,6 +222,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	cameraReady: makeEvent<CameraReady>("camera-ready"),
 	checkFrames: makeEvent<CheckFrames>("check-frames"),
 	clicksNoted: makeEvent<ClicksNoted>("clicks-noted"),
 	closingToTray: makeEvent<ClosingToTray>("closing-to-tray"),
@@ -281,6 +281,16 @@ export type CacheReport = {
  */
 export type Camera = {
 	name: string,
+};
+
+/**
+ *  Rust → editor: an open file has a camera (PLAN 5d.4): found beside it as it opened, or fitted
+ *  since (a recording opens before its camera's ready).
+ */
+export type CameraReady = {
+	/**  The source it's for (its `SourceInfo::id`). */
+	source: string,
+	camera: SourceCamera,
 };
 
 /**  Rust → editor: check the source just opened. */
@@ -688,6 +698,13 @@ export type PickWindow = {
 	hovered: number | null,
 };
 
+/**  Where the camera shows on its recording's picture: the bubble's top-left and across (px). */
+export type Place = {
+	x: number | null,
+	y: number | null,
+	size: number | null,
+};
+
 /**
  *  How loud the preview plays (PLAN 5a), not the export: set in the timeline bar, kept here so
  *  it's as it was next time; not in the Settings window.
@@ -748,17 +765,6 @@ export type ProxyStopped = {
 /**  Rust → the editor: the tray's Record (the editor's own Record, its questions and all). */
 export type RecordAsked = null;
 
-/**
- *  The camera recorded with it (PLAN 5d.3): its file (once fitted to the recording, after it
- *  opens), and where the bubble was left: its top-left and across on the picture (px).
- */
-export type RecordedCamera = {
-	file: string,
-	x: number | null,
-	y: number | null,
-	size: number | null,
-};
-
 /**  A click where it lands on the recorded picture, and when (s). */
 export type RecordedClick = {
 	time: number | null,
@@ -768,10 +774,9 @@ export type RecordedClick = {
 	double: boolean,
 };
 
-/**  The clicks of a recording, on its picture and its time, and its camera. */
+/**  The clicks of a recording, on its picture and its time. */
 export type RecordedInput = {
 	clicks: RecordedClick[],
-	camera: RecordedCamera | null,
 };
 
 /**  Settings › Recording (PLAN 5b). */
@@ -901,6 +906,12 @@ export type SettingsChanged = Settings;
 export type SourceAdded = {
 	source: SourceInfo,
 	at: number | null,
+};
+
+/**  A recording's camera, for the editor: where it reads the file (`media://`), and its place. */
+export type SourceCamera = {
+	url: string,
+	place: Place,
 };
 
 /**

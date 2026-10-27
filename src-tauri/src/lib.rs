@@ -133,6 +133,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             picker::PickWindow,
             thumbs::ThumbsUpdate,
             wave::WaveReady,
+            camera::CameraReady,
             check::CheckFrames,
             appearance::WindowsAccentChanged,
             settings::SettingsChanged,

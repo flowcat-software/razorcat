@@ -4,7 +4,7 @@
 //!
 //! A camera opens to one program at a time (spike 5d.1), so the page never opens it: ffmpeg
 //! does, and sends a small preview (JPEGs on its stdout), which the bubble reads from
-//! `media://camera/{after}` (protocol.rs). While recording (5d.3), the same ffmpeg records the
+//! `media://bubble/{after}` (protocol.rs). While recording (5d.3), the same ffmpeg records the
 //! camera too, each frame stamped by the wall clock as the screen's are; at Stop, its file is
 //! fitted to the recording (`fit`): its delay taken off, the pauses cut as the screen's were, a
 //! steady 30 fps from the recording's first frame. So the camera's time is the recording's.
@@ -623,9 +623,15 @@ pub fn bubble_circle(app: &AppHandle) -> Option<(f64, f64, f64)> {
 
 /// The camera's file fitted to the recording, at `out`: from the take's frames, the stretch of
 /// each of the recording's parts (each started at µs since 1970, lasting s), less the camera's
-/// delay, one after another, at a steady 30 fps from the recording's first frame. Then the take
-/// is deleted.
-pub fn fit(take: &Take, parts: &[(i64, f64)], encoder: Encoder, out: &Path) -> Result<(), String> {
+/// delay, one after another, at a steady 30 fps from the recording's first frame; where the
+/// bubble was left (`place`) kept in it. Then the take is deleted.
+pub fn fit(
+    take: &Take,
+    parts: &[(i64, f64)],
+    encoder: Encoder,
+    out: &Path,
+    place: Option<Place>,
+) -> Result<(), String> {
     let (filter, _) = fit_filter(take.origin_us, parts, encoder.pixels());
     let mut writing = out.as_os_str().to_owned();
     writing.push(".part");
@@ -635,7 +641,13 @@ pub fn fit(take: &Take, parts: &[(i64, f64)], encoder: Encoder, out: &Path) -> R
         .arg(&take.path)
         .args(["-vf", &filter, "-an"])
         .args(encoder.args(bitrate(take.width, take.height, FPS)))
-        .args(["-movflags", "+faststart", "-f", "mp4"])
+        // A keyframe a second, so the editor seeks it quickly (spike 5d.1 measured it so; the
+        // encoders' own, NVENC's 250, made a seek decode up to 8 s).
+        .args(["-g", "30"]);
+    if let Some(p) = place {
+        cmd.args(["-metadata".into(), format!("comment={}", p.tag())]);
+    }
+    cmd.args(["-movflags", "+faststart", "-f", "mp4"])
         .arg(&writing);
     let done = cmd.output().map_err(|e| e.to_string())?;
     if !done.status.success() {
@@ -687,16 +699,137 @@ fn fit_filter(origin_us: i64, parts: &[(i64, f64)], pixels: &str) -> (String, u6
 /// Where the bubble (its circle: middle and across, virtual-desktop px) goes on a picture
 /// `size` whose top-left is at `origin` on the screen: its top-left and across on the picture,
 /// kept on it (as large as the picture, at most).
-pub fn on_picture(
-    circle: (f64, f64, f64),
-    origin: (f64, f64),
-    size: (f64, f64),
-) -> (f64, f64, f64) {
+pub fn on_picture(circle: (f64, f64, f64), origin: (f64, f64), size: (f64, f64)) -> Place {
     let (cx, cy, across) = circle;
     let across = across.min(size.0).min(size.1).max(0.0);
-    let x = (cx - origin.0 - across / 2.0).clamp(0.0, size.0 - across);
-    let y = (cy - origin.1 - across / 2.0).clamp(0.0, size.1 - across);
-    (x, y, across)
+    Place {
+        x: (cx - origin.0 - across / 2.0).clamp(0.0, size.0 - across),
+        y: (cy - origin.1 - across / 2.0).clamp(0.0, size.1 - across),
+        size: across,
+    }
+}
+
+/// Where the camera shows on its recording's picture: the bubble's top-left and across (px).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Type)]
+pub struct Place {
+    pub x: f64,
+    pub y: f64,
+    pub size: f64,
+}
+
+/// What the camera's file says it is, in its `comment`: "razorcat-camera x y size".
+const PLACE_TAG: &str = "razorcat-camera";
+
+impl Place {
+    fn tag(self) -> String {
+        format!("{PLACE_TAG} {:.1} {:.1} {:.1}", self.x, self.y, self.size)
+    }
+
+    /// The place in ffmpeg's description of a file (its `comment` line), if it has one.
+    fn from_description(text: &str) -> Option<Self> {
+        let line = text.lines().find(|l| l.contains(PLACE_TAG))?;
+        let rest = &line[line.find(PLACE_TAG)? + PLACE_TAG.len()..];
+        let mut n = rest.split_whitespace().map(|w| w.parse::<f64>());
+        let (x, y, size) = (n.next()?.ok()?, n.next()?.ok()?, n.next()?.ok()?);
+        Some(Self { x, y, size })
+    }
+
+    /// Where a camera with no place said goes on a picture `width` × `height`: its bottom-right
+    /// corner, a little in, a quarter as tall as the picture's shorter side and a bit.
+    fn default_for(width: u32, height: u32) -> Self {
+        let short = f64::from(width.min(height));
+        let size = (short * 0.28).round();
+        let margin = (short * 0.04).round();
+        Self {
+            x: f64::from(width) - size - margin,
+            y: f64::from(height) - size - margin,
+            size,
+        }
+    }
+}
+
+/// The camera's file beside a recording `file`: "Recording 2026-10-27 10-00-00 (camera).mp4".
+pub fn beside(file: &Path) -> PathBuf {
+    let stem = file.file_stem().unwrap_or_default().to_string_lossy();
+    file.with_file_name(format!("{stem} (camera).mp4"))
+}
+
+/// A recording's camera, for the editor: where it reads the file (`media://`), and its place.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct SourceCamera {
+    pub url: String,
+    pub place: Place,
+}
+
+/// Rust → editor: an open file has a camera (PLAN 5d.4): found beside it as it opened, or fitted
+/// since (a recording opens before its camera's ready).
+#[derive(Clone, Serialize, Type, tauri_specta::Event)]
+#[serde(rename_all = "camelCase")]
+pub struct CameraReady {
+    /// The source it's for (its `SourceInfo::id`).
+    pub source: String,
+    pub camera: SourceCamera,
+}
+
+/// Looks beside the source opened as `generation` for its camera, and if it's there, tells the
+/// editor (on a thread of its own: ffmpeg reads the place).
+pub fn look(app: &AppHandle, generation: u64) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let state = app.state::<crate::state::AppState>();
+        let Some((path, info)) = state
+            .sources
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|s| s.generation == generation)
+            .map(|s| (s.path.clone(), s.info()))
+        else {
+            return;
+        };
+        let file = beside(&path);
+        if !file.is_file() {
+            return;
+        }
+        let described = sidecar::command(Tool::Ffmpeg)
+            .ok()
+            .and_then(|mut c| c.args(["-hide_banner", "-i"]).arg(&file).output().ok());
+        let place = described
+            .and_then(|o| Place::from_description(&String::from_utf8_lossy(&o.stderr)))
+            .unwrap_or_else(|| Place::default_for(info.width, info.height));
+        {
+            let mut sources = state.sources.lock().unwrap();
+            let Some(s) = sources.iter_mut().find(|s| s.generation == generation) else {
+                return;
+            };
+            s.camera = Some(file);
+        }
+        logln!("[camera] found with a source, at {place:?}");
+        let ready = CameraReady {
+            source: info.id,
+            camera: SourceCamera {
+                url: crate::protocol::camera_url(generation),
+                place,
+            },
+        };
+        let _ = tauri_specta::Event::emit_to(&ready, &app, crate::editor::LABEL);
+    });
+}
+
+/// The camera of the recording `file` is fitted: if the file's open, it gets it.
+pub fn fitted(app: &AppHandle, file: &Path) {
+    let open: Vec<u64> = app
+        .state::<crate::state::AppState>()
+        .sources
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|s| s.path == file)
+        .map(|s| s.generation)
+        .collect();
+    for generation in open {
+        look(app, generation);
+    }
 }
 
 /// The bubble, in the bottom-right corner of `screen`: round, over everything (the picker's
@@ -961,19 +1094,61 @@ Error opening input file dummy."#;
     fn the_bubble_stays_on_the_picture() {
         // Middle at (500, 400), 180 across; the picture at (100, 100), 1280 × 720.
         let picture = ((100.0, 100.0), (1280.0, 720.0));
+        let place = |x, y, size| Place { x, y, size };
         assert_eq!(
             on_picture((500.0, 400.0, 180.0), picture.0, picture.1),
-            (310.0, 210.0, 180.0)
+            place(310.0, 210.0, 180.0)
         );
         // Off its bottom-right corner: pulled in.
         assert_eq!(
             on_picture((1500.0, 900.0, 180.0), picture.0, picture.1),
-            (1100.0, 540.0, 180.0)
+            place(1100.0, 540.0, 180.0)
         );
         // Bigger than the picture: as large as it.
         assert_eq!(
             on_picture((0.0, 0.0, 500.0), (0.0, 0.0), (400.0, 300.0)),
-            (0.0, 0.0, 300.0)
+            place(0.0, 0.0, 300.0)
+        );
+    }
+
+    #[test]
+    fn the_place_is_kept_in_the_cameras_file() {
+        let p = Place {
+            x: 1100.0,
+            y: 540.25,
+            size: 180.0,
+        };
+        assert_eq!(p.tag(), "razorcat-camera 1100.0 540.2 180.0");
+        // As ffmpeg describes the file.
+        let described =
+            "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'x (camera).mp4':\n  Metadata:\n    \
+                         major_brand     : isom\n    \
+                         comment         : razorcat-camera 1100.0 540.2 180.0\n";
+        assert_eq!(
+            Place::from_description(described),
+            Some(Place {
+                x: 1100.0,
+                y: 540.2,
+                size: 180.0
+            })
+        );
+        assert_eq!(Place::from_description("comment : something else"), None);
+        // None said: the bottom-right corner.
+        assert_eq!(
+            Place::default_for(1920, 1080),
+            Place {
+                x: 1575.0,
+                y: 735.0,
+                size: 302.0
+            }
+        );
+    }
+
+    #[test]
+    fn the_camera_sits_beside_its_recording() {
+        assert_eq!(
+            beside(Path::new(r"D:\Takes\Recording 1.mp4")),
+            PathBuf::from(r"D:\Takes\Recording 1 (camera).mp4")
         );
     }
 }

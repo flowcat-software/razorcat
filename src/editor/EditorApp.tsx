@@ -15,6 +15,7 @@ import {
   events,
   type CheckFrames,
   type Settings,
+  type SourceCamera,
   type SourceInfo,
   type ThumbsInfo,
 } from "../shared/ipc";
@@ -326,6 +327,8 @@ export function EditorApp() {
   const [showWave, setShowWave] = useState(true);
   /** Each file's waveform once it's made, by its id. */
   const [waves, setWaves] = useState<Record<string, string>>({});
+  /** Each recording's camera, as it's found (camera.rs). */
+  const [cameras, setCameras] = useState<Record<string, SourceCamera>>({});
   /** Each file's thumbnails as they're made, by its id. */
   const [thumbs, setThumbs] = useState<Record<string, ThumbsInfo>>({});
   // The player plays at the first file's rate; a new first file is a new player.
@@ -556,6 +559,9 @@ export function EditorApp() {
       ),
       events.waveReady.listen(({ payload }) =>
         setWaves((w) => ({ ...w, [payload.source]: payload.url })),
+      ),
+      events.cameraReady.listen(({ payload }) =>
+        setCameras((c) => ({ ...c, [payload.source]: payload.camera })),
       ),
       events.checkFrames.listen(({ payload }) => setCheckFor(payload)),
       // Settings › About's resets: the tools as installed too.
@@ -845,6 +851,7 @@ export function EditorApp() {
             sources={sources}
             player={player!}
             proxyUrls={proxyUrls}
+            cameras={cameras}
             onError={(text) => setNotice({ text, error: true })}
             onUnplayable={(s) => {
               if (convertAsked.current === s.url) return;

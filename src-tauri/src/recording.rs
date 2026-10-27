@@ -274,21 +274,10 @@ pub struct RecordedClick {
     pub double: bool,
 }
 
-/// The camera recorded with it (PLAN 5d.3): its file (once fitted to the recording, after it
-/// opens), and where the bubble was left: its top-left and across on the picture (px).
-#[derive(Debug, Clone, PartialEq, Serialize, Type)]
-pub struct RecordedCamera {
-    pub file: String,
-    pub x: f64,
-    pub y: f64,
-    pub size: f64,
-}
-
-/// The clicks of a recording, on its picture and its time, and its camera.
+/// The clicks of a recording, on its picture and its time.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 pub struct RecordedInput {
     pub clicks: Vec<RecordedClick>,
-    pub camera: Option<RecordedCamera>,
 }
 
 /// Recordings' clicks, by file, until the editor opening it takes them (in memory only).
@@ -1255,7 +1244,7 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
         .collect();
     // The clicks, on the recording (5b.6b makes markup of them).
     let presses = r.input.take().map(input::Watch::stop).unwrap_or_default();
-    let mut noted = recorded(presses, &r.spans, &r.target);
+    let noted = recorded(presses, &r.spans, &r.target);
     if !noted.clicks.is_empty() {
         logln!("[recording] {} clicks noted", noted.clicks.len());
     }
@@ -1281,24 +1270,17 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
             }
             .emit_to(app, LABEL);
             if let Some(take) = take {
-                let file = camera_file(&r.file);
                 let parts: Vec<(i64, f64)> = r.starts.iter().copied().zip(lengths).collect();
+                // Where the bubble was left, on the picture: kept in the camera's file.
                 let (x, y, _, _) = r.target.on_screen();
                 let s = &r.target.screen;
                 let origin = (f64::from(s.x + x), f64::from(s.y + y));
                 let (w, h) = r.target.size();
-                let (x, y, size) = circle.map_or((0.0, 0.0, 0.0), |c| {
-                    crate::camera::on_picture(c, origin, (f64::from(w), f64::from(h)))
-                });
-                noted.camera = Some(RecordedCamera {
-                    file: file.to_string_lossy().into_owned(),
-                    x,
-                    y,
-                    size,
-                });
-                fit_camera(take, parts, r.encoder, file);
+                let place = circle
+                    .map(|c| crate::camera::on_picture(c, origin, (f64::from(w), f64::from(h))));
+                fit_camera(app, take, parts, r.encoder, r.file.clone(), place);
             }
-            if !noted.clicks.is_empty() || noted.camera.is_some() {
+            if !noted.clicks.is_empty() {
                 NOTED.lock().unwrap().push((r.file.clone(), noted));
             }
             crate::editor::request_open(app, r.file, r.add);
@@ -1321,23 +1303,29 @@ fn camera_take(base: &std::path::Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// The camera's file beside the recording `file`: "Recording 2026-10-27 10-00-00 (camera).mp4".
-fn camera_file(file: &std::path::Path) -> PathBuf {
-    let stem = file.file_stem().unwrap_or_default().to_string_lossy();
-    file.with_file_name(format!("{stem} (camera).mp4"))
-}
-
-/// Fits the camera's take to the recording's `parts` (each's start and length), into `file`, in
-/// the background: the recording opens meanwhile. If it fails, the take is kept.
-fn fit_camera(take: crate::camera::Take, parts: Vec<(i64, f64)>, encoder: Encoder, file: PathBuf) {
+/// Fits the camera's take to the recording's `parts` (each's start and length), beside the
+/// recording `file`, the bubble's `place` with it, in the background: the recording opens
+/// meanwhile, and gets its camera once it's ready. If it fails, the take is kept.
+fn fit_camera(
+    app: &AppHandle,
+    take: crate::camera::Take,
+    parts: Vec<(i64, f64)>,
+    encoder: Encoder,
+    file: PathBuf,
+    place: Option<crate::camera::Place>,
+) {
+    let app = app.clone();
     std::thread::spawn(move || {
         let t0 = Instant::now();
-        match crate::camera::fit(&take, &parts, encoder, &file) {
-            Ok(()) => logln!(
-                "[recording] the camera fitted in {:.1} s: {}",
-                t0.elapsed().as_secs_f64(),
-                file.display()
-            ),
+        let out = crate::camera::beside(&file);
+        match crate::camera::fit(&take, &parts, encoder, &out, place) {
+            Ok(()) => {
+                logln!(
+                    "[recording] the camera fitted in {:.1} s",
+                    t0.elapsed().as_secs_f64()
+                );
+                crate::camera::fitted(&app, &file);
+            }
             Err(e) => logln!(
                 "[recording] the camera couldn't be fitted ({} is kept): {e}",
                 take.path.display()

@@ -321,6 +321,7 @@ fn show(app: &AppHandle, path: PathBuf, mut opened: Source, add: bool, at: Optio
         crate::check::opened(app, id);
     }
     crate::wave::start(app, generation);
+    crate::camera::look(app, generation);
     // The thumbnails come from the proxy, so they wait for one being made.
     if let Some((generation, input, rate, frames)) = make {
         crate::proxy::make(app, generation, path, input, rate, frames);
