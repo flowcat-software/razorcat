@@ -991,3 +991,11 @@
   padding: 0;
   justify-content: flex-end;
 }
+
+/* A choice that goes with a dialog's answer (a group's Reset: "Don't ask again"). */
+.dialogCheck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}

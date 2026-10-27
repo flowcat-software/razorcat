@@ -46,6 +46,8 @@ pub struct Settings {
     pub playback: Playback,
     /// Settings › About › Debugging.
     pub debugging: Debugging,
+    /// Settings › About › Reset: how a group's reset asks.
+    pub reset: Reset,
 }
 
 impl Default for Settings {
@@ -62,6 +64,7 @@ impl Default for Settings {
             recording: Recording::default(),
             playback: Playback::default(),
             debugging: Debugging::default(),
+            reset: Reset::default(),
         }
     }
 }
@@ -219,6 +222,23 @@ impl Default for Recording {
             click_fade_out: 0.3,
             click_double: true,
             placed_clicks_follow: true,
+        }
+    }
+}
+
+/// Settings › About › Reset.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Reset {
+    /// A group's Reset (its heading's link) asks first; its "Don't ask again" turns this off
+    /// (Richard, 2026-10-26). On by default, so Reset all settings asks again.
+    pub ask_for_groups: bool,
+}
+
+impl Default for Reset {
+    fn default() -> Self {
+        Self {
+            ask_for_groups: true,
         }
     }
 }

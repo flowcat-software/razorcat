@@ -120,6 +120,13 @@ pub fn get_settings(app: AppHandle) -> Settings {
     app.state::<AppState>().settings.read().unwrap().clone()
 }
 
+/// Every setting as installed: what a group's Reset (Settings, its heading's link) puts back.
+#[tauri::command]
+#[specta::specta]
+pub fn default_settings() -> Settings {
+    Settings::default()
+}
+
 /// Settings › About's resets: every setting as installed, or with `styles_only` only the styles
 /// (Settings › Markup and Recording's clicks); either way the tools' remembered styles are
 /// forgotten. Returns the settings as stored.

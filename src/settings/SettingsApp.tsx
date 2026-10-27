@@ -9,6 +9,7 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Settings } from "../shared/ipc";
 import { controls, type ControlProps } from "./controls";
+import { GroupHeading } from "./GroupHeading";
 import { SearchIcon } from "./icons";
 import { matchesQuery, type Group, type Item, type Section } from "./schema";
 import { sections } from "./sections";
@@ -183,6 +184,7 @@ function SectionPage({ section, settings }: { section: Section; settings: Settin
           key={group.title ?? i}
           id={group.title ? groupId(section, group) : undefined}
           group={group}
+          name={group.title ?? section.title}
           settings={settings}
         />
       ))}
@@ -219,7 +221,12 @@ function SearchResults({ query, settings }: { query: string; settings: Settings 
       <h1 className={styles.title}>Search</h1>
       {results.length === 0 && <p className={styles.empty}>No settings match “{query}”.</p>}
       {results.map(({ section, items }) => (
-        <GroupCard key={section.id} group={{ title: section.title, items }} settings={settings} />
+        <GroupCard
+          key={section.id}
+          group={{ title: section.title, items }}
+          settings={settings}
+          resettable={false}
+        />
       ))}
     </>
   );
@@ -228,18 +235,24 @@ function SearchResults({ query, settings }: { query: string; settings: Settings 
 function GroupCard({
   id,
   group,
+  name = group.title ?? "",
   settings,
+  resettable = true,
 }: {
   /** For the sidebar's links to this group. */
   id?: string;
   group: Group;
+  /** What its Reset calls it: its title, or its page's. */
+  name?: string;
   settings: Settings;
+  /** Its heading has a Reset while it differs from the defaults (not search results'). */
+  resettable?: boolean;
 }) {
   const items = group.items.filter((item) => item.visible?.(settings) ?? true);
   if (items.length === 0) return null;
   return (
     <section id={id} className={styles.group}>
-      {group.title && <h2 className={styles.groupTitle}>{group.title}</h2>}
+      <GroupHeading group={group} name={name} resettable={resettable} />
       {group.description && <p className={styles.groupDescription}>{group.description}</p>}
       <div className={styles.card}>
         {items.map((item) => (

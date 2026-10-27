@@ -59,6 +59,8 @@ export const commands = {
 	 *  forgotten. Returns the settings as stored.
 	 */
 	resetSettings: (stylesOnly: boolean) => typedError<Settings, string>(__TAURI_INVOKE("reset_settings", { stylesOnly })),
+	/**  Every setting as installed: what a group's Reset (Settings, its heading's link) puts back. */
+	defaultSettings: () => __TAURI_INVOKE<Settings>("default_settings"),
 	/**  Flowcat Software's website, the maker (Settings › About). A fixed address. */
 	openFlowcatSite: () => __TAURI_INVOKE<void>("open_flowcat_site"),
 	/**  The current settings. */
@@ -804,6 +806,15 @@ export type RecordingPaused = boolean;
 /**  How a redaction hides what's under it (Razorcat has no Solid: a filled rectangle does that). */
 export type RedactMode = "pixelate" | "blur";
 
+/**  Settings › About › Reset. */
+export type Reset = {
+	/**
+	 *  A group's Reset (its heading's link) asks first; its "Don't ask again" turns this off
+	 *  (Richard, 2026-10-26). On by default, so Reset all settings asks again.
+	 */
+	askForGroups?: boolean,
+};
+
 export type Settings = {
 	version?: number,
 	/**  How the app looks. */
@@ -825,6 +836,8 @@ export type Settings = {
 	playback?: Playback,
 	/**  Settings › About › Debugging. */
 	debugging?: Debugging,
+	/**  Settings › About › Reset: how a group's reset asks. */
+	reset?: Reset,
 };
 
 /**  Rust → all windows: settings changed (from any source), here's the new state. */
