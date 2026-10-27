@@ -4,7 +4,8 @@
 // item drawn, out of sight, for this. Rust overlays them on the frame between their frames. A
 // spotlight is its hole, drawn by the preview's path (PLAN 4.5g): Rust cuts it out of the dark.
 // A ripple moves (PLAN 5b.6e): it's drawn again for each of its frames, by click.ts as the
-// preview's is, each picture its own item for that frame, its fade drawn into it.
+// preview's is, its fade drawn in, all in one box: one item, its pictures one after another
+// (PLAN 5d.5b: an item a frame made the export crawl).
 
 import type Konva from "konva";
 import { markFades, markOpacity, shownMarks, type Doc, type MarkId } from "../editor/doc";
@@ -17,10 +18,8 @@ import type { Annotation, ClickAnnotation } from "./model/types";
 import { fillSpotlight } from "./spotlightHole";
 
 export interface DrawnMark {
-  /** The markup's id; a ripple's frames each have their own (from {@link FRAME_IDS}). */
+  /** The markup's id. */
   id: MarkId;
-  /** Its fades drawn in already (a ripple's frame): none for Rust to add. */
-  faded?: boolean;
   /** What it covers of the output frame, in its pixels. */
   x: number;
   y: number;
@@ -29,17 +28,15 @@ export interface DrawnMark {
   /** The timeline frames it shows on, `start` to `end` (exclusive). */
   start: number;
   end: number;
-  /** Straight-alpha RGBA, `width` × `height`. */
+  /** Straight-alpha RGBA, `width` × `height`; a ripple's, one such for each of its frames. */
   pixels: Uint8ClampedArray<ArrayBuffer>;
   /**
-   * What it is to the export: laid over the frame; a highlighter's, multiplied in beneath the
-   * rest (PLAN 4.5c); or a spotlight's hole, cut out of the dark (PLAN 4.5g).
+   * What it is to the export: laid over the frame; a ripple's frames, each laid over its own,
+   * their fades drawn in; a highlighter's, multiplied in beneath the rest (PLAN 4.5c); or a
+   * spotlight's hole, cut out of the dark (PLAN 4.5g).
    */
-  layer: "item" | "highlight" | "hole";
+  layer: "item" | "frames" | "highlight" | "hole";
 }
-
-/** Where the ids of a ripple's frame pictures start: past any markup's. */
-const FRAME_IDS = 1 << 30;
 
 /** The longest the drawing waits for fonts to load (ms). */
 const FONTS_WAIT = 2000;
@@ -92,7 +89,6 @@ export async function drawMarks(doc: Doc): Promise<DrawnMark[]> {
   await Promise.race([document.fonts.ready, new Promise((done) => setTimeout(done, FONTS_WAIT))]);
   const frame = outputSize(doc.frame);
   const drawn: DrawnMark[] = [];
-  let frameId = FRAME_IDS;
   for (const m of shown.sort((a, b) => b.lane - a.lane || a.start - b.start || a.id - b.id)) {
     const kept = doc.marks.find((k) => k.id === m.id);
     // Redactions work on the video: Rust makes them (PLAN 4.8b).
@@ -109,12 +105,9 @@ export async function drawMarks(doc: Doc): Promise<DrawnMark[]> {
       if (a.kind !== "click") continue;
       const length = m.end - m.start;
       const fades = markFades(kept, length);
-      for (let f = m.start; f < m.end; f++) {
-        const alpha = markOpacity(fades, length, f - m.start);
-        const pic = drawRipple(a, (f - m.start) / timelineFps(), alpha, frame);
-        if (pic)
-          drawn.push({ id: frameId++, ...pic, start: f, end: f + 1, layer: "item", faded: true });
-      }
+      const alphas = Array.from({ length }, (_, k) => markOpacity(fades, length, k));
+      const pics = drawRipple(a, alphas, frame);
+      if (pics) drawn.push({ id: m.id, ...pics, start: m.start, end: m.end, layer: "frames" });
       continue;
     }
     const box = drawnBox(
@@ -147,11 +140,13 @@ export async function drawMarks(doc: Doc): Promise<DrawnMark[]> {
   return drawn;
 }
 
-/** Ripple `a` as it is `age` s after its click, at opacity `alpha`, cut to `frame`: null if off. */
+/**
+ * Ripple `a` on each of its frames, frame k at opacity `alphas[k]`, cut to `frame`: all in the
+ * one box any of them covers, one after another. Null if none shows.
+ */
 function drawRipple(
   a: ClickAnnotation,
-  age: number,
-  alpha: number,
+  alphas: readonly number[],
   frame: { width: number; height: number },
 ): ReturnType<typeof trim> {
   const reach = clickReach(a) + 4;
@@ -159,16 +154,23 @@ function drawRipple(
   const y0 = Math.max(0, Math.floor(a.y - reach));
   const x1 = Math.min(frame.width, Math.ceil(a.x + reach));
   const y1 = Math.min(frame.height, Math.ceil(a.y + reach));
-  if (x1 <= x0 || y1 <= y0 || alpha <= 0) return null;
-  const canvas = document.createElement("canvas");
-  canvas.width = x1 - x0;
-  canvas.height = y1 - y0;
-  const g = canvas.getContext("2d");
-  if (!g) throw new Error("No 2D canvas context.");
-  g.translate(a.x - x0, a.y - y0);
-  g.globalAlpha = alpha;
-  drawClick(g, a, age);
-  const cut = trim(g.getImageData(0, 0, x1 - x0, y1 - y0));
+  if (x1 <= x0 || y1 <= y0) return null;
+  // A canvas a frame: one read back again and again is moved off the GPU by Chrome, whose
+  // software drawing smooths the rings' edges differently from the preview's.
+  const pictures = alphas.map((alpha, k) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = x1 - x0;
+    canvas.height = y1 - y0;
+    const g = canvas.getContext("2d");
+    if (!g) throw new Error("No 2D canvas context.");
+    if (alpha > 0) {
+      g.translate(a.x - x0, a.y - y0);
+      g.globalAlpha = alpha;
+      drawClick(g, a, k / timelineFps());
+    }
+    return g.getImageData(0, 0, canvas.width, canvas.height);
+  });
+  const cut = trimAll(pictures);
   return cut && { ...cut, x: x0 + cut.x, y: y0 + cut.y };
 }
 
@@ -195,35 +197,54 @@ function drawHole(
   return cut && { ...cut, x: x0 + cut.x, y: y0 + cut.y };
 }
 
+interface Picture {
+  width: number;
+  height: number;
+  data: Uint8ClampedArray;
+}
+
 /** `image` without its transparent edges; null if it's all transparent. */
-export function trim(image: { width: number; height: number; data: Uint8ClampedArray }): {
+export function trim(image: Picture): ReturnType<typeof trimAll> {
+  return trimAll([image]);
+}
+
+/**
+ * `images` (all one size) without the transparent edges they all have, one after another; null
+ * if they're all transparent.
+ */
+export function trimAll(images: readonly Picture[]): {
   x: number;
   y: number;
   width: number;
   height: number;
   pixels: Uint8ClampedArray<ArrayBuffer>;
 } | null {
-  const { width, height, data } = image;
+  if (!images.length) return null;
+  const { width, height } = images[0];
   let left = width;
   let right = -1;
   let top = height;
   let bottom = -1;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (data[(y * width + x) * 4 + 3] === 0) continue;
-      if (x < left) left = x;
-      if (x > right) right = x;
-      if (y < top) top = y;
-      bottom = y;
+  for (const { data } of images) {
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (data[(y * width + x) * 4 + 3] === 0) continue;
+        if (x < left) left = x;
+        if (x > right) right = x;
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+      }
     }
   }
   if (right < 0) return null;
   const w = right - left + 1;
   const h = bottom - top + 1;
-  const pixels = new Uint8ClampedArray(w * h * 4);
-  for (let y = 0; y < h; y++) {
-    const from = ((top + y) * width + left) * 4;
-    pixels.set(data.subarray(from, from + w * 4), y * w * 4);
-  }
+  const pixels = new Uint8ClampedArray(w * h * 4 * images.length);
+  images.forEach(({ data }, k) => {
+    for (let y = 0; y < h; y++) {
+      const from = ((top + y) * width + left) * 4;
+      pixels.set(data.subarray(from, from + w * 4), (k * h + y) * w * 4);
+    }
+  });
   return { x: left, y: top, width: w, height: h, pixels };
 }

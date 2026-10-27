@@ -396,8 +396,9 @@ impl Cut {
 /// rounding, and a source frame shown for several grid frames (VFR) is there for `fps`.
 const SEEK_EARLY: f64 = 0.5;
 
-/// An item of markup as ffmpeg lays it over the frame: its pixels' file (raw RGBA; a highlight's
-/// or a spotlight's hole's, RGB over white, multiplied in; the darkness has none), its size and
+/// An item of markup as ffmpeg lays it over the frame: its pixels' file (raw RGBA, a ripple's a
+/// picture per frame; a highlight's or a spotlight's hole's, RGB over white, multiplied in; the
+/// darkness has none), its size and
 /// place, the export's stretches it shows on, and its fades (over its own `length` frames).
 #[derive(Debug, Clone, PartialEq)]
 struct Overlay {
@@ -434,7 +435,7 @@ fn overlays(clips: &[ExportClip], markup: &Markup) -> Vec<Overlay> {
         MarkLayer::Highlight => 1,
         MarkLayer::Hole => 2,
         MarkLayer::Dark { .. } => 3,
-        MarkLayer::Item => 4,
+        MarkLayer::Item | MarkLayer::Frames => 4,
     });
     items
         .into_iter()
@@ -840,7 +841,7 @@ fn graph(
                 ("rgb24", o.shows.len())
             }
             MarkLayer::Highlight | MarkLayer::Hole => ("rgb24", 1),
-            MarkLayer::Item => ("rgba", 1),
+            MarkLayer::Item | MarkLayer::Frames => ("rgba", 1),
         };
         f.push(format!(
             "{}{}",
@@ -990,10 +991,11 @@ fn graph(
                 continue;
             }
             MarkLayer::Redact { .. } => continue,
-            MarkLayer::Item => {}
+            MarkLayer::Item | MarkLayer::Frames => {}
         }
         f.push(format!("[p{k}_0]format=yuva444p[m{k}]"));
-        if o.fade_in == 0 && o.fade_out == 0 {
+        let frames = o.layer == MarkLayer::Frames;
+        if !frames && o.fade_in == 0 && o.fade_out == 0 {
             // Unfaded: the one picture, on between its frames.
             let shows: Vec<String> = o
                 .shows
@@ -1008,10 +1010,17 @@ fn graph(
             continue;
         }
         // Faded: the picture once per frame of the item and one more in front, faded by frame
-        // count (`ramps`), then each stretch's frames timed to the export's. A fine time base
-        // first, or the frame times round to the input's 1/25 s.
-        let mut chain = format!("[m{k}]loop=loop={}:size=1:start=0", o.length);
-        chain += &ramps(o.length, o.fade_in, o.fade_out, ":alpha=1");
+        // count (`ramps`); a ripple's frames are its own, faded already. Then each stretch's
+        // frames on the export's (`on_frames`).
+        let (mut chain, first) = if frames {
+            (format!("[m{k}]null"), 0)
+        } else {
+            let looped = format!("[m{k}]loop=loop={}:size=1:start=0", o.length);
+            (
+                looped + &ramps(o.length, o.fade_in, o.fade_out, ":alpha=1"),
+                1,
+            )
+        };
         let parts = o.shows.len();
         if parts > 1 {
             chain += &format!(",split={parts}");
@@ -1022,12 +1031,10 @@ fn graph(
         f.push(chain);
         for (j, s) in o.shows.iter().enumerate() {
             f.push(format!(
-                "[f{k}_{j}]trim=start_frame={}:end_frame={},settb=AVTB,setpts=(N+{})/({}/{}*TB)[g{k}_{j}]",
-                s.at + 1,
-                s.at + 1 + s.to - s.from,
-                s.from,
-                rate.num,
-                rate.den
+                "[f{k}_{j}]trim=start_frame={}:end_frame={},{}[g{k}_{j}]",
+                s.at + first,
+                s.at + first + s.to - s.from,
+                on_frames(rate, s.from)
             ));
             f.push(format!(
                 "[{at}][g{k}_{j}]overlay={place}:eof_action=pass:enable='between(n,{},{})'[o{k}_{j}]",
@@ -1140,11 +1147,19 @@ fn ramps(length: u32, fade_in: u32, fade_out: u32, how: &str) -> String {
     r
 }
 
+/// A stream's frames put on the export's from frame `from`: its frame k at `from` + k, on a clock
+/// of one frame a tick, so each lands on the picture's frame exactly. (In microseconds, markup's
+/// were rounded: 37/60 s up past the picture's 37th frame, and a stretch's last frame went
+/// missing.)
+fn on_frames(rate: Rate, from: u32) -> String {
+    format!("settb={}/{},setpts=N+{from}", rate.den, rate.num)
+}
+
 /// The clips' fades laid over the picture `at` (PLAN 4.7a): on each fade's frames, black (or
 /// its colour, 4.7c) `black` in size, its alpha ramped as the preview's black is (the clip's first frame and last
 /// all black, `ramps`), on the joined picture's clock: frame k
-/// at k (timed as markup is, in AVTB, a fade's last frame could round past the picture's and go
-/// missing). The picture's label after it.
+/// at k (timed in AVTB, a fade's last frame could round past the picture's and go missing; as
+/// markup is, `on_frames`). The picture's label after it.
 fn clip_fades(
     f: &mut Vec<String>,
     at: &str,
@@ -1237,12 +1252,10 @@ fn highlight(f: &mut Vec<String>, at: &str, k: usize, o: &Overlay, rate: Rate) -
     for (j, s) in o.shows.iter().enumerate() {
         let name = format!("{k}_{j}");
         f.push(format!(
-            "[hf{name}]trim=start_frame={}:end_frame={},settb=AVTB,setpts=(N+{})/({}/{}*TB)[hw{name}]",
+            "[hf{name}]trim=start_frame={}:end_frame={},{}[hw{name}]",
             s.at + 1,
             s.at + 1 + s.to - s.from,
-            s.from,
-            rate.num,
-            rate.den
+            on_frames(rate, s.from)
         ));
         at = back(f, &at, &format!("hw{name}"), &name, s.from, s.to);
     }
@@ -1272,8 +1285,8 @@ fn dark(f: &mut Vec<String>, at: &str, overlays: &[Overlay], total: u32, rate: R
     // On the holes' clock (`highlight`'s times), or a hole's frame and the white's can round
     // apart and the hole show a frame late.
     f.push(format!(
-        "color=c=white:s={size}:{clock},format=gbrp,trim=end_frame={total},settb=AVTB,setpts=N/({}/{}*TB)[k]",
-        rate.num, rate.den
+        "color=c=white:s={size}:{clock},format=gbrp,trim=end_frame={total},{}[k]",
+        on_frames(rate, 0)
     ));
     let mut left = "k".to_string();
     for (k, o) in overlays.iter().enumerate() {
@@ -1312,12 +1325,10 @@ fn dark(f: &mut Vec<String>, at: &str, overlays: &[Overlay], total: u32, rate: R
         for (j, s) in o.shows.iter().enumerate() {
             let name = format!("{k}_{j}");
             f.push(format!(
-                "[dv{name}]trim=start_frame={}:end_frame={},settb=AVTB,setpts=(N+{})/({}/{}*TB)[dw{name}]",
+                "[dv{name}]trim=start_frame={}:end_frame={},{}[dw{name}]",
                 s.at + 1,
                 s.at + 1 + s.to - s.from,
-                s.from,
-                rate.num,
-                rate.den
+                on_frames(rate, s.from)
             ));
             // What's left of the darkness on these frames, as a grey picture's alpha.
             f.push(format!(
@@ -3098,10 +3109,9 @@ mod tests {
             "[m0]loop=loop=10:size=1:start=0,fade=t=in:s=1:n=4:alpha=1,\
              fade=t=out:s=8:n=2:alpha=1,split=2[f0_0][f0_1];"
         ));
-        assert!(a.contains(
-            "[f0_1]trim=start_frame=4:end_frame=9,settb=AVTB,\
-             setpts=(N+20)/(30000/1001*TB)[g0_1];"
-        ));
+        assert!(
+            a.contains("[f0_1]trim=start_frame=4:end_frame=9,settb=1001/30000,setpts=N+20[g0_1];")
+        );
         assert!(a.contains(
             "[vc][g0_0]overlay=x=2:y=4:format=yuv444:eof_action=pass:\
              enable='between(n,5,14)'[o0_0];"
@@ -3336,7 +3346,7 @@ mod tests {
         assert!(!a.contains("[p1_0]"));
         // The holes multiplied into white, as long as the export.
         assert!(a.contains(
-            "color=c=white:s=64x48:r=30/1,format=gbrp,trim=end_frame=90,settb=AVTB,setpts=N/(30/1*TB)[k];"
+            "color=c=white:s=64x48:r=30/1,format=gbrp,trim=end_frame=90,settb=1/30,setpts=N+0[k];"
         ));
         assert!(a.contains("[k]split[hb0_0][hc0_0]"));
         assert!(a.contains(
@@ -3348,9 +3358,7 @@ mod tests {
             "color=c=black@0.6000:s=64x48:r=30/1,format=gbrap,trim=end_frame=21,\
              fade=t=in:s=1:n=4:alpha=1,split=2[dv1_0][dv1_1]"
         ));
-        assert!(a.contains(
-            "[dv1_1]trim=start_frame=11:end_frame=21,settb=AVTB,setpts=(N+40)/(30/1*TB)[dw1_1]"
-        ));
+        assert!(a.contains("[dv1_1]trim=start_frame=11:end_frame=21,settb=1/30,setpts=N+40[dw1_1]"));
         // What's left of it on those frames is its alpha.
         assert!(a.contains("[ks1]trim=start_frame=40:end_frame=50,split[ka1_1][kb1_1]"));
         assert!(a.contains(
@@ -3378,6 +3386,61 @@ mod tests {
             6_000_000,
         ));
         assert!(!lone.contains("movie="));
+    }
+
+    #[test]
+    fn a_ripple_is_one_item_its_frames_shown_on_the_exports() {
+        let c = [Cut {
+            out: 90,
+            ..Default::default()
+        }];
+        // 20 frames, cut in two: its frames 0 to 4 on export frames 10 to 14, 12 to 19 on 30 to 37.
+        let ripple = Overlay {
+            layer: MarkLayer::Frames,
+            path: PathBuf::from("r.rgba"),
+            x: 7,
+            y: 8,
+            width: 30,
+            height: 30,
+            shows: vec![
+                Show {
+                    from: 10,
+                    to: 15,
+                    at: 0,
+                },
+                Show {
+                    from: 30,
+                    to: 38,
+                    at: 12,
+                },
+            ],
+            length: 20,
+            fade_in: 0,
+            fade_out: 0,
+        };
+        let a = joined(&one_file(
+            Path::new("in.mp4"),
+            &c,
+            Rate { num: 30, den: 1 },
+            0.0,
+            0,
+            None,
+            &[ripple],
+            Encoder::X264,
+            6_000_000,
+        ));
+        // Read once, as it is: no loop, no fades.
+        assert!(a.contains("pixel_format=rgba\\\\:video_size=30x30[p0_0];"));
+        assert!(a.contains("[p0_0]format=yuva444p[m0];[m0]null,split=2[f0_0][f0_1];"));
+        // On the export's frames exactly.
+        assert!(!a.contains("loop="));
+        assert!(!a.contains("fade="));
+        assert!(a.contains("[f0_0]trim=start_frame=0:end_frame=5,settb=1/30,setpts=N+10[g0_0]"));
+        assert!(a.contains("[f0_1]trim=start_frame=12:end_frame=20,settb=1/30,setpts=N+30[g0_1]"));
+        assert!(a.contains(
+            "[vc][g0_0]overlay=x=7:y=8:format=yuv444:eof_action=pass:enable='between(n,10,14)'[o0_0]"
+        ));
+        assert!(a.contains("[o0_0][g0_1]overlay=x=7:y=8:format=yuv444:eof_action=pass:enable='between(n,30,37)'[o0_1]"));
     }
 
     #[test]

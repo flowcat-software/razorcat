@@ -87,12 +87,13 @@ async function sendMarkup(doc: Doc): Promise<ExportMark[]> {
     );
   }
   const dark = darkLayer(doc);
-  const items = drawn.map(({ id, x, y, width, height, start, end, layer, faded }): ExportMark => {
+  const items = drawn.map(({ id, x, y, width, height, start, end, layer }): ExportMark => {
     const mark = doc.marks.find((m) => m.id === id);
-    // A hole's fades are its own but where the darkness's are (spotlights.ts); a ripple's frame
-    // has its fade drawn in.
+    // A hole's fades are its own but where the darkness's are (spotlights.ts); a ripple's frames
+    // have their fades drawn in.
     const hole = layer === "hole" ? dark?.holes.get(id) : undefined;
-    const fades = faded ? { fadeIn: 0, fadeOut: 0 } : (hole ?? markFades(mark ?? {}, end - start));
+    const drawnIn = layer === "frames" ? { fadeIn: 0, fadeOut: 0 } : undefined;
+    const fades = drawnIn ?? hole ?? markFades(mark ?? {}, end - start);
     const { fadeIn, fadeOut } = fades;
     return { id, x, y, width, height, start, end, fadeIn, fadeOut, layer: { kind: layer } };
   });

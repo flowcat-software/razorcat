@@ -576,6 +576,12 @@ export type GrowUnit = "px" | "percent";
 export type MarkLayer = 
 /**  Laid over the frame. */
 { kind: "item" } | 
+/**
+ *  Laid over the frame, a picture for each of its frames, one after another, their fades
+ *  drawn in: a ripple (PLAN 5b.6e), which moves. One item rather than one a frame, as each is
+ *  an overlay every frame of the export goes through (PLAN 5d.5b).
+ */
+{ kind: "frames" } | 
 /**  A highlighter's: multiplied into the frame, beneath the other markup (PLAN 4.5c). */
 { kind: "highlight" } | 
 /**  A spotlight's hole, cut out of the darkness (PLAN 4.5g). */

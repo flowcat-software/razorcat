@@ -23,6 +23,10 @@ use crate::state::AppState;
 pub enum MarkLayer {
     /// Laid over the frame.
     Item,
+    /// Laid over the frame, a picture for each of its frames, one after another, their fades
+    /// drawn in: a ripple (PLAN 5b.6e), which moves. One item rather than one a frame, as each is
+    /// an overlay every frame of the export goes through (PLAN 5d.5b).
+    Frames,
     /// A highlighter's: multiplied into the frame, beneath the other markup (PLAN 4.5c).
     Highlight,
     /// A spotlight's hole, cut out of the darkness (PLAN 4.5g).
@@ -132,7 +136,7 @@ pub fn take(app: &AppHandle, marks: Vec<ExportMark>) -> Result<Markup, String> {
             MarkLayer::Highlight | MarkLayer::Hole => {
                 (dir.join(format!("{}.rgb", mark.id)), over_white(&rgba))
             }
-            MarkLayer::Item => (dir.join(format!("{}.rgba", mark.id)), rgba),
+            MarkLayer::Item | MarkLayer::Frames => (dir.join(format!("{}.rgba", mark.id)), rgba),
         };
         std::fs::write(&path, bytes).map_err(|e| format!("The markup couldn't be kept ({e})."))?;
         markup.items.push(MarkFile { path, mark });
@@ -153,8 +157,8 @@ fn over_white(rgba: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-/// Each of `marks` with the pixels `sent` for it, checked: all there, of its size (the darkness
-/// has none).
+/// Each of `marks` with the pixels `sent` for it, checked: all there, of its size (a ripple's, a
+/// picture for each of its frames; the darkness has none).
 fn pair(
     marks: Vec<ExportMark>,
     mut sent: HashMap<u32, Vec<u8>>,
@@ -171,7 +175,11 @@ fn pair(
             let rgba = sent
                 .remove(&m.id)
                 .ok_or("The markup wasn't all sent: try again.")?;
-            let size = u64::from(m.width) * u64::from(m.height) * 4;
+            let pictures = match m.layer {
+                MarkLayer::Frames => u64::from(m.end.saturating_sub(m.start)),
+                _ => 1,
+            };
+            let size = u64::from(m.width) * u64::from(m.height) * 4 * pictures;
             if size == 0 || rgba.len() as u64 != size || m.start >= m.end {
                 return Err("The markup sent doesn't fit: try again.".to_string());
             }
@@ -220,6 +228,16 @@ mod tests {
                 .collect::<Vec<_>>(),
             [(2, 4), (1, 24)]
         );
+    }
+
+    #[test]
+    fn a_ripple_has_a_picture_for_each_of_its_frames() {
+        let mut ripple = mark(4, 2, 3);
+        ripple.layer = MarkLayer::Frames;
+        let all = HashMap::from([(4, vec![0; 2 * 3 * 4 * 10])]);
+        assert_eq!(pair(vec![ripple.clone()], all).unwrap()[0].1.len(), 240);
+        let one = HashMap::from([(4, vec![0; 2 * 3 * 4])]);
+        assert!(pair(vec![ripple], one).is_err());
     }
 
     #[test]
