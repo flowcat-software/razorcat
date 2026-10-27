@@ -81,6 +81,12 @@ export interface MicrophoneItem extends BaseItem {
   path: PathOf<Settings, string>;
 }
 
+/** Which camera records (Settings › Recording): the first connected, or one by name. */
+export interface CameraItem extends BaseItem {
+  kind: "camera";
+  path: PathOf<Settings, string>;
+}
+
 /** A number dragged along a slider, `min`–`max` by `step`, shown by `format`. */
 export interface SliderItem extends BaseItem {
   kind: "slider";
@@ -207,6 +213,7 @@ export type Item =
   | ColorItem
   | SliderItem
   | MicrophoneItem
+  | CameraItem
   | FolderItem
   | ProxyLimitItem
   | GrowPresetsItem

@@ -1,0 +1,50 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Round, with room round it for its shadow. */
+.bubble {
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #202020;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.45);
+  cursor: grab;
+}
+
+.bubble:active {
+  cursor: grabbing;
+}
+
+canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.note {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #fff;
+  font:
+    13px/1.35 "Segoe UI",
+    system-ui,
+    sans-serif;
+  background: rgb(0 0 0 / 0.55);
+}
+
+.note[hidden] {
+  display: none;
+}

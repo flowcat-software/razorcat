@@ -4,6 +4,7 @@ import type { ComponentType } from "react";
 import type { Item, ItemKind } from "../schema";
 import { AboutCard } from "./AboutCard";
 import { AccentPicker } from "./AccentPicker";
+import { CameraPicker } from "./CameraPicker";
 import { Choice, NumberChoice } from "./Choice";
 import { ColorSetting } from "./ColorSetting";
 import { FolderInput } from "./FolderInput";
@@ -51,6 +52,7 @@ export const controls: Registry = {
   color: { component: ColorSetting, layout: "stacked" },
   slider: { component: Slider, layout: "inline" },
   microphone: { component: MicrophonePicker, layout: "inline" },
+  camera: { component: CameraPicker, layout: "inline" },
   folder: { component: FolderInput, layout: "stacked" },
   proxyLimit: { component: ProxyLimit, layout: "inline" },
   growPresets: { component: GrowPresetsEditor, layout: "stacked" },

@@ -49,6 +49,8 @@ pub struct PickLoad {
     pub system_sound: bool,
     /// Clicks are highlighted (Settings › Recording; the bar's toggle and the control's).
     pub clicks: bool,
+    /// The camera is recorded (Settings › Recording; the bar's toggle), its bubble shown.
+    pub camera: bool,
 }
 
 /// An area of a monitor, in its own physical pixels.
@@ -124,6 +126,8 @@ pub fn open(app: &AppHandle, add: bool) -> Result<(), String> {
         if let Some(w) = focus {
             let _ = w.set_focus();
         }
+        // The camera's bubble, over them.
+        crate::camera::sync(&app);
     });
     Ok(())
 }
@@ -185,6 +189,19 @@ fn close(app: &AppHandle) {
             let _ = window.destroy();
         }
     }
+    crate::camera::sync(app);
+}
+
+/// While picking, the monitor the pointer is on (or the first); None otherwise.
+pub fn screen_under_pointer() -> Option<Screen> {
+    let guard = PICKING.lock().unwrap();
+    let screens = &guard.as_ref()?.screens;
+    let at = cursor();
+    screens
+        .iter()
+        .find(|s| at.is_some_and(|(x, y)| s.contains(x, y)))
+        .or(screens.first())
+        .cloned()
 }
 
 /// Overlay `index`'s monitor and the windows; None once picking is over.
@@ -206,6 +223,7 @@ pub fn load(app: &AppHandle, index: u32) -> Option<PickLoad> {
         microphone: sound.microphone,
         system_sound: sound.system_sound,
         clicks: sound.clicks,
+        camera: sound.camera,
     })
 }
 

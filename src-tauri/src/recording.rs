@@ -1439,7 +1439,7 @@ fn close_countdown(app: &AppHandle) {
 }
 
 /// Leaves `window` out of screen captures (Windows 10 2004 and later; earlier, it shows black).
-fn exclude_from_capture(window: &tauri::WebviewWindow) {
+pub fn exclude_from_capture(window: &tauri::WebviewWindow) {
     use windows::Win32::UI::WindowsAndMessaging::{
         SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
     };

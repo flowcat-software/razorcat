@@ -21,6 +21,7 @@ export default defineConfig(() => ({
         picker: page("picker"),
         outline: page("outline"),
         countdown: page("countdown"),
+        camera: page("camera"),
       },
     },
   },

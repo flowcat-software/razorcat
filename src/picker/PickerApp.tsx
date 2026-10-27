@@ -2,8 +2,9 @@
 // screen live under it. Vandal's overlay, for video: drag an area (Shift: a square), adjust it by
 // its edges or the keys, then Enter or the Record bar records it; F records this whole screen;
 // W picks a window (a click, or Enter, records it); Esc or a right-click goes back. The
-// microphone and the system's sound are turned on or off by the bar's buttons, or M and S
-// (Settings › Recording's settings). One selection over every monitor: starting one here clears the
+// microphone, the system's sound, clicks and the camera are turned on or off by the bar's
+// buttons, or M, S, C and V (Settings › Recording's settings); the camera's bubble shows while
+// it's on (camera.rs). One selection over every monitor: starting one here clears the
 // others'. Selections are in the monitor's physical pixels, shown in CSS px.
 
 import {
@@ -72,6 +73,8 @@ export function PickerApp() {
   const [system, setSystem] = useState(false);
   /** Clicks highlighted (Settings › Recording; the control's button while recording). */
   const [clicks, setClicks] = useState(false);
+  /** The camera recorded, its bubble shown. */
+  const [camera, setCamera] = useState(false);
 
   // The window is sized to its monitor after it's made: follow it.
   useEffect(() => {
@@ -102,6 +105,7 @@ export function PickerApp() {
       setMic(!!payload.recording?.microphone);
       setSystem(!!payload.recording?.systemSound);
       setClicks(!!payload.recording?.clicks);
+      setCamera(!!payload.recording?.camera);
     });
     void commands.pickLoad(index).then((l) => {
       setLoad(l);
@@ -109,6 +113,7 @@ export function PickerApp() {
         setMic(l.microphone);
         setSystem(l.systemSound);
         setClicks(l.clicks);
+        setCamera(l.camera);
       }
     });
     return () => {
@@ -129,19 +134,25 @@ export function PickerApp() {
   const cancel = useCallback(() => void commands.pickCancel(), []);
   const toggleMic = useCallback(() => {
     setMic((on) => {
-      void commands.setRecordSound(!on, null, null);
+      void commands.setRecordSound(!on, null, null, null);
       return !on;
     });
   }, []);
   const toggleSystem = useCallback(() => {
     setSystem((on) => {
-      void commands.setRecordSound(null, !on, null);
+      void commands.setRecordSound(null, !on, null, null);
       return !on;
     });
   }, []);
   const toggleClicks = useCallback(() => {
     setClicks((on) => {
-      void commands.setRecordSound(null, null, !on);
+      void commands.setRecordSound(null, null, !on, null);
+      return !on;
+    });
+  }, []);
+  const toggleCamera = useCallback(() => {
+    setCamera((on) => {
+      void commands.setRecordSound(null, null, null, !on);
       return !on;
     });
   }, []);
@@ -171,6 +182,7 @@ export function PickerApp() {
       if (plain && e.code === "KeyM") return toggleMic();
       if (plain && e.code === "KeyS") return toggleSystem();
       if (plain && e.code === "KeyC") return toggleClicks();
+      if (plain && e.code === "KeyV") return toggleCamera();
       if (picking) {
         // Esc / W go back to selecting an area; Enter records the window lit.
         if (e.key === "Escape" || plainW) return setWindowPick(false, null);
@@ -226,6 +238,7 @@ export function PickerApp() {
     toggleMic,
     toggleSystem,
     toggleClicks,
+    toggleCamera,
   ]);
 
   const toLocal = (e: PointerEvent): Point =>
@@ -440,6 +453,16 @@ export function PickerApp() {
           >
             <MouseIcon on={clicks} />
           </button>
+          <button
+            type="button"
+            className={styles.mic}
+            aria-pressed={camera}
+            title={camera ? "Camera on (V)" : "Camera off (V)"}
+            aria-label="Record the camera"
+            onClick={toggleCamera}
+          >
+            <CameraIcon on={camera} />
+          </button>
           <button type="button" className={styles.record} onClick={() => record(selection)}>
             <span className={styles.dot} aria-hidden />
             Record
@@ -454,6 +477,7 @@ export function PickerApp() {
           mic={mic}
           system={system}
           clicks={clicks}
+          camera={camera}
           picking={picking}
           hasSelection={!!selection}
           atBottom={!!selection && css(selection.y) < 72}
@@ -475,6 +499,7 @@ function HintBar({
   mic,
   system,
   clicks,
+  camera,
   picking,
   hasSelection,
   atBottom,
@@ -482,6 +507,7 @@ function HintBar({
   mic: boolean;
   system: boolean;
   clicks: boolean;
+  camera: boolean;
   picking: boolean;
   hasSelection: boolean;
   atBottom: boolean;
@@ -496,6 +522,7 @@ function HintBar({
           <Hint keys={["M"]} label={mic ? "mic on" : "mic off"} />
           <Hint keys={["S"]} label={system ? "sound on" : "sound off"} />
           <Hint keys={["C"]} label={clicks ? "clicks on" : "clicks off"} />
+          <Hint keys={["V"]} label={camera ? "camera on" : "camera off"} />
           <Hint keys={["Esc"]} label="back" />
         </>
       ) : hasSelection ? (
@@ -508,6 +535,7 @@ function HintBar({
           <Hint keys={["M"]} label={mic ? "mic on" : "mic off"} />
           <Hint keys={["S"]} label={system ? "sound on" : "sound off"} />
           <Hint keys={["C"]} label={clicks ? "clicks on" : "clicks off"} />
+          <Hint keys={["V"]} label={camera ? "camera on" : "camera off"} />
           <Hint keys={["Esc"]} label="cancel" />
         </>
       ) : (
@@ -519,6 +547,7 @@ function HintBar({
           <Hint keys={["M"]} label={mic ? "mic on" : "mic off"} />
           <Hint keys={["S"]} label={system ? "sound on" : "sound off"} />
           <Hint keys={["C"]} label={clicks ? "clicks on" : "clicks off"} />
+          <Hint keys={["V"]} label={camera ? "camera on" : "camera off"} />
           <Hint keys={["Esc"]} label="cancel" />
         </>
       )}
@@ -543,6 +572,16 @@ function MicIcon({ on }: { on: boolean }) {
     <Struck off={!on}>
       <rect x="9" y="3" width="6" height="11" rx="3" />
       <path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" fill="none" />
+    </Struck>
+  );
+}
+
+/** A video camera; off, struck through. */
+function CameraIcon({ on }: { on: boolean }) {
+  return (
+    <Struck off={!on}>
+      <rect x="3" y="7" width="12" height="10" rx="2" fill="none" />
+      <path d="M15 10.5l6-3.5v10l-6-3.5z" fill="none" />
     </Struck>
   );
 }

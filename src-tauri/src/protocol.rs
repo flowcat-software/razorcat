@@ -12,6 +12,10 @@
 //!
 //! `POST /markup/{id}`: the page sends an item of markup's pixels for the next export
 //! (markup.rs), raw straight-alpha RGBA.
+//!
+//! `/camera/{after}`: the camera's preview (camera.rs), its first picture numbered past `after`
+//! (a JPEG, its number in `x-frame`), waited for a while: 204 if none came, 410 and why if the
+//! camera stopped.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -75,6 +79,8 @@ enum Route {
     Wave(u64),
     /// An item of markup's pixels, sent (POST).
     Markup(u32),
+    /// The camera's next picture after this one.
+    Camera(u64),
 }
 
 pub fn handle<R: Runtime>(
@@ -178,6 +184,7 @@ pub fn handle<R: Runtime>(
                     _ => reply(StatusCode::NOT_FOUND, vec![]),
                 }
             }
+            Some(Route::Camera(after)) => camera(after),
             None => reply(StatusCode::NOT_FOUND, vec![]),
         };
         responder.respond(resp);
@@ -200,6 +207,7 @@ fn route(path: &str) -> Option<Route> {
         "frames" => Some(Route::Frames(generation)),
         "wave" => Some(Route::Wave(generation)),
         "markup" => Some(Route::Markup(rest.parse().ok()?)),
+        "camera" => Some(Route::Camera(rest.parse().ok()?)),
         _ => None,
     }
 }
@@ -212,6 +220,23 @@ fn frames(times: &[(f64, f64)]) -> Response<Vec<u8>> {
         .flatten()
         .collect();
     bytes_for_page(body)
+}
+
+/// The camera's picture after `after`, or why there's none.
+fn camera(after: u64) -> Response<Vec<u8>> {
+    let (status, kind, frame, body) = match crate::camera::next_frame(after) {
+        crate::camera::Next::Frame(n, jpeg) => (StatusCode::OK, "image/jpeg", n, jpeg.to_vec()),
+        crate::camera::Next::Waiting => (StatusCode::NO_CONTENT, "text/plain", after, vec![]),
+        crate::camera::Next::Ended(why) => (StatusCode::GONE, "text/plain", after, why.into()),
+    };
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, kind)
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(header::ACCESS_CONTROL_EXPOSE_HEADERS, "x-frame")
+        .header("x-frame", frame.to_string())
+        .body(body)
+        .unwrap()
 }
 
 /// Bytes the page fetches (the video doesn't), so they need CORS.
@@ -291,6 +316,7 @@ mod tests {
         assert_eq!(route("/thumbs/6/120"), Some(Route::Thumbs(6, 120)));
         assert_eq!(route("/wave/7"), Some(Route::Wave(7)));
         assert_eq!(route("/markup/8"), Some(Route::Markup(8)));
+        assert_eq!(route("/camera/9"), Some(Route::Camera(9)));
         assert_eq!(route("/thumbs/6"), None);
         assert_eq!(route("/thumbs/6/x"), None);
         assert_eq!(route("/source/x"), None);

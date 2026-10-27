@@ -145,12 +145,14 @@ export const commands = {
 	systemSound: boolean,
 	/**  Clicks are highlighted (Settings › Recording; the bar's toggle and the control's). */
 	clicks: boolean,
+	/**  The camera is recorded (Settings › Recording; the bar's toggle), its bubble shown. */
+	camera: boolean,
 } | null>("pick_load", { index }),
 	/**
-	 *  The Record bar's microphone, system sound and clicks toggles (Settings › Recording's too):
-	 *  each as given, or as it is.
+	 *  The Record bar's microphone, system sound, clicks and camera toggles (Settings › Recording's
+	 *  too): each as given, or as it is.
 	 */
-	setRecordSound: (microphone: boolean | null, system: boolean | null, clicks: boolean | null) => typedError<null, string>(__TAURI_INVOKE("set_record_sound", { microphone, system, clicks })),
+	setRecordSound: (microphone: boolean | null, system: boolean | null, clicks: boolean | null, camera: boolean | null) => typedError<null, string>(__TAURI_INVOKE("set_record_sound", { microphone, system, clicks, camera })),
 	/**  The control's microphone button: muted or not. */
 	muteRecording: (muted: boolean) => __TAURI_INVOKE<void>("mute_recording", { muted }),
 	/**  The control's system sound button: muted or not. */
@@ -165,6 +167,8 @@ export const commands = {
 } | null>("take_recorded_input", { path }),
 	/**  The microphones connected now, and which is the default (Settings › Recording). */
 	microphones: () => __TAURI_INVOKE<Microphones>("microphones"),
+	/**  The cameras connected now (Settings › Recording). */
+	cameras: () => __TAURI_INVOKE<Camera[]>("cameras"),
 	/**  Window mode on or off, and the window under the pointer, on one overlay: all follow. */
 	pickWindowChanged: (picking: boolean, hovered: number | null) => __TAURI_INVOKE<void>("pick_window_changed", { picking, hovered }),
 	/**  Window `index` of the overlays' list is recorded. */
@@ -268,6 +272,14 @@ export type CacheReport = {
 	/**  What `limit_gb` would delete: how many proxies, and their bytes. */
 	dropping: number,
 	droppingBytes: number | null,
+};
+
+/**
+ *  A camera connected: its name, as Windows shows it (what Settings keeps), and DirectShow's
+ *  name for its device, which ffmpeg opens.
+ */
+export type Camera = {
+	name: string,
 };
 
 /**  Rust → editor: check the source just opened. */
@@ -654,6 +666,8 @@ export type PickLoad = {
 	systemSound: boolean,
 	/**  Clicks are highlighted (Settings › Recording; the bar's toggle and the control's). */
 	clicks: boolean,
+	/**  The camera is recorded (Settings › Recording; the bar's toggle), its bubble shown. */
+	camera: boolean,
 };
 
 /**  An area of a monitor, in its own physical pixels. */
@@ -772,6 +786,12 @@ export type Recording = {
 	microphoneDevice?: string,
 	/**  What the computer plays is recorded too, mixed with the microphone (PLAN 5b.4c). */
 	systemSound?: boolean,
+	/**
+	 *  The camera is recorded (PLAN 5d; the picker's toggle too), the one with this name, or
+	 *  empty: the first connected. Off until chosen.
+	 */
+	camera?: boolean,
+	cameraDevice?: string,
 	/**  The pointer is in the recording (PLAN 5b.5a). */
 	cursor?: boolean,
 	/**  Frames per second, one of [`RECORD_RATES`]. */
@@ -1055,7 +1075,10 @@ export type Tray = {
 	keepRunning?: boolean,
 	/**  The first close has said Razorcat stays in the tray (it says so once, ever). */
 	told?: boolean,
-	/**  Razorcat starts with Windows, in the tray, the editor hidden. Off by default. */
+	/**
+	 *  Razorcat launches as you sign in to Windows (Launch on login, as Vandal says), in the tray,
+	 *  the editor hidden. Off by default.
+	 */
 	startWithWindows?: boolean,
 };
 

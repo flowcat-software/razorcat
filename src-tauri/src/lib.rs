@@ -4,6 +4,7 @@ mod log;
 
 mod appearance;
 mod audio;
+mod camera;
 mod check;
 mod cli;
 mod commands;
@@ -92,6 +93,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::note_recording_clicks,
             commands::take_recorded_input,
             commands::microphones,
+            commands::cameras,
             commands::pick_window_changed,
             commands::pick_window,
             commands::default_recording_folder,
@@ -244,10 +246,17 @@ pub fn run() {
         // The editor: files dropped on it open there (the timeline shows where, as they're
         // dragged over it), and its place on screen is remembered.
         .on_window_event(|window, event| {
+            let app = window.app_handle();
+            // A picker overlay that takes the keys comes up over the camera's bubble.
+            if window.label().starts_with("pick-") {
+                if let tauri::WindowEvent::Focused(true) = event {
+                    camera::raise(app);
+                }
+                return;
+            }
             if window.label() != editor::LABEL {
                 return;
             }
-            let app = window.app_handle();
             match event {
                 tauri::WindowEvent::DragDrop(drag) => {
                     let scale = window.scale_factor().unwrap_or(1.0);

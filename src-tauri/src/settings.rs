@@ -106,6 +106,10 @@ pub struct Recording {
     pub microphone_device: String,
     /// What the computer plays is recorded too, mixed with the microphone (PLAN 5b.4c).
     pub system_sound: bool,
+    /// The camera is recorded (PLAN 5d; the picker's toggle too), the one with this name, or
+    /// empty: the first connected. Off until chosen.
+    pub camera: bool,
+    pub camera_device: String,
     /// The pointer is in the recording (PLAN 5b.5a).
     pub cursor: bool,
     /// Frames per second, one of [`RECORD_RATES`].
@@ -210,6 +214,8 @@ impl Default for Recording {
             microphone: true,
             microphone_device: String::new(),
             system_sound: false,
+            camera: false,
+            camera_device: String::new(),
             cursor: true,
             fps: 60,
             countdown: 3,
@@ -852,6 +858,11 @@ pub fn update(app: &AppHandle<Wry>, new: Settings) -> Result<Settings, String> {
         crate::tray::start_with_windows(app, new.tray.start_with_windows);
     }
     crate::tray::refresh(app, &new);
+    if (new.recording.camera, &new.recording.camera_device)
+        != (old.recording.camera, &old.recording.camera_device)
+    {
+        crate::camera::sync(app);
+    }
 
     let _ = SettingsChanged(new.clone()).emit(app);
     Ok(new)

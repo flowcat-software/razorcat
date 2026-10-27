@@ -327,8 +327,8 @@ pub fn pick_load(app: AppHandle, index: u32) -> Option<crate::picker::PickLoad> 
     crate::picker::load(&app, index)
 }
 
-/// The Record bar's microphone, system sound and clicks toggles (Settings › Recording's too):
-/// each as given, or as it is.
+/// The Record bar's microphone, system sound, clicks and camera toggles (Settings › Recording's
+/// too): each as given, or as it is.
 #[tauri::command]
 #[specta::specta]
 pub fn set_record_sound(
@@ -336,6 +336,7 @@ pub fn set_record_sound(
     microphone: Option<bool>,
     system: Option<bool>,
     clicks: Option<bool>,
+    camera: Option<bool>,
 ) -> Result<(), String> {
     let mut s = app
         .state::<crate::state::AppState>()
@@ -351,6 +352,9 @@ pub fn set_record_sound(
     }
     if let Some(on) = clicks {
         s.recording.clicks = on;
+    }
+    if let Some(on) = camera {
+        s.recording.camera = on;
     }
     settings::update(&app, s).map(drop)
 }
@@ -395,6 +399,13 @@ pub fn mute_system_sound(app: AppHandle, muted: bool) {
 #[specta::specta]
 pub async fn microphones() -> crate::audio::Microphones {
     crate::audio::microphones()
+}
+
+/// The cameras connected now (Settings › Recording).
+#[tauri::command]
+#[specta::specta]
+pub async fn cameras() -> Vec<crate::camera::Camera> {
+    crate::camera::cameras()
 }
 
 /// Window mode on or off, and the window under the pointer, on one overlay: all follow.

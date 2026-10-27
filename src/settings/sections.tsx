@@ -904,6 +904,28 @@ export const sections: Section[] = [
         ],
       },
       {
+        title: "Camera",
+        items: [
+          {
+            id: "recordingCamera",
+            kind: "toggle",
+            path: "recording.camera",
+            label: "Record the camera",
+            description:
+              "Your face in a bubble, recorded as its own video so you can move, resize or hide it afterwards. Also turned on or off as you pick what to record: the camera button by Record, or V.",
+            keywords: ["camera", "webcam", "face", "bubble", "video", "record"],
+          },
+          {
+            id: "recordingCameraDevice",
+            kind: "camera",
+            path: "recording.cameraDevice",
+            label: "Camera",
+            disabled: (s) => !s.recording.camera,
+            keywords: ["camera", "webcam", "device", "input", "video"],
+          },
+        ],
+      },
+      {
         title: "Clicks",
         items: [
           {
