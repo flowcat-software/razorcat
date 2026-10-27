@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { Player } from "./player";
+import { continues, Player } from "./player";
 
 /** Just enough of a `<video>` for the player to attach it. */
 const fakeVideo = () =>
@@ -62,5 +62,30 @@ describe("the player's frames at another speed", () => {
     expect([9, 10, 11, 19].map((t) => player.sourceFrame(t))).toEqual([9, 100, 102, 118]);
     // At a third, phase 1: floor((v + 1) / 3).
     expect([20, 21, 22, 23, 25].map((t) => player.sourceFrame(t))).toEqual([0, 0, 1, 1, 2]);
+  });
+});
+
+describe("continues", () => {
+  const clip = (source: string, start: number, from: number, to: number) => ({
+    start,
+    source,
+    in: from,
+    out: to,
+    muted: false,
+  });
+
+  it("plays on into a split's other half", () => {
+    expect(continues(clip("a", 0, 0, 100), clip("a", 100, 100, 250))).toBe(true);
+  });
+
+  it("seeks when the next clip jumps, is another file's, or is at another speed", () => {
+    // A part cut out between them.
+    expect(continues(clip("a", 0, 0, 100), clip("a", 100, 160, 250))).toBe(false);
+    // Moved before it.
+    expect(continues(clip("a", 0, 100, 200), clip("a", 100, 0, 100))).toBe(false);
+    expect(continues(clip("a", 0, 0, 100), clip("b", 100, 100, 250))).toBe(false);
+    expect(
+      continues(clip("a", 0, 0, 100), { ...clip("a", 100, 100, 250), speed: { num: 2, den: 1 } }),
+    ).toBe(false);
   });
 });

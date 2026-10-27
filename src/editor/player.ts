@@ -75,6 +75,14 @@ interface Deck {
   proxy: Seeker | null;
 }
 
+/**
+ * Whether clip `b` goes on where clip `a` ends: the same file, both at 100%, `b`'s first frame
+ * the one after `a`'s last. (One that crossfades in starts that much later, `playedClips`.)
+ */
+export function continues(a: Span, b: Span) {
+  return a.source === b.source && isNormal(speedOf(a)) && isNormal(speedOf(b)) && b.in === a.out;
+}
+
 /** The speeds J and L step through. */
 const FASTEST = 8;
 /** How long the original may stay on another picture after a seek before the proxy covers it. */
@@ -777,6 +785,15 @@ export class Player {
     const o = this.deckOf(now)?.original;
     const next = this.spans[this.playing + 1];
     if (!o) return;
+    // The next clip goes on where this one ends (a split, at 100%, no crossfade): the video's
+    // already there, so it plays on, unpaused and unsought (Richard, 2026-10-27: a seek at each
+    // split showed as a stutter, and a recording's camera stumbled on it).
+    if (next && continues(now, next)) {
+      this.playing++;
+      o.video.muted = next.muted;
+      this.preload();
+      return;
+    }
     o.video.pause();
     if (!next) {
       this.stop();
