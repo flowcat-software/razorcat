@@ -1,5 +1,6 @@
 // The recording's floating control (PLAN 5b.2; recording.rs): a red dot, the time recorded, the
-// microphone's mute button when it's recorded (5b.4d; Ctrl+Alt+M too), clicks noted or not
+// microphone's mute button when it's recorded (5b.4d; Ctrl+Alt+M too), the system sound's when
+// it's recorded (Ctrl+Alt+D), clicks noted or not
 // (5b.6a; Ctrl+Alt+C), Pause (5b.5c; Ctrl+Alt+P)
 // and Stop (Ctrl+Alt+S), at the top of the monitor being recorded and left out of the
 // recording. In the countdown (5b.5b) it says when recording starts, and Stop is Cancel. Dragged
@@ -14,6 +15,8 @@ declare global {
     /** The microphone is recorded, and the countdown's seconds (recording.rs, before the page
      *  loads). */
     recordingMic?: boolean;
+    /** The system's sound is recorded. */
+    recordingSystem?: boolean;
     recordingCountdown?: number;
     /** Clicks noted at the start. */
     recordingClicks?: boolean;
@@ -38,6 +41,7 @@ export function RecorderApp() {
   const [now, setNow] = useState(() => performance.now());
   const [stopping, setStopping] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [systemMuted, setSystemMuted] = useState(false);
   const [clicks, setClicks] = useState(() => window.recordingClicks ?? false);
   const [paused, setPaused] = useState(false);
   /** Pausing or resuming takes a moment (a segment ends, or starts): the button waits for it. */
@@ -48,6 +52,7 @@ export function RecorderApp() {
     const timer = window.setInterval(() => setNow(performance.now()), 250);
     // Muted, or paused, by the keys too: Rust says.
     const offMute = events.micMuted.listen(({ payload }) => setMuted(payload));
+    const offSystem = events.systemMuted.listen(({ payload }) => setSystemMuted(payload));
     const offNoted = events.clicksNoted.listen(({ payload }) => setClicks(payload));
     const offPause = events.recordingPaused.listen(({ payload }) => {
       const t = performance.now();
@@ -62,6 +67,7 @@ export function RecorderApp() {
     return () => {
       window.clearInterval(timer);
       void offMute.then((f) => f());
+      void offSystem.then((f) => f());
       void offNoted.then((f) => f());
       void offPause.then((f) => f());
     };
@@ -99,6 +105,30 @@ export function RecorderApp() {
           <Struck off={muted}>
             <rect x="9" y="3" width="6" height="11" rx="3" />
             <path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" fill="none" />
+          </Struck>
+        </button>
+      )}
+      {window.recordingSystem && (
+        <button
+          type="button"
+          className={styles.mic}
+          aria-pressed={systemMuted}
+          data-off={systemMuted || undefined}
+          title={
+            systemMuted
+              ? "Unmute the system sound (Ctrl+Alt+D)"
+              : "Mute the system sound (Ctrl+Alt+D)"
+          }
+          aria-label="Mute the system sound"
+          onClick={() => {
+            setSystemMuted(!systemMuted);
+            void commands.muteSystemSound(!systemMuted);
+          }}
+        >
+          {/* A speaker, as the picker's. */}
+          <Struck off={systemMuted}>
+            <path d="M4 9h4l5-4v14l-5-4H4z" />
+            <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" fill="none" />
           </Struck>
         </button>
       )}

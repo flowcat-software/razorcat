@@ -39,7 +39,8 @@ const COUNTDOWN_LABEL: &str = "recording-countdown";
 /// The control's size (logical px) and its gap from the monitor's top: the dot, the time, clicks,
 /// Pause and Stop. Wide enough for "Starts in 10" (a 10 s countdown) beside them.
 const CONTROL: (f64, f64) = (288.0, 44.0);
-/// What the microphone's mute button adds to it (a button and a gap).
+/// What a sound's mute button adds to it (a button and a gap): the microphone's, the system
+/// sound's.
 const CONTROL_MIC: f64 = 40.0;
 /// While recording, wherever the keys are: mute and unmute the microphone (PLAN 5b.4d), pause
 /// and resume, stop (5b.5c). Settable with 5b.8's shortcuts.
@@ -48,6 +49,8 @@ const PAUSE_KEY: &str = "Ctrl+Alt+P";
 const STOP_KEY: &str = "Ctrl+Alt+S";
 /// Clicks noted or not, while recording (PLAN 5b.6).
 const CLICKS_KEY: &str = "Ctrl+Alt+C";
+/// Mute and unmute the system's sound, while it's recorded (Richard, 2026-10-26: D, desktop).
+const SYSTEM_KEY: &str = "Ctrl+Alt+D";
 const CONTROL_TOP: f64 = 8.0;
 /// How long ffmpeg must keep running for an encoder to count as working.
 const STARTED: Duration = Duration::from_millis(1500);
@@ -86,8 +89,61 @@ struct Running {
     add: bool,
     /// What to say when it's done: why the sound isn't as asked.
     warning: Option<String>,
-    /// The microphone muted (kept across segments).
+    /// The microphone, and the system's sound, muted (kept across segments).
     muted: bool,
+    system_muted: bool,
+}
+
+/// A sound being recorded, which the control can mute: the microphone, or the system's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sound {
+    Microphone,
+    System,
+}
+
+impl Sound {
+    fn of(c: &Capture) -> Self {
+        if c.microphone {
+            Sound::Microphone
+        } else {
+            Sound::System
+        }
+    }
+
+    fn is(self, s: &audio::Source) -> bool {
+        matches!(
+            (self, s),
+            (Sound::Microphone, audio::Source::Microphone(_))
+                | (Sound::System, audio::Source::System)
+        )
+    }
+
+    /// The control told: its button shows it.
+    fn say(self, app: &AppHandle, muted: bool) {
+        let _ = match self {
+            Sound::Microphone => MicMuted(muted).emit_to(app, RECORDER),
+            Sound::System => SystemMuted(muted).emit_to(app, RECORDER),
+        };
+    }
+}
+
+impl Running {
+    fn muted(&mut self, sound: Sound) -> &mut bool {
+        match sound {
+            Sound::Microphone => &mut self.muted,
+            Sound::System => &mut self.system_muted,
+        }
+    }
+}
+
+/// A new segment's sound, muted as the control has it.
+fn set_mutes(seg: &Segment, mic: bool, system: bool) {
+    for c in &seg.sound {
+        c.set_muted(match Sound::of(c) {
+            Sound::Microphone => mic,
+            Sound::System => system,
+        });
+    }
 }
 
 /// One stretch of recording: ffmpeg into `part`, with its sound.
@@ -149,6 +205,10 @@ fn sound_sources(app: &AppHandle) -> Vec<audio::Source> {
 /// Rust → the control: the microphone muted or not (by its button or [`MUTE_KEY`]).
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct MicMuted(pub bool);
+
+/// Rust → the control: the system's sound muted or not (by its button or [`SYSTEM_KEY`]).
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct SystemMuted(pub bool);
 
 /// Rust → the control: the recording paused or going again (its button or [`PAUSE_KEY`]).
 #[derive(Debug, Clone, Serialize, Type, Event)]
@@ -277,72 +337,76 @@ fn recorded(presses: Vec<Press>, spans: &[(i64, i64)], target: &Target) -> Recor
     out
 }
 
-/// Mutes the microphone being recorded, or unmutes it (`muted` None: the other way). Says so to
-/// the control.
-pub fn mute(app: &AppHandle, muted: Option<bool>) {
+/// Mutes `sound` being recorded (the microphone, or the system's), or unmutes it (`muted` None:
+/// the other way). Says so to the control.
+pub fn mute(app: &AppHandle, sound: Sound, muted: Option<bool>) {
     let mut now = NOW.lock().unwrap();
     let Some(r) = now.as_mut() else {
         drop(now);
         let mut early = EARLY.lock().unwrap();
         match early.as_mut() {
-            Some(e) if e.mic => {
-                e.muted = muted.unwrap_or(!e.muted);
-                let _ = MicMuted(e.muted).emit_to(app, RECORDER);
+            Some(e) if e.has(sound) => {
+                let m = e.muted(sound);
+                *m = muted.unwrap_or(!*m);
+                sound.say(app, *m);
             }
             // It got going meanwhile: to the recording.
             None if NOW.lock().unwrap().is_some() => {
                 drop(early);
-                mute(app, muted);
+                mute(app, sound, muted);
             }
             _ => {}
         }
         return;
     };
-    if !r
-        .sources
-        .iter()
-        .any(|s| matches!(s, audio::Source::Microphone(_)))
-    {
+    if !r.sources.iter().any(|s| sound.is(s)) {
         return;
     }
-    let muted = muted.unwrap_or(!r.muted);
-    r.muted = muted;
-    if let Some(mic) = r
+    let m = r.muted(sound);
+    let muted = muted.unwrap_or(!*m);
+    *m = muted;
+    if let Some(c) = r
         .seg
         .as_ref()
-        .and_then(|s| s.sound.iter().find(|c| c.microphone))
+        .and_then(|s| s.sound.iter().find(|c| Sound::of(c) == sound))
     {
-        mic.set_muted(muted);
+        c.set_muted(muted);
     }
     drop(now);
     logln!(
-        "[recording] microphone {}",
+        "[recording] {} {}",
+        match sound {
+            Sound::Microphone => "microphone",
+            Sound::System => "system sound",
+        },
         if muted { "muted" } else { "on" }
     );
-    let _ = MicMuted(muted).emit_to(app, RECORDER);
+    sound.say(app, muted);
 }
 
 /// What a key held while recording does.
 type KeyAction = fn(&AppHandle);
 
-/// The keys held while recording ([`MUTE_KEY`] only with the microphone); let go when it's done.
-fn hold_keys(app: &AppHandle, on: bool, mic: bool) {
+/// The keys held while recording ([`MUTE_KEY`] only with the microphone, [`SYSTEM_KEY`] with the
+/// system's sound); let go when it's done.
+fn hold_keys(app: &AppHandle, on: bool, mic: bool, system: bool) {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
     let keys = app.global_shortcut();
     if !on {
-        for key in [MUTE_KEY, PAUSE_KEY, STOP_KEY, CLICKS_KEY] {
+        for key in [MUTE_KEY, PAUSE_KEY, STOP_KEY, CLICKS_KEY, SYSTEM_KEY] {
             let _ = keys.unregister(key);
         }
         return;
     }
-    let held: [(&str, KeyAction); 4] = [
-        (MUTE_KEY, |app| mute(app, None)),
+    let held: [(&str, KeyAction); 5] = [
+        (MUTE_KEY, |app| mute(app, Sound::Microphone, None)),
         (PAUSE_KEY, pause),
         (STOP_KEY, stop),
         (CLICKS_KEY, |app| note(app, None)),
+        (SYSTEM_KEY, |app| mute(app, Sound::System, None)),
     ];
     for (key, action) in held {
-        if key == MUTE_KEY && !mic {
+        if (key == MUTE_KEY && !mic) || (key == SYSTEM_KEY && !system) {
             continue;
         }
         let registered = keys.on_shortcut(key, move |app, _, event| {
@@ -414,7 +478,26 @@ static SWITCH: Mutex<()> = Mutex::new(());
 struct Early {
     mic: bool,
     muted: bool,
+    /// The system's sound recorded, and muted.
+    system: bool,
+    system_muted: bool,
     clicks: bool,
+}
+
+impl Early {
+    fn has(&self, sound: Sound) -> bool {
+        match sound {
+            Sound::Microphone => self.mic,
+            Sound::System => self.system,
+        }
+    }
+
+    fn muted(&mut self, sound: Sound) -> &mut bool {
+        match sound {
+            Sound::Microphone => &mut self.muted,
+            Sound::System => &mut self.system_muted,
+        }
+    }
 }
 static EARLY: Mutex<Option<Early>> = Mutex::new(None);
 
@@ -711,16 +794,17 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
         show_live(app.clone(), target.clone(), rx);
     }
     let mut sources = sound_sources(app);
-    let mic = sources
-        .iter()
-        .any(|s| matches!(s, audio::Source::Microphone(_)));
+    let mic = sources.iter().any(|s| Sound::Microphone.is(s));
+    let system = sources.iter().any(|s| Sound::System.is(s));
     let count = settings.countdown;
     *EARLY.lock().unwrap() = Some(Early {
         mic,
         muted: false,
+        system,
+        system_muted: false,
         clicks: settings.clicks,
     });
-    open_control(app, &target.screen, mic, count, settings.clicks);
+    open_control(app, &target.screen, mic, system, count, settings.clicks);
     if count > 0 {
         open_countdown(app, target, count);
         let until = Instant::now() + Duration::from_secs(u64::from(count));
@@ -763,7 +847,8 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
                         "[recording] {w}×{h} at {} fps with {encoder:?}, sound {sources:?}",
                         video.fps
                     );
-                    hold_keys(app, true, seg.sound.iter().any(|c| c.microphone));
+                    let has = |sound| seg.sound.iter().any(|c| Sound::of(c) == sound);
+                    hold_keys(app, true, has(Sound::Microphone), has(Sound::System));
                     // Said before it can be stopped, so "stopped" always comes after.
                     let _ = RecordingChanged {
                         recording: true,
@@ -774,9 +859,8 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
                     let mut early = EARLY.lock().unwrap();
                     let set = early.take();
                     let muted = set.is_some_and(|e| e.muted);
-                    if let Some(mic) = seg.sound.iter().find(|c| c.microphone) {
-                        mic.set_muted(muted);
-                    }
+                    let system_muted = set.is_some_and(|e| e.system_muted);
+                    set_mutes(&seg, muted, system_muted);
                     *NOW.lock().unwrap() = Some(Running {
                         seg: Some(seg),
                         parts: Vec::new(),
@@ -792,6 +876,7 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
                         add,
                         warning,
                         muted,
+                        system_muted,
                     });
                     drop(early);
                     if set.is_some_and(|e| e.clicks) {
@@ -1050,19 +1135,18 @@ pub fn pause(app: &AppHandle) {
         }
         // Resuming: a new segment, as the first was made.
         let part = segment_path(&r.base, r.parts.len() + 1);
-        let (target, encoder, sources, video, muted) = (
+        let (target, encoder, sources, video, muted, system_muted) = (
             r.target.clone(),
             r.encoder,
             r.sources.clone(),
             r.video,
             r.muted,
+            r.system_muted,
         );
         drop(now);
         match spawn(&target, encoder, &part, &sources, video) {
             Ok(seg) => {
-                if let Some(mic) = seg.sound.iter().find(|c| c.microphone) {
-                    mic.set_muted(muted);
-                }
+                set_mutes(&seg, muted, system_muted);
                 if let Some(r) = NOW.lock().unwrap().as_mut() {
                     r.seg = Some(seg);
                 }
@@ -1104,7 +1188,7 @@ pub fn stop(app: &AppHandle) {
 /// segments joined into its file, opened; or says why there isn't one.
 fn finish(app: &AppHandle, mut r: Running, ended: bool) {
     close_control(app);
-    hold_keys(app, false, false);
+    hold_keys(app, false, false, false);
     if let Some(seg) = r.seg.take() {
         let done = end_segment(seg, ended);
         if ended && done.is_some() && !r.parts.is_empty() {
@@ -1209,14 +1293,22 @@ fn join(parts: &[PathBuf], base: &std::path::Path, file: &PathBuf) -> Result<(),
 
 /// The control: a small window at the top of `screen`, over everything, not in the taskbar, and
 /// left out of the recording.
-fn open_control(app: &AppHandle, screen: &Screen, mic: bool, countdown: u32, clicks: bool) {
-    let width = CONTROL.0 + if mic { CONTROL_MIC } else { 0.0 };
+fn open_control(
+    app: &AppHandle,
+    screen: &Screen,
+    mic: bool,
+    system: bool,
+    countdown: u32,
+    clicks: bool,
+) {
+    let buttons = u8::from(mic) + u8::from(system);
+    let width = CONTROL.0 + f64::from(buttons) * CONTROL_MIC;
     let builder = WebviewWindowBuilder::new(app, RECORDER, WebviewUrl::App("recorder.html".into()))
-        // The microphone's mute button, when it's recorded; the countdown it shows first; the
-        // clicks noted at the start.
+        // The microphone's and the system sound's mute buttons, when they're recorded; the
+        // countdown it shows first; the clicks noted at the start.
         .initialization_script(format!(
-            "window.recordingMic = {mic}; window.recordingCountdown = {countdown}; \
-             window.recordingClicks = {clicks};"
+            "window.recordingMic = {mic}; window.recordingSystem = {system}; \
+             window.recordingCountdown = {countdown}; window.recordingClicks = {clicks};"
         ));
     let built = crate::appearance::themed(app, builder)
         .title("Recording")

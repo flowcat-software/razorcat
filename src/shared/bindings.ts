@@ -146,6 +146,8 @@ export const commands = {
 	setRecordSound: (microphone: boolean | null, system: boolean | null, clicks: boolean | null) => typedError<null, string>(__TAURI_INVOKE("set_record_sound", { microphone, system, clicks })),
 	/**  The control's microphone button: muted or not. */
 	muteRecording: (muted: boolean) => __TAURI_INVOKE<void>("mute_recording", { muted }),
+	/**  The control's system sound button: muted or not. */
+	muteSystemSound: (muted: boolean) => __TAURI_INVOKE<void>("mute_system_sound", { muted }),
 	/**  The control's Pause: pauses the recording, or resumes it. */
 	pauseRecording: () => __TAURI_INVOKE<void>("pause_recording"),
 	/**  The control's clicks button: noted or not. */
@@ -231,6 +233,7 @@ export const events = {
 	sourceAdded: makeEvent<SourceAdded>("source-added"),
 	sourceConverted: makeEvent<SourceConverted>("source-converted"),
 	sourceOpened: makeEvent<SourceOpened>("source-opened"),
+	systemMuted: makeEvent<SystemMuted>("system-muted"),
 	thumbsUpdate: makeEvent<ThumbsUpdate>("thumbs-update"),
 	toolStylesReset: makeEvent<ToolStylesReset>("tool-styles-reset"),
 	waveReady: makeEvent<WaveReady>("wave-ready"),
@@ -915,6 +918,9 @@ export type Styles = {
 	/**  Per-tool overrides, keyed by tool id (`"highlighter"`, ...). */
 	tools?: { [key in string]: ToolStyles },
 };
+
+/**  Rust → the control: the system's sound muted or not (by its button or [`SYSTEM_KEY`]). */
+export type SystemMuted = boolean;
 
 /**  Light, dark, or following Windows. */
 export type ThemeMode = "system" | "light" | "dark";

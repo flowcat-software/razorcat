@@ -365,7 +365,14 @@ pub fn pause_recording(app: AppHandle) {
 #[tauri::command]
 #[specta::specta]
 pub fn mute_recording(app: AppHandle, muted: bool) {
-    crate::recording::mute(&app, Some(muted));
+    crate::recording::mute(&app, crate::recording::Sound::Microphone, Some(muted));
+}
+
+/// The control's system sound button: muted or not.
+#[tauri::command]
+#[specta::specta]
+pub fn mute_system_sound(app: AppHandle, muted: bool) {
+    crate::recording::mute(&app, crate::recording::Sound::System, Some(muted));
 }
 
 /// The microphones connected now, and which is the default (Settings › Recording).
