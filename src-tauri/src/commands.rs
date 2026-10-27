@@ -15,8 +15,8 @@ use crate::state::AppState;
 /// ([`editor::SourceOpened`] follows). Returns the open sources, if the page reloaded.
 #[tauri::command]
 #[specta::specta]
-pub fn editor_ready(app: AppHandle, window: WebviewWindow) -> Vec<SourceInfo> {
-    editor::ready(&app, &window)
+pub fn editor_ready(app: AppHandle) -> Vec<SourceInfo> {
+    editor::ready(&app)
 }
 
 /// Show the Open dialog and open the picked file ([`editor::SourceOpened`] or
@@ -118,6 +118,14 @@ pub fn open_flowcat_site() {
 #[specta::specta]
 pub fn get_settings(app: AppHandle) -> Settings {
     app.state::<AppState>().settings.read().unwrap().clone()
+}
+
+/// The editor's first close, ever: Razorcat stays in the tray (`keep`) or quits, and closing
+/// does that from now on (PLAN 5b.8a).
+#[tauri::command]
+#[specta::specta]
+pub fn closed_to_tray(app: AppHandle, keep: bool) -> Result<(), String> {
+    crate::tray::closed_to_tray(&app, keep)
 }
 
 /// Every setting as installed: what a group's Reset (Settings, its heading's link) puts back.

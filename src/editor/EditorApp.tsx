@@ -276,6 +276,8 @@ export function EditorApp() {
     | { folder: string; go: () => void }
     /** The first recording: save recordings to `recordFolder`? Then it starts (`add`). */
     | { recordFolder: string; add: boolean }
+    /** The first close: Razorcat stays in the tray. */
+    | { tray: true }
     | null
   >(null);
   /**
@@ -293,6 +295,12 @@ export function EditorApp() {
       .updateSettings({ ...s, export: exported })
       .catch((e: unknown) => console.error("[export] default folder:", e))
       .finally(question.go);
+  };
+  /** Record (the button, the tray's): Stop while recording; with a timeline, asks first. */
+  const recordClicked = () => {
+    if (recording) void commands.stopRecording();
+    else if (source) setAsking({ record: true });
+    else record(false);
   };
   /** Open (the button, Ctrl+O): with edits, asks first. */
   const replace = () => (edited() ? setAsking({ open: true }) : openVideo());
@@ -352,6 +360,11 @@ export function EditorApp() {
   useEffect(() => {
     settingsNow.current = settings;
   }, [settings]);
+  // The tray's Record (PLAN 5b.8a) does as the button does, as things are when it's asked.
+  const recordNow = useRef(recordClicked);
+  useEffect(() => {
+    recordNow.current = recordClicked;
+  });
   useEffect(() => {
     let timer = 0;
     const stop = usePlayback.subscribe(({ volume, muted }) => {
@@ -547,6 +560,9 @@ export function EditorApp() {
       events.checkFrames.listen(({ payload }) => setCheckFor(payload)),
       // Settings › About's resets: the tools as installed too.
       events.toolStylesReset.listen(forgetToolMemory),
+      events.recordAsked.listen(() => recordNow.current()),
+      // The first close, ever (PLAN 5b.8a): Razorcat stays in the tray, the page says so.
+      events.closingToTray.listen(() => setAsking({ tray: true })),
       events.settingsChanged.listen(({ payload }) => {
         setShowThumbs(thumbsOn(payload as Settings));
         setShowWave((payload as Settings).timeline.waveform);
@@ -820,11 +836,7 @@ export function EditorApp() {
         onOpen={replace}
         onAdd={addVideo}
         recording={recording}
-        onRecord={() => {
-          if (recording) void commands.stopRecording();
-          else if (source) setAsking({ record: true });
-          else record(false);
-        }}
+        onRecord={recordClicked}
       />
       <FrameOptions source={source} sources={sources} settings={settings} />
       <div className={styles.preview}>
@@ -908,6 +920,30 @@ export function EditorApp() {
             <strong>{folderLabel(asking.folder)}</strong>
           </p>
           <p>Settings › Export changes this later. Not now keeps the Save dialog.</p>
+        </ConfirmDialog>
+      )}
+      {asking && "tray" in asking && (
+        <ConfirmDialog
+          title="Razorcat keeps running in the tray"
+          confirm="Keep running"
+          onConfirm={() => {
+            setAsking(null);
+            void commands.closedToTray(true);
+          }}
+          onCancel={() => setAsking(null)}
+          other={{
+            label: "Quit instead",
+            onClick: () => {
+              setAsking(null);
+              void commands.closedToTray(false);
+            },
+          }}
+        >
+          <p>
+            Closing the editor hides it, and Razorcat stays in the tray, by the clock, ready to
+            record. Click its icon to open the editor again, or use its menu to quit.
+          </p>
+          <p>Your choice is kept. Settings › General › Tray changes it.</p>
         </ConfirmDialog>
       )}
       {asking && "recordFolder" in asking && (

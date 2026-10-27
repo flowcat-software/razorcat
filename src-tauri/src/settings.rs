@@ -48,6 +48,8 @@ pub struct Settings {
     pub debugging: Debugging,
     /// Settings › About › Reset: how a group's reset asks.
     pub reset: Reset,
+    /// Razorcat in the tray (PLAN 5b.8a): Settings › General.
+    pub tray: Tray,
 }
 
 impl Default for Settings {
@@ -65,6 +67,7 @@ impl Default for Settings {
             playback: Playback::default(),
             debugging: Debugging::default(),
             reset: Reset::default(),
+            tray: Tray::default(),
         }
     }
 }
@@ -222,6 +225,29 @@ impl Default for Recording {
             click_fade_out: 0.3,
             click_double: true,
             placed_clicks_follow: true,
+        }
+    }
+}
+
+/// Razorcat in the tray (PLAN 5b.8a, Richard 2026-10-26).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Tray {
+    /// Closing the editor hides it, Razorcat staying in the tray; off, closing it quits.
+    pub keep_running: bool,
+    /// The first close has said Razorcat stays in the tray (it says so once, ever).
+    pub told: bool,
+    /// Razorcat launches as you sign in to Windows (Launch on login, as Vandal says), in the tray,
+    /// the editor hidden. Off by default.
+    pub start_with_windows: bool,
+}
+
+impl Default for Tray {
+    fn default() -> Self {
+        Self {
+            keep_running: true,
+            told: false,
+            start_with_windows: false,
         }
     }
 }
@@ -822,6 +848,10 @@ pub fn update(app: &AppHandle<Wry>, new: Settings) -> Result<Settings, String> {
     if new.debugging.logging != old.debugging.logging {
         crate::log::set_enabled(&crate::product_name(app), new.debugging.logging);
     }
+    if new.tray.start_with_windows != old.tray.start_with_windows {
+        crate::tray::start_with_windows(app, new.tray.start_with_windows);
+    }
+    crate::tray::refresh(app, &new);
 
     let _ = SettingsChanged(new.clone()).emit(app);
     Ok(new)

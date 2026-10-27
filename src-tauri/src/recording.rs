@@ -1504,10 +1504,7 @@ fn close_control(app: &AppHandle) {
 }
 
 pub fn show_editor(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window(LABEL) {
-        let _ = w.unminimize();
-        let _ = w.set_focus();
-    }
+    crate::editor::show_window(app);
 }
 
 #[cfg(test)]

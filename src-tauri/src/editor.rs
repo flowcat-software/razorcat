@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 use specta::Type;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_specta::Event;
 
@@ -36,6 +36,11 @@ pub struct EditorState {
     /// Files dropped (or launched with) while the timeline has files: the page asks whether
     /// to add them or replace its files (`answer_offer`).
     offered: Vec<PathBuf>,
+    /// Started with Windows (PLAN 5b.8a): the window stays hidden as the page loads, till it's
+    /// asked for.
+    pub start_hidden: bool,
+    /// It has been shown (the first time shows it maximized, if it was).
+    shown: bool,
 }
 
 /// Held while files open, so the files of one request, and requests one after another, open
@@ -125,22 +130,18 @@ pub fn closing(app: &AppHandle, window: &tauri::Window) {
     );
 }
 
-/// The page has loaded: show the window, and open a file asked for before then. Returns the
-/// open sources, first first (the page reloaded), or none.
-pub fn ready(app: &AppHandle, window: &WebviewWindow) -> Vec<SourceInfo> {
-    let (pending, maximized) = {
+/// The page has loaded: show the window (unless Razorcat started with Windows, in the tray), and
+/// open a file asked for before then. Returns the open sources, first first (the page
+/// reloaded), or none.
+pub fn ready(app: &AppHandle) -> Vec<SourceInfo> {
+    let (pending, hidden) = {
         let app_state = app.state::<AppState>();
         let mut state = app_state.editor.lock().unwrap();
         state.ready = true;
-        (std::mem::take(&mut state.pending), state.show_maximized)
+        (std::mem::take(&mut state.pending), state.start_hidden)
     };
-    let shown = if maximized {
-        placement::show_maximized(window)
-    } else {
-        window.show()
-    };
-    if let Err(e) = shown.and_then(|_| window.set_focus()) {
-        logln!("[editor] couldn't show the window: {e}");
+    if !hidden {
+        show_window(app);
     }
     request_open_all(app, pending, false);
     let state = app.state::<AppState>();
@@ -166,6 +167,10 @@ pub fn request_open_all(app: &AppHandle, paths: Vec<PathBuf>, add: bool) {
 pub fn request_open_at(app: &AppHandle, paths: Vec<PathBuf>, add: bool, at: Option<u32>) {
     if paths.is_empty() {
         return;
+    }
+    // From the tray (a recording, a second launch's file): the editor comes out.
+    if !app.state::<AppState>().editor.lock().unwrap().start_hidden {
+        show_window(app);
     }
     for path in &paths {
         crate::log::private_file(path);
@@ -395,8 +400,29 @@ pub fn ask_open(app: &AppHandle, add: bool) {
 
 /// Brings the editor to the front (a second launch).
 pub fn focus(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(LABEL) {
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+    show_window(app);
+}
+
+/// The window shown, if it was hidden (in the tray) or minimized, and in front: maximized the
+/// first time, if it was when it last closed.
+pub fn show_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(LABEL) else {
+        return;
+    };
+    let first = {
+        let app_state = app.state::<AppState>();
+        let mut state = app_state.editor.lock().unwrap();
+        state.start_hidden = false;
+        let first = !state.shown;
+        state.shown = true;
+        first.then_some(state.show_maximized)
+    };
+    let shown = match first {
+        Some(true) => placement::show_maximized(&window),
+        _ => window.show(),
+    };
+    let _ = window.unminimize();
+    if let Err(e) = shown.and_then(|_| window.set_focus()) {
+        logln!("[editor] couldn't show the window: {e}");
     }
 }

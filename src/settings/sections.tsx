@@ -71,6 +71,47 @@ export const sections: Section[] = [
           },
         ],
       },
+      {
+        title: "Tray",
+        items: [
+          {
+            id: "trayKeepRunning",
+            kind: "toggle",
+            path: "tray.keepRunning",
+            label: "Keep running in the tray when the editor is closed",
+            description:
+              "Closing the editor hides it, and Razorcat stays in the tray, by the clock, ready to record. Its icon opens the editor again; its menu quits. Off, closing the editor quits Razorcat.",
+            keywords: [
+              "tray",
+              "close",
+              "quit",
+              "exit",
+              "background",
+              "minimize",
+              "notification area",
+            ],
+          },
+          {
+            id: "trayStartWithWindows",
+            kind: "toggle",
+            path: "tray.startWithWindows",
+            label: "Launch on login",
+            description:
+              "Razorcat starts when you sign in to Windows, in the tray, with the editor hidden until you open it.",
+            keywords: [
+              "start with windows",
+              "startup",
+              "start",
+              "login",
+              "sign in",
+              "boot",
+              "windows",
+              "tray",
+              "autostart",
+            ],
+          },
+        ],
+      },
     ],
   },
   {

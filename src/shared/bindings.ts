@@ -61,6 +61,11 @@ export const commands = {
 	resetSettings: (stylesOnly: boolean) => typedError<Settings, string>(__TAURI_INVOKE("reset_settings", { stylesOnly })),
 	/**  Every setting as installed: what a group's Reset (Settings, its heading's link) puts back. */
 	defaultSettings: () => __TAURI_INVOKE<Settings>("default_settings"),
+	/**
+	 *  The editor's first close, ever: Razorcat stays in the tray (`keep`) or quits, and closing
+	 *  does that from now on (PLAN 5b.8a).
+	 */
+	closedToTray: (keep: boolean) => typedError<null, string>(__TAURI_INVOKE("closed_to_tray", { keep })),
 	/**  Flowcat Software's website, the maker (Settings › About). A fixed address. */
 	openFlowcatSite: () => __TAURI_INVOKE<void>("open_flowcat_site"),
 	/**  The current settings. */
@@ -215,6 +220,7 @@ export const commands = {
 export const events = {
 	checkFrames: makeEvent<CheckFrames>("check-frames"),
 	clicksNoted: makeEvent<ClicksNoted>("clicks-noted"),
+	closingToTray: makeEvent<ClosingToTray>("closing-to-tray"),
 	convertEnded: makeEvent<ConvertEnded>("convert-ended"),
 	convertProgress: makeEvent<ConvertProgress>("convert-progress"),
 	dropHover: makeEvent<DropHover>("drop-hover"),
@@ -229,6 +235,7 @@ export const events = {
 	proxyProgress: makeEvent<ProxyProgress>("proxy-progress"),
 	proxyReady: makeEvent<ProxyReady>("proxy-ready"),
 	proxyStopped: makeEvent<ProxyStopped>("proxy-stopped"),
+	recordAsked: makeEvent<RecordAsked>("record-asked"),
 	recordingChanged: makeEvent<RecordingChanged>("recording-changed"),
 	recordingPaused: makeEvent<RecordingPaused>("recording-paused"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
@@ -296,6 +303,12 @@ export type ClipSpeed = {
 	first: number,
 	length: number,
 };
+
+/**
+ *  Rust → the editor: it's closing for the first time, ever, and Razorcat stays in the tray:
+ *  the page says so, and the answer comes back (`closed_to_tray`).
+ */
+export type ClosingToTray = null;
 
 /**  How the options bar shows the colors (PLAN 3D.16). */
 export type ColorControl = 
@@ -717,6 +730,9 @@ export type ProxyStopped = {
 	source: string,
 };
 
+/**  Rust → the editor: the tray's Record (the editor's own Record, its questions and all). */
+export type RecordAsked = null;
+
 /**  A click where it lands on the recorded picture, and when (s). */
 export type RecordedClick = {
 	time: number | null,
@@ -838,6 +854,8 @@ export type Settings = {
 	debugging?: Debugging,
 	/**  Settings › About › Reset: how a group's reset asks. */
 	reset?: Reset,
+	/**  Razorcat in the tray (PLAN 5b.8a): Settings › General. */
+	tray?: Tray,
 };
 
 /**  Rust → all windows: settings changed (from any source), here's the new state. */
@@ -1030,6 +1048,16 @@ export type ToolStyles = {
  *  tools go back to theirs as installed.
  */
 export type ToolStylesReset = null;
+
+/**  Razorcat in the tray (PLAN 5b.8a, Richard 2026-10-26). */
+export type Tray = {
+	/**  Closing the editor hides it, Razorcat staying in the tray; off, closing it quits. */
+	keepRunning?: boolean,
+	/**  The first close has said Razorcat stays in the tray (it says so once, ever). */
+	told?: boolean,
+	/**  Razorcat starts with Windows, in the tray, the editor hidden. Off by default. */
+	startWithWindows?: boolean,
+};
 
 /**  Rust → editor: a source's waveform is ready. */
 export type WaveReady = {

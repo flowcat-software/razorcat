@@ -33,6 +33,7 @@ mod state;
 mod styles;
 mod thumbs;
 mod tool_styles;
+mod tray;
 mod unloads;
 mod wave;
 mod webview_crash;
@@ -61,6 +62,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::preview_recording_name,
             commands::reset_settings,
             commands::default_settings,
+            commands::closed_to_tray,
             commands::open_flowcat_site,
             commands::get_settings,
             commands::update_settings,
@@ -133,6 +135,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             appearance::WindowsAccentChanged,
             settings::SettingsChanged,
             tool_styles::ToolStylesReset,
+            tray::RecordAsked,
+            tray::ClosingToTray,
         ])
 }
 
@@ -202,6 +206,12 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        // Launch on login (PLAN 5b.8a): in the tray, the editor hidden.
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .args([tray::STARTED_ARG])
+                .build(),
+        )
         .register_asynchronous_uri_scheme_protocol(protocol::SCHEME, protocol::handle)
         .invoke_handler(specta.invoke_handler())
         .setup(move |app| {
@@ -213,8 +223,18 @@ pub fn run() {
             appearance::watch_windows_accent(app.handle());
             proxy::sweep(app.handle());
             export::probe(app.handle());
-            editor::open(app.handle())?;
             let args: Vec<String> = std::env::args().collect();
+            editor::open(app.handle())?;
+            if args.iter().any(|a| a == tray::STARTED_ARG) {
+                let state = app.state::<AppState>();
+                state.editor.lock().unwrap().start_hidden = true;
+            }
+            {
+                let state = app.state::<AppState>();
+                let settings = state.settings.read().unwrap().clone();
+                tray::create(app.handle(), &settings)?;
+                tray::start_with_windows(app.handle(), settings.tray.start_with_windows);
+            }
             let cwd = std::env::current_dir().unwrap_or_default();
             open_from_args(app.handle(), &args, &cwd);
             logln!("[startup] ready");
@@ -248,7 +268,13 @@ pub fn run() {
                 tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
                     editor::moved(app, window)
                 }
-                tauri::WindowEvent::CloseRequested { .. } => editor::closing(app, window),
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    editor::closing(app, window);
+                    // Hidden, Razorcat staying in the tray (PLAN 5b.8a), unless closing quits.
+                    if !tray::editor_closing(app, window) {
+                        api.prevent_close();
+                    }
+                }
                 _ => {}
             }
         })
