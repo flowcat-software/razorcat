@@ -802,7 +802,7 @@ pub fn look(app: &AppHandle, generation: u64) {
             let Some(s) = sources.iter_mut().find(|s| s.generation == generation) else {
                 return;
             };
-            s.camera = Some(file);
+            s.camera = Some((file, place));
         }
         logln!("[camera] found with a source, at {place:?}");
         let ready = CameraReady {

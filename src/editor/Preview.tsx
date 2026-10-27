@@ -34,6 +34,8 @@ interface Props {
   proxyUrls: Readonly<Record<string, string | null>>;
   /** The cameras recorded with files, once found (camera.rs), by file id. */
   cameras: Readonly<Record<string, SourceCamera>>;
+  /** The cameras fade with their clips (Settings › Recording). */
+  cameraFades: boolean;
   /** A picture can't be shown, even from a converted copy. */
   onError: (message: string) => void;
   /** A file's original can't be played here (its codec): convert it (convert.rs). */
@@ -54,7 +56,15 @@ const MARGIN = 16;
  * (RedactLayer.tsx), which work on the picture. Over everything, a recording's camera
  * (CameraLayer.tsx).
  */
-export function Preview({ sources, player, proxyUrls, cameras, onError, onUnplayable }: Props) {
+export function Preview({
+  sources,
+  player,
+  proxyUrls,
+  cameras,
+  cameraFades,
+  onError,
+  onUnplayable,
+}: Props) {
   const source = sources[0];
   const areaRef = useRef<HTMLDivElement>(null);
   const [area, setArea] = useState({ width: 0, height: 0 });
@@ -202,7 +212,13 @@ export function Preview({ sources, player, proxyUrls, cameras, onError, onUnplay
           className={styles.cameraLayer}
           style={{ left: stage.x, top: stage.y, width: stage.width, height: stage.height }}
         >
-          <CameraLayer player={player} sources={sources} cameras={cameras} places={places} />
+          <CameraLayer
+            player={player}
+            sources={sources}
+            cameras={cameras}
+            places={places}
+            fades={cameraFades}
+          />
         </div>
       )}
       {tool === "grow" && (

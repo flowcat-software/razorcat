@@ -810,6 +810,11 @@ export type Recording = {
 	 */
 	camera?: boolean,
 	cameraDevice?: string,
+	/**
+	 *  The camera fades with its clip (PLAN 5d.5; Richard, 2026-10-27); off, it stays as its
+	 *  clip fades.
+	 */
+	cameraFades?: boolean,
 	/**  The pointer is in the recording (PLAN 5b.5a). */
 	cursor?: boolean,
 	/**  Frames per second, one of [`RECORD_RATES`]. */

@@ -30,6 +30,7 @@ use specta::Type;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
+use crate::camera::Place;
 use crate::editor::LABEL;
 use crate::ffmpeg::{self, Outcome};
 use crate::markup::{self, ExportMark, MarkLayer, Markup, RedactMode};
@@ -201,6 +202,41 @@ fn frame_filter(frame: &ExportFrame, width: u32, height: u32) -> Option<String> 
     Some(f.join(","))
 }
 
+/// Where the camera of a file `size` (its `place` on its picture) shows on the export's frame
+/// (`out`, the crop and grow of `first`'s picture): through the file's fit into the first's
+/// picture (centred, as large as fits), the crop and the grow; kept inside the frame, as large as
+/// it at most. As the preview places it (cameraPlace.ts). Its top-left and across, px.
+fn camera_on_frame(
+    place: Place,
+    size: (u32, u32),
+    first: (u32, u32),
+    frame: &ExportFrame,
+    out: (u32, u32),
+) -> (u32, u32, u32) {
+    let (sw, sh) = (f64::from(size.0), f64::from(size.1));
+    let (fw, fh) = (f64::from(first.0), f64::from(first.1));
+    let (k, dx, dy) = if size == first || sw <= 0.0 || sh <= 0.0 {
+        (1.0, 0.0, 0.0)
+    } else {
+        let k = (fw / sw).min(fh / sh);
+        (k, (fw - sw * k) / 2.0, (fh - sh * k) / 2.0)
+    };
+    let crop = kept_crop(frame.crop, first.0, first.1);
+    let side = |s: &str| {
+        grown(&frame.grow)
+            .into_iter()
+            .find(|(g, _, _)| *g == s)
+            .map_or(0.0, |(_, n, _)| f64::from(n))
+    };
+    let across = (place.size * k)
+        .round()
+        .clamp(0.0, f64::from(out.0.min(out.1)));
+    let x = dx + place.x * k - f64::from(crop.x) + side("left");
+    let y = dy + place.y * k - f64::from(crop.y) + side("top");
+    let keep = |v: f64, room: u32| v.round().clamp(0.0, (f64::from(room) - across).max(0.0));
+    (keep(x, out.0) as u32, keep(y, out.1) as u32, across as u32)
+}
+
 /// Rust → editor: an export is this far along.
 #[derive(Clone, Serialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
@@ -301,6 +337,8 @@ struct Input {
     audio_tracks: u32,
     width: u32,
     height: u32,
+    /// The camera recorded with it, and its place on its picture (PLAN 5d.5).
+    camera: Option<(PathBuf, Place)>,
 }
 
 /// A clip as ffmpeg seeks it.
@@ -330,6 +368,21 @@ struct Cut {
     /// Its speed, if not 100%, and whether its sound keeps its pitch then (Settings › Timeline).
     speed: Option<ClipSpeed>,
     keep_pitch: bool,
+    /// Its file's camera, laid over it (PLAN 5d.5).
+    camera: Option<CutCamera>,
+}
+
+/// A clip's camera as the export lays it: its file (fitted to the clip's, so its time is the
+/// file's), its square on the frame (top-left and across, px), and the frames it fades in and
+/// out over with its clip (none if it doesn't: Settings › Recording).
+#[derive(Debug, Clone, PartialEq, Default)]
+struct CutCamera {
+    path: PathBuf,
+    x: u32,
+    y: u32,
+    size: u32,
+    fade_in: u32,
+    fade_out: u32,
 }
 
 impl Cut {
@@ -459,6 +512,7 @@ fn cut(input: &Input, first: &Input, c: &ExportClip, keep_pitch: bool) -> Cut {
         crossfade: c.crossfade.min(length.saturating_sub(1)),
         speed: c.speed,
         keep_pitch,
+        camera: None,
     }
 }
 
@@ -600,6 +654,156 @@ fn gif_args(
     a
 }
 
+/// A raw picture read in the graph (`movie`): `pixels` (ffmpeg's pixel format), `width` by
+/// `height`.
+fn picture(path: &Path, pixels: &str, width: u32, height: u32) -> String {
+    let options = format!(
+        "filename={}:f=rawvideo:format_opts={}",
+        escaped(&path.to_string_lossy(), ":'"),
+        escaped(
+            &format!("pixel_format={pixels}:video_size={width}x{height}"),
+            ":'"
+        )
+    );
+    format!("movie={}", escaped(&options, "'[],;"))
+}
+
+/// The chain's output as `{name}_0` to `{name}_{n-1}`: split if more than one.
+fn split(name: &str, n: usize) -> String {
+    let labels: String = (0..n).map(|j| format!("[{name}_{j}]")).collect();
+    if n > 1 {
+        format!(",split={n}{labels}")
+    } else {
+        labels
+    }
+}
+
+/// `s` with a backslash before each of `special` and each backslash: a filter option's value
+/// (`:'`), or a filter's options in a graph (`'[],;`), as ffmpeg reads them.
+fn escaped(s: &str, special: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c == '\\' || special.contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// The graph's file, removed when dropped.
+struct GraphFile(PathBuf);
+
+impl Drop for GraphFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// `a` with its graph read from a file in `dir` (`-/filter_complex`): a long project's graph
+/// (each clip's chain, and its camera's) runs past what Windows lets a command line be (32,767
+/// characters). The file lasts as long as the `GraphFile`.
+fn graph_from_file(mut a: Vec<OsString>, dir: &Path) -> Result<(Vec<OsString>, GraphFile), String> {
+    let at = a
+        .iter()
+        .position(|x| x == "-filter_complex")
+        .filter(|at| at + 1 < a.len())
+        .ok_or("the export has no graph")?;
+    let file = GraphFile(dir.join(format!("razorcat-export-{}.graph", std::process::id())));
+    std::fs::write(&file.0, a[at + 1].as_encoded_bytes())
+        .map_err(|e| format!("the export's graph couldn't be written: {e}"))?;
+    a[at] = "-/filter_complex".into();
+    a[at + 1] = file.0.clone().into();
+    Ok((a, file))
+}
+
+/// A clip's input put on its frames: back on its file's clock from its first shown frame, then
+/// onto the grid, then the clip's grid frames (`fps` gives frame k the timestamp k). Its picture,
+/// or its camera's (fitted to the file, so on its clock).
+fn on_grid(c: &Cut, rate: Rate) -> String {
+    // At another speed (PLAN §7, Clip speed): each source frame onto the first of the clip's
+    // frames that shows it (speed.ts's mapping), `fps` repeating it to the next or dropping all
+    // but the last on a frame, as many frames as the clip has. Exact at every speed (spike SP0's
+    // barcodes).
+    let retime = c.speed.map_or(String::new(), |s| {
+        format!(
+            ",setpts='max(0,ceil(((N+{})*{}-{})/{})-{})',fps={}/{},trim=end_frame={}",
+            c.from, s.den, s.phase, s.num, s.first, rate.num, rate.den, s.length
+        )
+    });
+    format!(
+        "setpts=PTS+({:.6})/TB,fps={}/{},trim=start_pts={}:end_pts={},setpts=PTS-STARTPTS{retime}",
+        c.seek - c.origin,
+        rate.num,
+        rate.den,
+        c.from,
+        c.out
+    )
+}
+
+/// The clips' cameras (PLAN 5d.5) laid over the picture `at`, on top of everything, as the
+/// preview lays them: each clip's camera (its input in `inputs`, by clip) on the clip's frames
+/// as its picture is (`on_grid`), a square from its middle at its size, made round (a circle's
+/// mask as its alpha, its edge a pixel soft), faded as the preview fades it (`markOpacity`'s
+/// ramp: ffmpeg's `fade` from the clip's first frame in, and a frame before its fade-out out),
+/// on its stretch of the joined picture. The picture's label after it.
+fn cameras(
+    f: &mut Vec<String>,
+    at: &str,
+    cuts: &[Cut],
+    inputs: &[(usize, usize)],
+    rate: Rate,
+) -> String {
+    let mut at = at.to_string();
+    let xf = crossfades(cuts);
+    let mut starts = Vec::with_capacity(cuts.len());
+    let mut start = 0;
+    for (i, c) in cuts.iter().enumerate() {
+        // Over the end of the one before, crossfading.
+        start -= xf[i];
+        starts.push(start);
+        start += c.length();
+    }
+    for &(i, input) in inputs {
+        let c = &cuts[i];
+        let Some(cam) = c.camera.as_ref().filter(|cam| cam.size > 0) else {
+            continue;
+        };
+        let (d, from, length) = (cam.size, starts[i], c.length());
+        let r = f64::from(d) / 2.0;
+        f.push(format!(
+            "color=c=black:s={d}x{d}:r=1:d=1,format=gray,geq=lum='255*clip({r}+0.5-hypot(X+0.5-{r},Y+0.5-{r}),0,1)'[cm{i}]"
+        ));
+        f.push(format!(
+            "[{input}:v:0]{},crop='min(iw,ih)':'min(iw,ih)',scale={d}:{d},format=yuva444p[cv{i}]",
+            on_grid(c, rate)
+        ));
+        let mut fades = String::new();
+        if cam.fade_in > 0 {
+            fades += &format!(",fade=t=in:s=0:n={}:alpha=1", cam.fade_in);
+        }
+        if cam.fade_out > 0 {
+            fades += &format!(
+                ",fade=t=out:s={}:n={}:alpha=1",
+                (length - cam.fade_out).saturating_sub(1),
+                cam.fade_out
+            );
+        }
+        f.push(format!(
+            "[cv{i}][cm{i}]alphamerge{fades},settb={}/{},setpts=N+{from}[cc{i}]",
+            rate.den, rate.num
+        ));
+        f.push(format!(
+            "[{at}][cc{i}]overlay=x={}:y={}:format=yuv444:eof_action=pass:enable='between(n,{from},{})'[co{i}]",
+            cam.x,
+            cam.y,
+            from + length - 1
+        ));
+        at = format!("co{i}");
+    }
+    at
+}
+
 /// The inputs and the graph for `cuts`, mapped: the joined picture, made into the `frame`
 /// (crop and grow), the clips' fades laid over it (black, `black` in size), then the
 /// `overlays`, through `last` (a filter chain) as `[vout]`; and the joined sound as `[ac]` if
@@ -619,53 +823,50 @@ fn graph(
         a.extend(["-ss".into(), format!("{:.6}", c.seek).into()]);
         a.extend(["-i".into(), c.path.as_os_str().to_owned()]);
     }
-    // Each item's pixels: one picture, raw RGBA (a highlight's or a hole's, RGB). Each one's
-    // input (the darkness has none: 0).
-    let mut inputs = Vec::new();
-    let mut next = cuts.len();
-    for o in overlays {
-        let pixels = match o.layer {
-            MarkLayer::Dark { .. } | MarkLayer::Redact { .. } => {
-                inputs.push(0);
-                continue;
-            }
-            MarkLayer::Highlight | MarkLayer::Hole => "rgb24",
-            MarkLayer::Item => "rgba",
-        };
-        inputs.push(next);
-        next += 1;
-        a.extend(["-f", "rawvideo", "-pix_fmt", pixels, "-video_size"].map(OsString::from));
-        a.push(format!("{}x{}", o.width, o.height).into());
-        a.extend(["-i".into(), o.path.as_os_str().to_owned()]);
-    }
     let mut f: Vec<String> = Vec::new();
+    // Each item's pixels: one picture, raw RGBA (a highlight's or a hole's, RGB), read in the
+    // graph rather than as an input, as there can be hundreds (a recording's clicks) and the
+    // command line has room for few; as `p{k}_{j}`, once for each time the graph reads it.
+    let darkness = overlays
+        .iter()
+        .any(|o| matches!(o.layer, MarkLayer::Dark { .. }));
+    for (k, o) in overlays.iter().enumerate() {
+        let (pixels, uses) = match o.layer {
+            MarkLayer::Dark { .. } | MarkLayer::Redact { .. } => continue,
+            // The holes only show cut out of the darkness.
+            MarkLayer::Hole if !darkness => continue,
+            // Unfaded, read on each stretch it shows on (`highlight`).
+            MarkLayer::Highlight | MarkLayer::Hole if o.fade_in == 0 && o.fade_out == 0 => {
+                ("rgb24", o.shows.len())
+            }
+            MarkLayer::Highlight | MarkLayer::Hole => ("rgb24", 1),
+            MarkLayer::Item => ("rgba", 1),
+        };
+        f.push(format!(
+            "{}{}",
+            picture(&o.path, pixels, o.width, o.height),
+            split(&format!("p{k}"), uses)
+        ));
+    }
+    // Each clip's camera, seeked as its clip is; by clip, its input.
+    let mut next = cuts.len();
+    let mut camera_inputs = Vec::new();
     for (i, c) in cuts.iter().enumerate() {
-        // Back on its file's clock from its first shown frame, then onto the grid, then the
-        // clip's grid frames (`fps` gives frame k the timestamp k); fitted into the first file's
-        // picture if it's another size.
+        if let Some(cam) = &c.camera {
+            camera_inputs.push((i, next));
+            next += 1;
+            a.extend(["-ss".into(), format!("{:.6}", c.seek).into()]);
+            a.extend(["-i".into(), cam.path.as_os_str().to_owned()]);
+        }
+    }
+    for (i, c) in cuts.iter().enumerate() {
+        // Fitted into the first file's picture if it's another size.
         let fit = c.fit.map_or(String::new(), |(w, h)| {
             format!(
                 ",scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
             )
         });
-        // At another speed (PLAN §7, Clip speed): each source frame onto the first of the clip's
-        // frames that shows it (speed.ts's mapping), `fps` repeating it to the next or dropping
-        // all but the last on a frame, as many frames as the clip has. Exact at every speed
-        // (spike SP0's barcodes).
-        let retime = c.speed.map_or(String::new(), |s| {
-            format!(
-                ",setpts='max(0,ceil(((N+{})*{}-{})/{})-{})',fps={}/{},trim=end_frame={}",
-                c.from, s.den, s.phase, s.num, s.first, rate.num, rate.den, s.length
-            )
-        });
-        f.push(format!(
-            "[{i}:v:0]setpts=PTS+({:.6})/TB,fps={}/{},trim=start_pts={}:end_pts={},setpts=PTS-STARTPTS{retime}{fit}[v{i}]",
-            c.seek - c.origin,
-            rate.num,
-            rate.den,
-            c.from,
-            c.out
-        ));
+        f.push(format!("[{i}:v:0]{}{fit}[v{i}]", on_grid(c, rate)));
         if !audio {
             continue;
         }
@@ -774,10 +975,9 @@ fn graph(
     let mut darkened = false;
     for (k, o) in overlays.iter().enumerate() {
         let place = format!("x={}:y={}:format=yuv444", o.x, o.y);
-        let input = inputs[k];
         match o.layer {
             MarkLayer::Highlight => {
-                at = highlight(&mut f, &at, input, k, o, rate);
+                at = highlight(&mut f, &at, k, o, rate);
                 continue;
             }
             MarkLayer::Hole | MarkLayer::Dark { .. } => {
@@ -785,14 +985,14 @@ fn graph(
                 if !darkened {
                     darkened = true;
                     let total = export_frames(cuts);
-                    at = dark(&mut f, &at, overlays, &inputs, total, rate);
+                    at = dark(&mut f, &at, overlays, total, rate);
                 }
                 continue;
             }
             MarkLayer::Redact { .. } => continue,
             MarkLayer::Item => {}
         }
-        f.push(format!("[{input}:v:0]format=yuva444p[m{k}]"));
+        f.push(format!("[p{k}_0]format=yuva444p[m{k}]"));
         if o.fade_in == 0 && o.fade_out == 0 {
             // Unfaded: the one picture, on between its frames.
             let shows: Vec<String> = o
@@ -837,6 +1037,7 @@ fn graph(
             at = format!("o{k}_{j}");
         }
     }
+    at = cameras(&mut f, &at, cuts, &camera_inputs, rate);
     f.push(format!("[{at}]{last}[vout]"));
     a.extend(["-filter_complex".into(), f.join(";").into()]);
     a.extend(["-map", "[vout]"].map(OsString::from));
@@ -991,18 +1192,12 @@ fn clip_fades(
     at
 }
 
-/// A highlight (input `input`, item `k`) multiplied into the picture `at` (PLAN 4.5c), as the
-/// preview's CSS multiply does: on each stretch it shows on, the frame's region under it cut out,
-/// multiplied with it in RGB (white leaves it as it is), and put back. Faded, the highlight fades
-/// towards white, frame by frame as a faded item's alpha does. The picture's label after it.
-fn highlight(
-    f: &mut Vec<String>,
-    at: &str,
-    input: usize,
-    k: usize,
-    o: &Overlay,
-    rate: Rate,
-) -> String {
+/// A highlight (item `k`, its picture `p{k}_{j}`) multiplied into the picture `at` (PLAN 4.5c),
+/// as the preview's CSS multiply does: on each stretch it shows on, the frame's region under it
+/// cut out, multiplied with it in RGB (white leaves it as it is), and put back. Faded, the
+/// highlight fades towards white, frame by frame as a faded item's alpha does. The picture's
+/// label after it.
+fn highlight(f: &mut Vec<String>, at: &str, k: usize, o: &Overlay, rate: Rate) -> String {
     let region = format!("{}:{}:{}:{}", o.width, o.height, o.x, o.y);
     let back = |f: &mut Vec<String>, at: &str, by: &str, name: &str, from: u32, to: u32| {
         f.push(format!("[{at}]split[hb{name}][hc{name}]"));
@@ -1021,17 +1216,14 @@ fn highlight(
         let mut at = at.to_string();
         for (j, s) in o.shows.iter().enumerate() {
             let name = format!("{k}_{j}");
-            f.push(format!("[{input}:v:0]format=gbrp[hw{name}]"));
+            f.push(format!("[p{name}]format=gbrp[hw{name}]"));
             at = back(f, &at, &format!("hw{name}"), &name, s.from, s.to);
         }
         return at;
     }
     // Faded: the picture once per frame of the item, faded to white by frame count (the preview's
     // ramp), then each stretch's frames timed to the export's.
-    let mut chain = format!(
-        "[{input}:v:0]format=gbrp,loop=loop={}:size=1:start=0",
-        o.length
-    );
+    let mut chain = format!("[p{k}_0]format=gbrp,loop=loop={}:size=1:start=0", o.length);
     chain += &ramps(o.length, o.fade_in, o.fade_out, ":color=white");
     let parts = o.shows.len();
     if parts > 1 {
@@ -1063,14 +1255,7 @@ fn highlight(
 /// the export's `total` frames long, as highlights are into the frame (a hole's RGB is white
 /// outside it and black inside, and fades towards white): its grey is how much of the darkness
 /// is left, which each stretch's black takes as its alpha. The picture's label after it.
-fn dark(
-    f: &mut Vec<String>,
-    at: &str,
-    overlays: &[Overlay],
-    inputs: &[usize],
-    total: u32,
-    rate: Rate,
-) -> String {
+fn dark(f: &mut Vec<String>, at: &str, overlays: &[Overlay], total: u32, rate: Rate) -> String {
     let runs: Vec<(usize, &Overlay, f64)> = overlays
         .iter()
         .enumerate()
@@ -1093,7 +1278,7 @@ fn dark(
     let mut left = "k".to_string();
     for (k, o) in overlays.iter().enumerate() {
         if o.layer == MarkLayer::Hole {
-            left = highlight(f, &left, inputs[k], k, o, rate);
+            left = highlight(f, &left, k, o, rate);
         }
     }
     let parts: usize = runs.iter().map(|(_, o, _)| o.shows.len()).sum();
@@ -1249,6 +1434,7 @@ fn inputs(app: &AppHandle) -> Result<Vec<Input>, String> {
                 audio_tracks: s.info.audio_tracks,
                 width,
                 height,
+                camera: s.camera.clone(),
             }
         })
         .collect())
@@ -1272,10 +1458,11 @@ impl Format {
 }
 
 /// The first file (the picture and the rate) and the cuts for `clips`, checked: each clip fits
-/// its file, and `output` isn't one of them.
+/// its file, and `output` isn't one of them. Each one's camera on `frame`, if its file has one.
 fn prepare(
     app: &AppHandle,
     clips: &[ExportClip],
+    frame: &ExportFrame,
     output: &Path,
 ) -> Result<(Input, Vec<Cut>), String> {
     let mut inputs = inputs(app)?;
@@ -1286,13 +1473,16 @@ fn prepare(
         return Err("The export can't replace a video it's made from.".into());
     }
     let first = &inputs[0];
-    let keep_pitch = app
-        .state::<AppState>()
-        .settings
-        .read()
-        .unwrap()
-        .timeline
-        .keep_pitch;
+    let (keep_pitch, camera_fades) = {
+        let state = app.state::<AppState>();
+        let settings = state.settings.read().unwrap();
+        (
+            settings.timeline.keep_pitch,
+            settings.recording.camera_fades,
+        )
+    };
+    let first_size = (first.width, first.height);
+    let out = output_size(frame, first.width, first.height);
     let mut cuts = Vec::with_capacity(clips.len());
     for c in clips {
         let input = inputs
@@ -1302,7 +1492,22 @@ fn prepare(
         if c.from >= c.out || c.out as usize > input.starts.len() || c.length() == 0 {
             return Err("The edit doesn't fit the video.".into());
         }
-        cuts.push(cut(input, first, c, keep_pitch));
+        let mut made = cut(input, first, c, keep_pitch);
+        made.camera = input.camera.as_ref().map(|(path, place)| {
+            let (x, y, size) =
+                camera_on_frame(*place, (input.width, input.height), first_size, frame, out);
+            let fades = camera_fades.then_some((made.fade_in, made.fade_out));
+            let (fade_in, fade_out) = fades.unwrap_or_default();
+            CutCamera {
+                path: path.clone(),
+                x,
+                y,
+                size,
+                fade_in,
+                fade_out,
+            }
+        });
+        cuts.push(made);
     }
     Ok((inputs.swap_remove(0), cuts))
 }
@@ -1346,7 +1551,7 @@ fn render_mp4(
     mut progress: impl FnMut(f64),
     stop: &AtomicBool,
 ) -> Result<Outcome, String> {
-    let (input, cuts) = prepare(app, clips, output)?;
+    let (input, cuts) = prepare(app, clips, frame, output)?;
     let frames = u64::from(export_frames(&cuts));
     let made = frame_filter(frame, input.width, input.height);
     let marks = overlays(clips, markup);
@@ -1355,15 +1560,18 @@ fn render_mp4(
     let black = black_size(frame, input.width, input.height);
     let mut last = String::new();
     for encoder in encoders(app) {
-        let a = args(
-            &cuts,
-            input.rate,
-            made.as_deref(),
-            black,
-            &marks,
-            encoder,
-            rate,
-        );
+        let (a, _graph) = graph_from_file(
+            args(
+                &cuts,
+                input.rate,
+                made.as_deref(),
+                black,
+                &marks,
+                encoder,
+                rate,
+            ),
+            &std::env::temp_dir(),
+        )?;
         match ffmpeg::run_now(&a, output, Some(frames), &mut progress, || {
             stop.load(Ordering::Relaxed)
         }) {
@@ -1394,7 +1602,7 @@ fn render_gif(
     use std::io::{BufRead, BufReader, Read, Write};
     use std::process::Stdio;
 
-    let (input, cuts) = prepare(app, clips, output)?;
+    let (input, cuts) = prepare(app, clips, frame, output)?;
     let (gif_fps, size) = {
         let state = app.state::<AppState>();
         let settings = state.settings.read().unwrap();
@@ -1405,11 +1613,8 @@ fn render_gif(
         .ceil()
         .max(1.0);
     let part = output.with_extension("part");
-
-    let mut ffmpeg = sidecar::command(Tool::Ffmpeg)?;
-    ffmpeg
-        .args(["-hide_banner", "-nostdin", "-loglevel", "error"])
-        .args(gif_args(
+    let (a, _graph) = graph_from_file(
+        gif_args(
             &cuts,
             input.rate,
             frame_filter(frame, input.width, input.height).as_deref(),
@@ -1417,7 +1622,14 @@ fn render_gif(
             &overlays(clips, markup),
             gif_fps,
             size,
-        ))
+        ),
+        &std::env::temp_dir(),
+    )?;
+
+    let mut ffmpeg = sidecar::command(Tool::Ffmpeg)?;
+    ffmpeg
+        .args(["-hide_banner", "-nostdin", "-loglevel", "error"])
+        .args(a)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut ffmpeg =
@@ -1932,6 +2144,7 @@ mod tests {
             audio_tracks: tracks,
             width,
             height,
+            camera: None,
         }
     }
 
@@ -2600,6 +2813,108 @@ mod tests {
     }
 
     #[test]
+    fn the_camera_is_where_the_preview_puts_it() {
+        let place = |x, y, size| Place { x, y, size };
+        let hd = (1920, 1080);
+        // The whole picture: where it was on it.
+        let whole = frame((0, 0, 1920, 1080), NONE);
+        assert_eq!(
+            camera_on_frame(place(1500.0, 700.0, 300.0), hd, hd, &whole, hd),
+            (1500, 700, 300)
+        );
+        // Cropped to its left half: moved with it, and kept inside.
+        let half = frame((0, 0, 960, 1080), NONE);
+        assert_eq!(
+            camera_on_frame(place(1500.0, 700.0, 300.0), hd, hd, &half, (960, 1080)),
+            (660, 700, 300)
+        );
+        // 100 px grown on the left: it stays on the picture.
+        let grown = frame(
+            (0, 0, 1920, 1080),
+            [(0, ""), (0, ""), (100, "#000000"), (0, "")],
+        );
+        assert_eq!(
+            camera_on_frame(place(100.0, 100.0, 200.0), hd, hd, &grown, (2020, 1080)),
+            (200, 100, 200)
+        );
+        // A square file fitted into a 16:9 picture: centred, as tall as it.
+        assert_eq!(
+            camera_on_frame(place(0.0, 0.0, 100.0), (1000, 1000), hd, &whole, hd),
+            (420, 0, 108)
+        );
+        // No bigger than the frame.
+        let small = frame((0, 0, 200, 100), NONE);
+        assert_eq!(
+            camera_on_frame(place(0.0, 0.0, 5000.0), hd, hd, &small, (200, 100)),
+            (0, 0, 100)
+        );
+    }
+
+    #[test]
+    fn the_camera_is_laid_over_everything_on_its_clips_frames_faded_with_them() {
+        let rate = Rate { num: 30, den: 1 };
+        let camera = |fade_in, fade_out| CutCamera {
+            path: PathBuf::from("in (camera).mp4"),
+            x: 1500,
+            y: 700,
+            size: 300,
+            fade_in,
+            fade_out,
+        };
+        // Two clips of 30 frames, each with the camera; the second fades in over 6 and out over 9.
+        let c = [
+            Cut {
+                out: 30,
+                camera: Some(camera(0, 0)),
+                ..Default::default()
+            },
+            Cut {
+                seek: 7.5,
+                from: 240,
+                out: 270,
+                fade_in: 6,
+                fade_out: 9,
+                camera: Some(camera(6, 9)),
+                ..Default::default()
+            },
+        ];
+        let a = joined(&one_file(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            1,
+            None,
+            &[],
+            Encoder::X264,
+            6_000_000,
+        ));
+        // Its inputs after the clips', seeked as they are.
+        assert!(a.contains(
+            "-ss 0.000000 -i in.mp4 -ss 7.500000 -i in.mp4 -ss 0.000000 -i in (camera).mp4 \
+             -ss 7.500000 -i in (camera).mp4 "
+        ));
+        // On the clip's frames as its picture is, a square, round.
+        assert!(a.contains(
+            "[3:v:0]setpts=PTS+(7.500000)/TB,fps=30/1,trim=start_pts=240:end_pts=270,\
+             setpts=PTS-STARTPTS,crop='min(iw,ih)':'min(iw,ih)',scale=300:300,format=yuva444p[cv1]"
+        ));
+        assert!(a.contains(
+            "color=c=black:s=300x300:r=1:d=1,format=gray,\
+             geq=lum='255*clip(150+0.5-hypot(X+0.5-150,Y+0.5-150),0,1)'[cm1]"
+        ));
+        // Faded as the preview fades it, on its stretch of the export, over everything.
+        assert!(a.contains(
+            "[cv1][cm1]alphamerge,fade=t=in:s=0:n=6:alpha=1,fade=t=out:s=20:n=9:alpha=1,\
+             settb=1/30,setpts=N+30[cc1]"
+        ));
+        assert!(a.contains("[cv0][cm0]alphamerge,settb=1/30,setpts=N+0[cc0]"));
+        assert!(a.contains(
+            "[co0][cc1]overlay=x=1500:y=700:format=yuv444:eof_action=pass:enable='between(n,30,59)'[co1];[co1]scale="
+        ));
+    }
+
+    #[test]
     fn a_clip_fades_to_its_fades_colour() {
         assert_eq!(fade_colour("#FFFFFF").as_deref(), Some("0xffffff"));
         assert_eq!(fade_colour("#000000"), None);
@@ -2693,11 +3008,14 @@ mod tests {
             Encoder::X264,
             6_000_000,
         ));
-        // After the clip's input, each item's.
+        // The clip's the only input: each item's read in the graph.
+        assert!(a.contains("-i in.mp4 -filter_complex "));
         assert!(a.contains(
-            "-i in.mp4 -f rawvideo -pix_fmt rgba -video_size 10x6 -i m.rgba -f rawvideo"
+            "-filter_complex movie=filename=m.rgba:f=rawvideo:format_opts=pixel_format=rgba\\\\:video_size=10x6[p0_0];\
+             movie=filename=m.rgba:f=rawvideo:format_opts=pixel_format=rgba\\\\:video_size=10x6[p1_0];"
         ));
-        assert!(a.contains("[vc]format=yuv444p[vf];[1:v:0]format=yuva444p[m0];"));
+        assert!(a.contains("[vc]format=yuv444p[vf];"));
+        assert!(a.contains("[p0_0]format=yuva444p[m0];"));
         assert!(a.contains("[vf][m0]overlay=x=2:y=4:format=yuv444:enable='between(n,5,9)'[o0];"));
         assert!(a.contains(
             "[o0][m1]overlay=x=3:y=4:format=yuv444:enable='between(n,0,1)+between(n,40,40)'[o1];"
@@ -2829,7 +3147,10 @@ mod tests {
             Encoder::X264,
             6_000_000,
         ));
-        assert!(a.contains("-f rawvideo -pix_fmt rgb24 -video_size 30x40 -i h.rgb"));
+        assert!(a.contains(
+            "movie=filename=h.rgb:f=rawvideo:format_opts=pixel_format=rgb24\\\\:video_size=30x40[p0_0];"
+        ));
+        assert!(a.contains("[p0_0]format=gbrp[hw0_0]"));
         assert!(a.contains("[vc]split[hb0_0][hc0_0];[hc0_0]crop=30:40:10:20,format=gbrp[hr0_0]"));
         assert!(a.contains("[hr0_0][hw0_0]blend=all_mode=multiply[hm0_0]"));
         assert!(a.contains(
@@ -3007,17 +3328,19 @@ mod tests {
             Encoder::X264,
             6_000_000,
         ));
-        // The hole's picture and the item's are inputs; the darkness isn't.
+        // The hole's picture and the item's are read in the graph; the darkness has none.
         assert!(a.contains(
-            "-video_size 30x40 -i s.rgb -f rawvideo -pix_fmt rgba -video_size 3x4 -i m.rgba -filter_complex"
+            "movie=filename=s.rgb:f=rawvideo:format_opts=pixel_format=rgb24\\\\:video_size=30x40[p0_0];\
+             movie=filename=m.rgba:f=rawvideo:format_opts=pixel_format=rgba\\\\:video_size=3x4[p2_0];"
         ));
+        assert!(!a.contains("[p1_0]"));
         // The holes multiplied into white, as long as the export.
         assert!(a.contains(
             "color=c=white:s=64x48:r=30/1,format=gbrp,trim=end_frame=90,settb=AVTB,setpts=N/(30/1*TB)[k];"
         ));
         assert!(a.contains("[k]split[hb0_0][hc0_0]"));
         assert!(a.contains(
-            "[1:v:0]format=gbrp,loop=loop=20:size=1:start=0,fade=t=in:s=1:n=3:color=white[hf0_0]"
+            "[p0_0]format=gbrp,loop=loop=20:size=1:start=0,fade=t=in:s=1:n=3:color=white[hf0_0]"
         ));
         assert!(a.contains("[h0_0]split=2[ks0][ks1]"));
         // The darkness: black, faded as an item, each stretch timed to the export's.
@@ -3040,7 +3363,94 @@ mod tests {
             "[d1_0][dk1_1]overlay=x=0:y=0:format=yuv444:eof_action=pass:enable='between(n,40,49)'[d1_1]"
         ));
         // The rest over it.
-        assert!(a.contains("[2:v:0]format=yuva444p[m2];[d1_1][m2]overlay="));
+        assert!(a.contains("[p2_0]format=yuva444p[m2];[d1_1][m2]overlay="));
+
+        // A hole with no darkness isn't read (nothing would take it).
+        let lone = joined(&one_file(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            0,
+            None,
+            &marks[..1],
+            Encoder::X264,
+            6_000_000,
+        ));
+        assert!(!lone.contains("movie="));
+    }
+
+    #[test]
+    fn a_picture_read_in_the_graph_has_its_name_escaped_and_is_split_for_each_read() {
+        assert_eq!(
+            picture(Path::new(r"C:\Temp\O'Neil [1], a;b\12.rgba"), "rgba", 10, 6),
+            r"movie=filename=C\\:\\\\Temp\\\\O\\\'Neil \[1\]\, a\;b\\\\12.rgba:f=rawvideo:format_opts=pixel_format=rgba\\:video_size=10x6"
+        );
+        assert_eq!(split("p3", 1), "[p3_0]");
+        assert_eq!(split("p3", 3), ",split=3[p3_0][p3_1][p3_2]");
+
+        // An unfaded highlight on two stretches reads its picture twice.
+        let c = [Cut {
+            out: 90,
+            ..Default::default()
+        }];
+        let o = Overlay {
+            layer: MarkLayer::Highlight,
+            path: PathBuf::from("h.rgb"),
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 2,
+            shows: vec![
+                Show {
+                    from: 0,
+                    to: 5,
+                    at: 0,
+                },
+                Show {
+                    from: 10,
+                    to: 15,
+                    at: 5,
+                },
+            ],
+            length: 10,
+            fade_in: 0,
+            fade_out: 0,
+        };
+        let a = joined(&one_file(
+            Path::new("in.mp4"),
+            &c,
+            Rate { num: 30, den: 1 },
+            0.0,
+            0,
+            None,
+            &[o],
+            Encoder::X264,
+            6_000_000,
+        ));
+        assert!(a.contains("video_size=2x2,split=2[p0_0][p0_1];"));
+        assert!(a.contains("[p0_0]format=gbrp[hw0_0]"));
+        assert!(a.contains("[p0_1]format=gbrp[hw0_1]"));
+    }
+
+    #[test]
+    fn the_graph_is_read_from_a_file_and_the_file_goes_after() {
+        let dir = std::env::temp_dir();
+        let graph = "[0:v:0]setpts=PTS-STARTPTS[vout]".repeat(2000);
+        let a: Vec<OsString> = ["-i", "a.mp4", "-filter_complex", &graph, "-map", "[vout]"]
+            .map(OsString::from)
+            .to_vec();
+        let (b, file) = graph_from_file(a, &dir).unwrap();
+        let path = file.0.clone();
+        assert_eq!(b[2], "-/filter_complex");
+        assert_eq!(b[3], path.as_os_str());
+        assert_eq!(b[4..], ["-map", "[vout]"].map(OsString::from));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), graph);
+        drop(file);
+        assert!(!path.exists());
+
+        let none: Vec<OsString> = ["-i", "a.mp4"].map(OsString::from).to_vec();
+        assert!(graph_from_file(none, &dir).is_err());
     }
 
     /// Development (PLAN §7, Clip speed SP4): retimed clips exported by the real arguments, every

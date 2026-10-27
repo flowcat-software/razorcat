@@ -38,9 +38,11 @@ interface Props {
   sources: readonly SourceInfo[];
   cameras: Readonly<Record<string, SourceCamera>>;
   places: Readonly<Record<string, Square>>;
+  /** It fades with its clip (Settings › Recording); else it stays as the clip fades. */
+  fades: boolean;
 }
 
-export function CameraLayer({ player, sources, cameras, places }: Props) {
+export function CameraLayer({ player, sources, cameras, places, fades }: Props) {
   const videos = useRef(new Map<string, HTMLVideoElement>());
   useEffect(() => {
     /** A stretch of playing, for the log: how far apart, and the camera's frames dropped. */
@@ -76,7 +78,8 @@ export function CameraLayer({ player, sources, cameras, places }: Props) {
         endPlayed();
         return;
       }
-      if (v.parentElement) v.parentElement.style.opacity = String(clipOpacityAt(doc, frame));
+      const opacity = fades ? clipOpacityAt(doc, frame) : 1;
+      if (v.parentElement) v.parentElement.style.opacity = String(opacity);
       const shown = player.shownPicture();
       const master = shown?.source === on ? shown.video : null;
       // The picture's time; while its video moves on at a cut (seeking), the playhead's.
@@ -132,7 +135,7 @@ export function CameraLayer({ player, sources, cameras, places }: Props) {
       endPlayed();
       for (const v of all.values()) v.pause();
     };
-  }, [player, cameras]);
+  }, [player, cameras, fades]);
 
   return (
     <>

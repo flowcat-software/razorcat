@@ -137,7 +137,9 @@ pub fn handle<R: Runtime>(
                         Route::Source(asked) => find(asked).map(|s| s.path.clone()),
                         Route::Playable(asked) => find(asked).and_then(|s| s.playable.clone()),
                         Route::Proxy(asked) => find(asked).and_then(|s| s.proxy.clone()),
-                        Route::Camera(asked) => find(asked).and_then(|s| s.camera.clone()),
+                        Route::Camera(asked) => {
+                            find(asked).and_then(|s| s.camera.as_ref().map(|c| c.0.clone()))
+                        }
                         _ => None,
                     }
                 };

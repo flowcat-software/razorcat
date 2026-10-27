@@ -110,6 +110,9 @@ pub struct Recording {
     /// empty: the first connected. Off until chosen.
     pub camera: bool,
     pub camera_device: String,
+    /// The camera fades with its clip (PLAN 5d.5; Richard, 2026-10-27); off, it stays as its
+    /// clip fades.
+    pub camera_fades: bool,
     /// The pointer is in the recording (PLAN 5b.5a).
     pub cursor: bool,
     /// Frames per second, one of [`RECORD_RATES`].
@@ -216,6 +219,7 @@ impl Default for Recording {
             system_sound: false,
             camera: false,
             camera_device: String::new(),
+            camera_fades: true,
             cursor: true,
             fps: 60,
             countdown: 3,

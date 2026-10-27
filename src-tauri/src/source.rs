@@ -30,8 +30,9 @@ pub struct Source {
     pub thumbs: Option<Thumbs>,
     /// Its waveform, once made or being made (wave.rs).
     pub wave: Option<Wave>,
-    /// Its camera, recorded with it and found beside it (camera.rs, PLAN 5d.4).
-    pub camera: Option<PathBuf>,
+    /// Its camera, recorded with it and found beside it, and its place on the picture
+    /// (camera.rs, PLAN 5d.4).
+    pub camera: Option<(PathBuf, crate::camera::Place)>,
 }
 
 /// What the page shows about the open source.

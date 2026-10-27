@@ -852,6 +852,7 @@ export function EditorApp() {
             player={player!}
             proxyUrls={proxyUrls}
             cameras={cameras}
+            cameraFades={settings?.recording.cameraFades ?? true}
             onError={(text) => setNotice({ text, error: true })}
             onUnplayable={(s) => {
               if (convertAsked.current === s.url) return;

@@ -923,6 +923,15 @@ export const sections: Section[] = [
             disabled: (s) => !s.recording.camera,
             keywords: ["camera", "webcam", "device", "input", "video"],
           },
+          {
+            id: "recordingCameraFades",
+            kind: "toggle",
+            path: "recording.cameraFades",
+            label: "Fade the camera with its clip",
+            description:
+              "When a clip fades in or out, its camera fades with it. Off, the camera stays fully shown while the clip fades.",
+            keywords: ["camera", "fade", "transition", "bubble", "clip"],
+          },
         ],
       },
       {
