@@ -528,6 +528,11 @@ export type ExportProgress = {
 	name: string,
 	/**  0 to 1, over all the files. */
 	done: number | null,
+	/**
+	 *  While a recording's camera is still being fitted (PLAN 5d.5c), waited for before the
+	 *  file's written: how far it's got, 0 to 1.
+	 */
+	camera: number | null,
 };
 
 /**  The export read back: each frame's barcode, and its probes' colours (RGB, probe after probe). */

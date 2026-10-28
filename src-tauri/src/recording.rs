@@ -1349,19 +1349,24 @@ fn fit_camera(
             }
         };
         let fitted = crate::camera::fit(&take, &parts, encoder, &out, place, progress);
-        crate::camera::fitting_over(&file);
         match fitted {
             Ok(()) => {
                 logln!(
                     "[recording] the camera fitted in {:.1} s",
                     t0.elapsed().as_secs_f64()
                 );
+                // The file has it before it's no longer being fitted: an export waiting for it
+                // goes on then.
                 crate::camera::fitted(&app, &file);
+                crate::camera::fitting_over(&file);
             }
-            Err(e) => logln!(
-                "[recording] the camera couldn't be fitted ({} is kept): {e}",
-                take.path.display()
-            ),
+            Err(e) => {
+                crate::camera::fitting_over(&file);
+                logln!(
+                    "[recording] the camera couldn't be fitted ({} is kept): {e}",
+                    take.path.display()
+                );
+            }
         }
     });
 }

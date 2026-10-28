@@ -312,8 +312,15 @@ export function EditorApp() {
   const [timelineH, setTimelineH] = useState(TIMELINE_H);
   /** The source the preview last asked to convert: asked once, however many errors. */
   const convertAsked = useRef<string | null>(null);
-  /** An export under way (export.rs): the file being written and how far along, over all. */
-  const [exporting, setExporting] = useState<{ name: string; done: number } | null>(null);
+  /**
+   * An export under way (export.rs): the file being written and how far along, over all; or,
+   * while a recording's camera it needs is still being processed, how far that's got.
+   */
+  const [exporting, setExporting] = useState<{
+    name: string;
+    done: number;
+    camera?: number | null;
+  } | null>(null);
   /** A conversion under way (convert.rs): the file and how far along. */
   const [converting, setConverting] = useState<{ name: string; done: number } | null>(null);
   /** Each file's proxy: ready (its URL) or how far along; by the file's id. */
@@ -518,7 +525,7 @@ export function EditorApp() {
         if (payload.message) setNotice({ text: payload.message, error: true });
       }),
       events.exportProgress.listen(({ payload }) =>
-        setExporting({ name: payload.name, done: payload.done ?? 0 }),
+        setExporting({ name: payload.name, done: payload.done ?? 0, camera: payload.camera }),
       ),
       events.exportEnded.listen(({ payload }) => {
         setExporting(null);
@@ -828,7 +835,10 @@ export function EditorApp() {
   // A conversion's progress, with Cancel, comes first; then the proxy's until it's ready, unless
   // there's something to say.
   const exportNotice: Notice | null = exporting && {
-    text: `Exporting ${exporting.name}… ${Math.floor(exporting.done * 100)}%`,
+    text:
+      exporting.camera != null
+        ? `Processing camera footage for ${exporting.name}… ${Math.floor(exporting.camera * 100)}%`
+        : `Exporting ${exporting.name}… ${Math.floor(exporting.done * 100)}%`,
     action: { label: "Cancel", run: () => void commands.cancelExport() },
   };
   const conversion: Notice | null = converting && {

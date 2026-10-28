@@ -245,6 +245,9 @@ pub struct ExportProgress {
     pub name: String,
     /// 0 to 1, over all the files.
     pub done: f64,
+    /// While a recording's camera is still being fitted (PLAN 5d.5c), waited for before the
+    /// file's written: how far it's got, 0 to 1.
+    pub camera: Option<f64>,
 }
 
 /// Rust → editor: an export ended. `files` were written; `message` says why it failed. Neither:
@@ -1757,6 +1760,16 @@ fn y4m_size(header: &str) -> Option<(usize, usize)> {
     Some((w?, h?))
 }
 
+/// The files open that `clips` are from.
+fn recordings(app: &AppHandle, clips: &[ExportClip]) -> Vec<PathBuf> {
+    inputs(app)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|i| clips.iter().any(|c| c.source == i.id))
+        .map(|i| i.path)
+        .collect()
+}
+
 /// A file to write: its clips, where, and as what.
 pub struct Job {
     pub clips: Vec<ExportClip>,
@@ -1792,9 +1805,26 @@ pub fn start(app: &AppHandle, jobs: Vec<Job>) -> bool {
                 let _ = ExportProgress {
                     name: name.clone(),
                     done: (k as f64 + done) / n,
+                    camera: None,
                 }
                 .emit_to(&app, LABEL);
             };
+            // A recording's camera still being fitted: waited for (hurried), or the file would
+            // be written without it.
+            let recordings = recordings(&app, &job.clips);
+            if crate::camera::being_fitted(&recordings) {
+                let waited = crate::camera::wait_fitted(&recordings, &stop, |camera| {
+                    let _ = ExportProgress {
+                        name: name.clone(),
+                        done: k as f64 / n,
+                        camera: Some(camera),
+                    }
+                    .emit_to(&app, LABEL);
+                });
+                if !waited {
+                    break;
+                }
+            }
             progress(0.0);
             match render(
                 &app,

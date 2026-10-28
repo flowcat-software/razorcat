@@ -11,6 +11,7 @@
 
 use std::ffi::OsString;
 use std::io::{Read, Write};
+use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -834,6 +835,8 @@ pub fn fit(
         .stderr(Stdio::piped());
     // Not in Razorcat's job: closed while fitting, the camera's still fitted.
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    // Known while it runs, so an export waiting for it can hurry it.
+    running(out, Some(child.as_raw_handle() as isize));
     let stderr = child.stderr.take();
     let said = std::thread::spawn(move || {
         let mut text = String::new();
@@ -853,7 +856,9 @@ pub fn fit(
             }
         }
     }
-    let status = child.wait().map_err(|e| e.to_string())?;
+    let status = child.wait();
+    running(out, None);
+    let status = status.map_err(|e| e.to_string())?;
     let said = said.join().unwrap_or_default();
     if !status.success() {
         let _ = std::fs::remove_file(&writing);
@@ -987,18 +992,36 @@ pub struct CameraFitting {
     pub progress: f64,
 }
 
-/// The recordings whose cameras are being fitted: each one's file, the bubble's place (None:
-/// the usual), and how far along.
-static FITTING: Mutex<Vec<(PathBuf, Option<Place>, f64)>> = Mutex::new(Vec::new());
+/// A recording whose camera is being fitted.
+struct Fitting {
+    /// The recording's file.
+    file: PathBuf,
+    /// The bubble's place (None: the usual).
+    place: Option<Place>,
+    /// How far along (0 to 1).
+    progress: f64,
+    /// Its ffmpeg (a process handle) while it runs.
+    process: Option<isize>,
+    /// An export's waiting for it: it runs at normal priority, not below.
+    rushed: bool,
+}
+
+static FITTING: Mutex<Vec<Fitting>> = Mutex::new(Vec::new());
 
 /// The camera of recording `file` is being fitted, `progress` of the way (its bubble at
 /// `place`): the editor's told, if it has the file open.
 pub fn fitting(app: &AppHandle, file: &Path, place: Option<Place>, progress: f64) {
     {
         let mut all = FITTING.lock().unwrap();
-        match all.iter_mut().find(|f| f.0 == file) {
-            Some(f) => f.2 = progress,
-            None => all.push((file.to_path_buf(), place, progress)),
+        match all.iter_mut().find(|f| f.file == file) {
+            Some(f) => f.progress = progress,
+            None => all.push(Fitting {
+                file: file.to_path_buf(),
+                place,
+                progress,
+                process: None,
+                rushed: false,
+            }),
         }
     }
     let open: Vec<u64> = app
@@ -1017,7 +1040,66 @@ pub fn fitting(app: &AppHandle, file: &Path, place: Option<Place>, progress: f64
 
 /// The camera of recording `file` is fitted, or couldn't be.
 pub fn fitting_over(file: &Path) {
-    FITTING.lock().unwrap().retain(|f| f.0 != file);
+    FITTING.lock().unwrap().retain(|f| f.file != file);
+}
+
+/// The ffmpeg fitting the camera file `out` is `process` (a handle), or None once it's done: if
+/// an export's waiting, it's hurried.
+fn running(out: &Path, process: Option<isize>) {
+    let mut all = FITTING.lock().unwrap();
+    if let Some(f) = all.iter_mut().find(|f| beside(&f.file) == out) {
+        f.process = process;
+        if f.rushed {
+            hurry(f.process);
+        }
+    }
+}
+
+/// `process` (a handle) at normal priority, not below: someone's waiting for it.
+fn hurry(process: Option<isize>) {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::Threading::{SetPriorityClass, NORMAL_PRIORITY_CLASS};
+    if let Some(p) = process {
+        // SAFETY: the handle's open while it's kept (`running` drops it before it's closed),
+        // and this is called with FITTING locked.
+        let _ = unsafe { SetPriorityClass(HANDLE(p as *mut _), NORMAL_PRIORITY_CLASS) };
+    }
+}
+
+/// Whether any of recordings `files` has its camera being fitted.
+pub fn being_fitted(files: &[PathBuf]) -> bool {
+    FITTING
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|f| files.contains(&f.file))
+}
+
+/// Waits till the cameras of recordings `files` are fitted, hurried (normal priority, not
+/// below), `progress` told how far the furthest behind has got; false if `stop`ped first.
+pub fn wait_fitted(files: &[PathBuf], stop: &AtomicBool, mut progress: impl FnMut(f64)) -> bool {
+    loop {
+        let behind = {
+            let mut all = FITTING.lock().unwrap();
+            let mut behind: Option<f64> = None;
+            for f in all.iter_mut().filter(|f| files.contains(&f.file)) {
+                if !f.rushed {
+                    f.rushed = true;
+                    hurry(f.process);
+                }
+                behind = Some(behind.map_or(f.progress, |b| b.min(f.progress)));
+            }
+            behind
+        };
+        let Some(behind) = behind else {
+            return true;
+        };
+        if stop.load(Ordering::Relaxed) {
+            return false;
+        }
+        progress(behind);
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// Tells the editor the camera of the source opened as `generation` is being fitted.
@@ -1046,54 +1128,57 @@ fn tell_fitting(app: &AppHandle, generation: u64, place: Option<Place>, progress
 /// it so.
 pub fn look(app: &AppHandle, generation: u64) {
     let app = app.clone();
-    std::thread::spawn(move || {
-        let state = app.state::<crate::state::AppState>();
-        let Some((path, info)) = state
-            .sources
+    std::thread::spawn(move || look_now(&app, generation));
+}
+
+/// `look`, on this thread.
+fn look_now(app: &AppHandle, generation: u64) {
+    let state = app.state::<crate::state::AppState>();
+    let Some((path, info)) = state
+        .sources
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|s| s.generation == generation)
+        .map(|s| (s.path.clone(), s.info()))
+    else {
+        return;
+    };
+    let file = beside(&path);
+    if !file.is_file() {
+        let fitting = FITTING
             .lock()
             .unwrap()
             .iter()
-            .find(|s| s.generation == generation)
-            .map(|s| (s.path.clone(), s.info()))
-        else {
+            .find(|f| f.file == path)
+            .map(|f| (f.place, f.progress));
+        if let Some((place, progress)) = fitting {
+            tell_fitting(app, generation, place, progress);
+        }
+        return;
+    }
+    let described = sidecar::command(Tool::Ffmpeg)
+        .ok()
+        .and_then(|mut c| c.args(["-hide_banner", "-i"]).arg(&file).output().ok());
+    let place = described
+        .and_then(|o| Place::from_description(&String::from_utf8_lossy(&o.stderr)))
+        .unwrap_or_else(|| Place::default_for(info.width, info.height));
+    {
+        let mut sources = state.sources.lock().unwrap();
+        let Some(s) = sources.iter_mut().find(|s| s.generation == generation) else {
             return;
         };
-        let file = beside(&path);
-        if !file.is_file() {
-            let fitting = FITTING
-                .lock()
-                .unwrap()
-                .iter()
-                .find(|f| f.0 == path)
-                .map(|f| (f.1, f.2));
-            if let Some((place, progress)) = fitting {
-                tell_fitting(&app, generation, place, progress);
-            }
-            return;
-        }
-        let described = sidecar::command(Tool::Ffmpeg)
-            .ok()
-            .and_then(|mut c| c.args(["-hide_banner", "-i"]).arg(&file).output().ok());
-        let place = described
-            .and_then(|o| Place::from_description(&String::from_utf8_lossy(&o.stderr)))
-            .unwrap_or_else(|| Place::default_for(info.width, info.height));
-        {
-            let mut sources = state.sources.lock().unwrap();
-            let Some(s) = sources.iter_mut().find(|s| s.generation == generation) else {
-                return;
-            };
-            s.camera = Some((file, place));
-        }
-        logln!("[camera] found with a source, at {place:?}");
-        let ready = CameraReady {
-            source: info.id,
-            camera: SourceCamera {
-                url: crate::protocol::camera_url(generation),
-                place,
-            },
-        };
-        let _ = tauri_specta::Event::emit_to(&ready, &app, crate::editor::LABEL);
-    });
+        s.camera = Some((file, place));
+    }
+    logln!("[camera] found with a source, at {place:?}");
+    let ready = CameraReady {
+        source: info.id,
+        camera: SourceCamera {
+            url: crate::protocol::camera_url(generation),
+            place,
+        },
+    };
+    let _ = tauri_specta::Event::emit_to(&ready, app, crate::editor::LABEL);
 }
 
 /// The camera of the recording `file` is fitted: if the file's open, it gets it.
@@ -1107,8 +1192,9 @@ pub fn fitted(app: &AppHandle, file: &Path) {
         .filter(|s| s.path == file)
         .map(|s| s.generation)
         .collect();
+    // Here, not on a thread: the export waiting for it goes on once it has it.
     for generation in open {
-        look(app, generation);
+        look_now(app, generation);
     }
 }
 
