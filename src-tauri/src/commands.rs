@@ -331,13 +331,26 @@ pub fn cancel_conversion(app: AppHandle) {
     crate::convert::cancel(&app);
 }
 
-/// Record: the overlays, to pick what to record (PLAN 5b.3; picker.rs); `add` puts the recording
-/// on the end of the timeline when done, else it replaces it. [`crate::recording::RecordingChanged`]
-/// says how it went. An error if one is under way.
+/// Record: the overlays, to pick what to record (PLAN 5b.3; picker.rs); done, the recording's
+/// offered to the editor (5b.8c). [`crate::recording::RecordingChanged`] says how it went. An
+/// error if one is under way.
 #[tauri::command]
 #[specta::specta]
-pub fn start_recording(app: AppHandle, add: bool) -> Result<(), String> {
-    crate::picker::open(&app, add)
+pub fn start_recording(app: AppHandle) -> Result<(), String> {
+    crate::picker::open(&app)
+}
+
+/// The first recording's folder question, answered in the picker (PLAN 5b.7, 5b.8c): `folder`
+/// from now on (None: as it is); never asked again.
+#[tauri::command]
+#[specta::specta]
+pub fn answer_recording_folder(app: AppHandle, folder: Option<String>) -> Result<(), String> {
+    let mut s = get_settings(app.clone());
+    s.recording.asked_folder = true;
+    if let Some(folder) = folder {
+        s.recording.folder = folder;
+    }
+    crate::settings::update(&app, s).map(|_| ())
 }
 
 /// An overlay's selection started: the other overlays drop theirs.

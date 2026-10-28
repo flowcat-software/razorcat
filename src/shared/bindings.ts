@@ -62,6 +62,11 @@ export const commands = {
 	/**  Every setting as installed: what a group's Reset (Settings, its heading's link) puts back. */
 	defaultSettings: () => __TAURI_INVOKE<Settings>("default_settings"),
 	/**
+	 *  The first recording's folder question, answered in the picker (PLAN 5b.7, 5b.8c): `folder`
+	 *  from now on (None: as it is); never asked again.
+	 */
+	answerRecordingFolder: (folder: string | null) => typedError<null, string>(__TAURI_INVOKE("answer_recording_folder", { folder })),
+	/**
 	 *  Settings is recording a new shortcut (PLAN 5b.8b): ours let go of, so pressing one is
 	 *  recorded instead of acted on.
 	 */
@@ -127,11 +132,11 @@ export const commands = {
 	/**  The status bar's Cancel: stops the conversion under way. */
 	cancelConversion: () => __TAURI_INVOKE<void>("cancel_conversion"),
 	/**
-	 *  Record: the overlays, to pick what to record (PLAN 5b.3; picker.rs); `add` puts the recording
-	 *  on the end of the timeline when done, else it replaces it. [`crate::recording::RecordingChanged`]
-	 *  says how it went. An error if one is under way.
+	 *  Record: the overlays, to pick what to record (PLAN 5b.3; picker.rs); done, the recording's
+	 *  offered to the editor (5b.8c). [`crate::recording::RecordingChanged`] says how it went. An
+	 *  error if one is under way.
 	 */
-	startRecording: (add: boolean) => typedError<null, string>(__TAURI_INVOKE("start_recording", { add })),
+	startRecording: () => typedError<null, string>(__TAURI_INVOKE("start_recording")),
 	/**  Stops the recording (the control's Stop): its file is finished and opened. */
 	stopRecording: () => __TAURI_INVOKE<void>("stop_recording"),
 	/**  An overlay's selection started: the other overlays drop theirs. */
@@ -175,6 +180,11 @@ export const commands = {
 	clicks: boolean,
 	/**  The camera is recorded (Settings › Recording; the bar's toggle), its bubble shown. */
 	camera: boolean,
+	/**
+	 *  The first recording ever (PLAN 5b.7, asked here since 5b.8c): the folder to ask about,
+	 *  as the setting holds it (the default if empty), before it starts. None once asked.
+	 */
+	askFolder: string | null,
 } | null>("pick_load", { index }),
 	/**
 	 *  The Record bar's microphone, system sound, clicks and camera toggles (Settings › Recording's
@@ -269,7 +279,6 @@ export const events = {
 	proxyProgress: makeEvent<ProxyProgress>("proxy-progress"),
 	proxyReady: makeEvent<ProxyReady>("proxy-ready"),
 	proxyStopped: makeEvent<ProxyStopped>("proxy-stopped"),
-	recordAsked: makeEvent<RecordAsked>("record-asked"),
 	recordingChanged: makeEvent<RecordingChanged>("recording-changed"),
 	recordingPaused: makeEvent<RecordingPaused>("recording-paused"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
@@ -766,6 +775,8 @@ export type OpenFailed = {
 export type OpenOffered = {
 	/**  Their file names, in order. */
 	names: string[],
+	/**  A recording just stopped (PLAN 5b.8c), not files dropped. */
+	recording: boolean,
 };
 
 /**  Rust → overlays: a selection started on monitor `except`; the others drop theirs. */
@@ -791,6 +802,11 @@ export type PickLoad = {
 	clicks: boolean,
 	/**  The camera is recorded (Settings › Recording; the bar's toggle), its bubble shown. */
 	camera: boolean,
+	/**
+	 *  The first recording ever (PLAN 5b.7, asked here since 5b.8c): the folder to ask about,
+	 *  as the setting holds it (the default if empty), before it starts. None once asked.
+	 */
+	askFolder: string | null,
 };
 
 /**  An area of a monitor, in its own physical pixels. */
@@ -876,9 +892,6 @@ export type ProxyReady = {
 export type ProxyStopped = {
 	source: string,
 };
-
-/**  Rust → the editor: the tray's Record (the editor's own Record, its questions and all). */
-export type RecordAsked = null;
 
 /**  A click where it lands on the recorded picture, and when (s). */
 export type RecordedClick = {

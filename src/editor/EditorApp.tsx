@@ -10,6 +10,7 @@ import { clickSettingsOf, useClickSettings, type ClickSettings } from "../markup
 import { applyStyleSettings, loadFonts } from "../markup/useStyleSettings";
 import { ConfirmDialog } from "../settings/controls/ConfirmDialog";
 import { isTyping } from "../shared/dom";
+import { folderLabel } from "../shared/folderLabel";
 import {
   commands,
   events,
@@ -45,14 +46,7 @@ import {
   seekEdit,
   splitAtPlayhead,
 } from "./edits";
-import {
-  LARGE_GIF,
-  exportTimeline,
-  fileSize,
-  folderLabel,
-  onBeforeExport,
-  onExportFailed,
-} from "./exports";
+import { LARGE_GIF, exportTimeline, fileSize, onBeforeExport, onExportFailed } from "./exports";
 import { checkFrames } from "./frameCheck";
 import { checkLayout } from "./layoutCheck";
 import { FrameOptions } from "./FrameOptions";
@@ -240,46 +234,25 @@ export function EditorApp() {
   const [notice, setNotice] = useState<Notice | null>(null);
   /** A screen recording is under way (PLAN 5b; recording.rs). */
   const [recording, setRecording] = useState(false);
-  /** Records the screen: the recording goes on the timeline's end (`add`) or replaces it. */
-  const startRecording = (add: boolean) =>
-    void commands.startRecording(add).then((r) => {
+  /**
+   * Records the screen: the picker (the first recording asks where recordings go there), then,
+   * done, the recording's offered as a dropped file is (PLAN 5b.8c): added or replacing the
+   * timeline, asked then.
+   */
+  const startRecording = () =>
+    void commands.startRecording().then((r) => {
       if (r.status === "error") setNotice({ text: r.error, error: true });
     });
-  /** As `startRecording`, the first recording ever asking where recordings go (PLAN 5b.7). */
-  const record = (add: boolean) => {
-    const s = settingsNow.current;
-    if (!s || s.recording.askedFolder) return startRecording(add);
-    void commands
-      .defaultRecordingFolder()
-      .then((fallback) => setAsking({ recordFolder: s.recording.folder || fallback, add }));
-  };
-  /**
-   * The recordings folder question's answer: `folder` (null: as it is) from now on; never asked
-   * again. The recording starts once it's stored.
-   */
-  const answerRecordingFolder = (add: boolean, folder: string | null) => {
-    setAsking(null);
-    const s = settingsNow.current;
-    if (!s) return startRecording(add);
-    const recording = { ...s.recording, askedFolder: true, ...(folder ? { folder } : {}) };
-    void commands
-      .updateSettings({ ...s, recording })
-      .catch((e: unknown) => console.error("[recording] folder:", e))
-      .finally(() => startRecording(add));
-  };
   /**
    * A question before the timeline is replaced (PLAN 4.5e3): Open with edits on it, or a file
    * dropped on it (add or replace).
    */
   const [asking, setAsking] = useState<
     | { open: true }
-    | { offered: string[] }
-    /** Record: the recording replaces the timeline, or goes on its end. */
-    | { record: true }
+    /** Files dropped, or a recording just stopped: add them, or replace the timeline? */
+    | { offered: string[]; recording: boolean }
     /** The first export: save to a default folder? `folder` as the setting holds it. */
     | { folder: string; go: () => void }
-    /** The first recording: save recordings to `recordFolder`? Then it starts (`add`). */
-    | { recordFolder: string; add: boolean }
     /** The first close: Razorcat stays in the tray. */
     | { tray: true }
     | null
@@ -300,11 +273,10 @@ export function EditorApp() {
       .catch((e: unknown) => console.error("[export] default folder:", e))
       .finally(question.go);
   };
-  /** Record (the button, the tray's): Stop while recording; with a timeline, asks first. */
+  /** Record (the button): Stop while recording. */
   const recordClicked = () => {
     if (recording) void commands.stopRecording();
-    else if (source) setAsking({ record: true });
-    else record(false);
+    else startRecording();
   };
   /** Open (the button, Ctrl+O): with edits, asks first. */
   const replace = () => (edited() ? setAsking({ open: true }) : openVideo());
@@ -414,11 +386,6 @@ export function EditorApp() {
   useEffect(() => {
     settingsNow.current = settings;
   }, [settings]);
-  // The tray's Record (PLAN 5b.8a) does as the button does, as things are when it's asked.
-  const recordNow = useRef(recordClicked);
-  useEffect(() => {
-    recordNow.current = recordClicked;
-  });
   useEffect(() => {
     let timer = 0;
     const stop = usePlayback.subscribe(({ volume, muted }) => {
@@ -531,7 +498,7 @@ export function EditorApp() {
         const at = useTimeline.getState().dropAt;
         useTimeline.getState().setDropAt(null);
         if (at !== null) void commands.answerOffer(true, at);
-        else setAsking({ offered: payload.names });
+        else setAsking({ offered: payload.names, recording: payload.recording });
       }),
       // One more file, on the end of the timeline (one undo step).
       events.sourceAdded.listen(({ payload }) => {
@@ -627,7 +594,6 @@ export function EditorApp() {
       events.checkFrames.listen(({ payload }) => setCheckFor(payload)),
       // Settings › About's resets: the tools as installed too.
       events.toolStylesReset.listen(forgetToolMemory),
-      events.recordAsked.listen(() => recordNow.current()),
       // The first close, ever (PLAN 5b.8a): Razorcat stays in the tray, the page says so.
       events.closingToTray.listen(() => setAsking({ tray: true })),
       events.settingsChanged.listen(({ payload }) => {
@@ -1019,54 +985,13 @@ export function EditorApp() {
           <p>Your choice is kept. Settings › General › Tray changes it.</p>
         </ConfirmDialog>
       )}
-      {asking && "recordFolder" in asking && (
-        <ConfirmDialog
-          title="Save recordings to this folder?"
-          confirm="Use this folder"
-          onConfirm={() => answerRecordingFolder(asking.add, null)}
-          onCancel={() => setAsking(null)}
-          other={{
-            label: "Change…",
-            onClick: () =>
-              void commands.pickFolder(asking.recordFolder).then((picked) => {
-                if (picked) answerRecordingFolder(asking.add, picked);
-              }),
-          }}
-        >
-          <p>Your screen recordings will be saved here, and open in Razorcat when you stop:</p>
-          <p>
-            <strong>{folderLabel(asking.recordFolder)}</strong>
-          </p>
-          <p>Settings › Recording changes this later.</p>
-        </ConfirmDialog>
-      )}
-      {asking && "record" in asking && (
-        <ConfirmDialog
-          title="Add the recording to the timeline, or replace it?"
-          confirm="Add"
-          onConfirm={() => {
-            setAsking(null);
-            record(true);
-          }}
-          onCancel={() => setAsking(null)}
-          other={{
-            label: "Replace",
-            onClick: () => {
-              setAsking(null);
-              record(false);
-            },
-          }}
-        >
-          <p>
-            When you stop, the recording goes after the clips on the timeline, or replaces the
-            timeline.
-          </p>
-          {edited() && <p>Replacing loses the timeline&apos;s edits.</p>}
-        </ConfirmDialog>
-      )}
       {asking && "offered" in asking && (
         <ConfirmDialog
-          title="Add to the timeline, or replace it?"
+          title={
+            asking.recording
+              ? "Add the recording to the timeline, or replace it?"
+              : "Add to the timeline, or replace it?"
+          }
           confirm="Add"
           onConfirm={() => {
             setAsking(null);
@@ -1084,16 +1009,25 @@ export function EditorApp() {
             },
           }}
         >
-          <p>
-            {asking.offered.length === 1
-              ? `Add ${asking.offered[0]} after the clips on the timeline, or replace the timeline with it.`
-              : `Add these ${asking.offered.length} videos after the clips on the timeline, or replace the timeline with them (in this order: ${asking.offered.join(", ")}).`}
-          </p>
-          <p>
-            To put {asking.offered.length === 1 ? "it" : "them"} between clips, drop{" "}
-            {asking.offered.length === 1 ? "it" : "them"} onto the cut where{" "}
-            {asking.offered.length === 1 ? "it goes" : "they go"}.
-          </p>
+          {asking.recording ? (
+            <p>
+              Add {asking.offered[0]} after the clips on the timeline, or replace the timeline with
+              it. Either way, it&apos;s saved in your recordings folder.
+            </p>
+          ) : (
+            <>
+              <p>
+                {asking.offered.length === 1
+                  ? `Add ${asking.offered[0]} after the clips on the timeline, or replace the timeline with it.`
+                  : `Add these ${asking.offered.length} videos after the clips on the timeline, or replace the timeline with them (in this order: ${asking.offered.join(", ")}).`}
+              </p>
+              <p>
+                To put {asking.offered.length === 1 ? "it" : "them"} between clips, drop{" "}
+                {asking.offered.length === 1 ? "it" : "them"} onto the cut where{" "}
+                {asking.offered.length === 1 ? "it goes" : "they go"}.
+              </p>
+            </>
+          )}
           {edited() && <p>Replacing loses the timeline&apos;s edits.</p>}
         </ConfirmDialog>
       )}

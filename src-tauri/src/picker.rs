@@ -52,6 +52,9 @@ pub struct PickLoad {
     pub clicks: bool,
     /// The camera is recorded (Settings › Recording; the bar's toggle), its bubble shown.
     pub camera: bool,
+    /// The first recording ever (PLAN 5b.7, asked here since 5b.8c): the folder to ask about,
+    /// as the setting holds it (the default if empty), before it starts. None once asked.
+    pub ask_folder: Option<String>,
 }
 
 /// An area of a monitor, in its own physical pixels.
@@ -64,7 +67,8 @@ pub struct PickRect {
 }
 
 struct Picking {
-    add: bool,
+    /// The editor was showing (not hidden in the tray, nor minimized): Esc brings it back.
+    editor_shown: bool,
     screens: Vec<Screen>,
     windows: Vec<SnapWindow>,
 }
@@ -75,13 +79,9 @@ pub fn label(index: usize) -> String {
     format!("{PREFIX}{index}")
 }
 
-/// Puts the editor aside and the overlays up, one per monitor; `add` goes on to the recording.
-/// Whether a recording's being picked.
-pub fn picking() -> bool {
-    PICKING.lock().unwrap().is_some()
-}
-
-pub fn open(app: &AppHandle, add: bool) -> Result<(), String> {
+/// Puts the editor aside, if it's showing, and the overlays up, one per monitor (from the editor,
+/// the tray or the key: PLAN 5b.8c).
+pub fn open(app: &AppHandle) -> Result<(), String> {
     if crate::recording::busy() || PICKING.lock().unwrap().is_some() {
         return Err("A recording is under way.".into());
     }
@@ -105,13 +105,17 @@ pub fn open(app: &AppHandle, add: bool) -> Result<(), String> {
         .into_iter()
         .filter(|w| Some(w.hwnd) != mine)
         .collect();
+    // Hidden in the tray, it stays hidden (minimizing would show it in the taskbar).
+    let editor_shown = editor
+        .as_ref()
+        .is_some_and(|e| e.is_visible().unwrap_or(false) && !e.is_minimized().unwrap_or(false));
     *PICKING.lock().unwrap() = Some(Picking {
-        add,
+        editor_shown,
         screens: screens.clone(),
         windows,
     });
     crate::camera::unfollow();
-    if let Some(editor) = editor {
+    if let Some(editor) = editor.filter(|_| editor_shown) {
         let _ = editor.minimize();
     }
     // Creating webviews from a command can deadlock on Windows: elsewhere.
@@ -222,6 +226,15 @@ pub fn load(app: &AppHandle, index: u32) -> Option<PickLoad> {
         .unwrap()
         .recording
         .clone();
+    let ask_folder = (!sound.asked_folder).then(|| {
+        if sound.folder.is_empty() {
+            crate::recording::default_folder(app)
+                .map(|p| crate::paths::for_settings(&p.to_string_lossy()))
+                .unwrap_or_default()
+        } else {
+            sound.folder.clone()
+        }
+    });
     let guard = PICKING.lock().unwrap();
     let p = guard.as_ref()?;
     let s = p.screens.get(index as usize)?;
@@ -233,6 +246,7 @@ pub fn load(app: &AppHandle, index: u32) -> Option<PickLoad> {
         system_sound: sound.system_sound,
         clicks: sound.clicks,
         camera: sound.camera,
+        ask_folder,
     })
 }
 
@@ -353,14 +367,16 @@ pub fn picked(app: &AppHandle, index: u32, rect: Option<PickRect>) -> Result<(),
     crate::camera::hold(app);
     close(app);
     let target = Target::of(screen, rect.map(|r| (r.x, r.y, r.width, r.height)));
-    crate::recording::start(app, p.add, target)
+    crate::recording::start(app, target)
 }
 
-/// Esc, or a right-click: no recording; the editor comes back.
+/// Esc, or a right-click: no recording; the editor comes back if it was showing.
 pub fn cancel(app: &AppHandle) {
-    if PICKING.lock().unwrap().take().is_some() {
+    if let Some(p) = PICKING.lock().unwrap().take() {
         close(app);
-        crate::recording::show_editor(app);
+        if p.editor_shown {
+            crate::recording::show_editor(app);
+        }
     }
 }
 
@@ -397,5 +413,5 @@ pub fn picked_window(app: &AppHandle, index: u32) -> Result<(), String> {
         window.hwnd as u64,
         (r.x, r.y, r.width.max(0) as u32, r.height.max(0) as u32),
     );
-    crate::recording::start(app, p.add, target)
+    crate::recording::start(app, target)
 }

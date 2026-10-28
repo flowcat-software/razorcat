@@ -253,3 +253,53 @@
     transform: translate(-50%, -4px);
   }
 }
+
+/* The first recording's folder question (PLAN 5b.8c): in the middle of the monitor, as the bar
+   looks. */
+.ask {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 48px));
+  box-sizing: border-box;
+  padding: 18px 20px 16px;
+  border-radius: 12px;
+  background: rgb(22 22 26 / 0.92);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.08),
+    0 10px 36px rgb(0 0 0 / 0.45);
+  color: rgb(255 255 255 / 0.88);
+  font:
+    13px/1.45 "Segoe UI Variable Text",
+    "Segoe UI",
+    system-ui;
+  cursor: default;
+}
+
+.ask p {
+  margin: 0 0 8px;
+}
+
+.ask strong {
+  color: #fff;
+  word-break: break-all;
+}
+
+.askTitle {
+  margin: 0 0 10px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.askNote {
+  color: rgb(255 255 255 / 0.6);
+}
+
+.askButtons {
+  display: flex;
+  gap: 6px;
+  margin-top: 14px;
+}

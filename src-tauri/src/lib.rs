@@ -64,6 +64,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::preview_recording_name,
             commands::reset_settings,
             commands::default_settings,
+            commands::answer_recording_folder,
             commands::hotkeys_pause,
             commands::hotkeys_resume,
             commands::hotkey_check,
@@ -147,7 +148,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             appearance::WindowsAccentChanged,
             settings::SettingsChanged,
             tool_styles::ToolStylesReset,
-            tray::RecordAsked,
             tray::ClosingToTray,
         ])
 }

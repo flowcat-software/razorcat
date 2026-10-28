@@ -74,6 +74,8 @@ pub struct DropHover {
 pub struct OpenOffered {
     /// Their file names, in order.
     pub names: Vec<String>,
+    /// A recording just stopped (PLAN 5b.8c), not files dropped.
+    pub recording: bool,
 }
 
 /// Rust → editor: the open source plays from a converted copy now (its codec): the same
@@ -344,6 +346,16 @@ pub fn drop_hover(app: &AppHandle, at: Option<(f64, f64)>) {
 /// Files dropped on the window, or a launch's: opened if the timeline is empty, else offered
 /// (the page asks whether to add them or replace the timeline's files).
 pub fn offer(app: &AppHandle, paths: Vec<PathBuf>) {
+    offer_as(app, paths, false);
+}
+
+/// A recording, done (PLAN 5b.8c): opened if the timeline is empty, else offered as dropped
+/// files are, the editor asking whether it's added or replaces the timeline.
+pub fn offer_recording(app: &AppHandle, path: PathBuf) {
+    offer_as(app, vec![path], true);
+}
+
+fn offer_as(app: &AppHandle, paths: Vec<PathBuf>, recording: bool) {
     if paths.is_empty() {
         return;
     }
@@ -359,7 +371,7 @@ pub fn offer(app: &AppHandle, paths: Vec<PathBuf>) {
     }
     let names = paths.iter().map(|p| source::file_name(p)).collect();
     app.state::<AppState>().editor.lock().unwrap().offered = paths;
-    let _ = OpenOffered { names }.emit_to(app, LABEL);
+    let _ = OpenOffered { names, recording }.emit_to(app, LABEL);
 }
 
 /// The page's answer to [`OpenOffered`]: add the files, replace the timeline's with them (`add`

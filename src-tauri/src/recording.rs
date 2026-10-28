@@ -85,8 +85,6 @@ struct Running {
     sources: Vec<audio::Source>,
     video: Video,
     file: PathBuf,
-    /// Added to the timeline when done (else it replaces it).
-    add: bool,
     /// What to say when it's done: why the sound isn't as asked.
     warning: Option<String>,
     /// The microphone, and the system's sound, muted (kept across segments).
@@ -768,9 +766,9 @@ pub fn busy() -> bool {
     NOW.lock().unwrap().is_some() || *STARTING.lock().unwrap()
 }
 
-/// Starts recording `target`, on a thread; `add` puts it on the end of the timeline when done,
-/// else it replaces it. Says how it went with [`RecordingChanged`].
-pub fn start(app: &AppHandle, add: bool, target: Target) -> Result<(), String> {
+/// Starts recording `target`, on a thread; done, it's offered to the editor (PLAN 5b.8c). Says
+/// how it went with [`RecordingChanged`].
+pub fn start(app: &AppHandle, target: Target) -> Result<(), String> {
     {
         let mut starting = STARTING.lock().unwrap();
         if *starting || NOW.lock().unwrap().is_some() {
@@ -781,7 +779,7 @@ pub fn start(app: &AppHandle, add: bool, target: Target) -> Result<(), String> {
     }
     let app = app.clone();
     std::thread::spawn(move || {
-        let started = begin(&app, add, &target);
+        let started = begin(&app, &target);
         // Under the same lock as `stop` checks it: a Stop now is either seen there, or asked.
         let asked = {
             let mut starting = STARTING.lock().unwrap();
@@ -827,7 +825,7 @@ pub fn start(app: &AppHandle, add: bool, target: Target) -> Result<(), String> {
 
 /// Puts the control up, counts down, and starts ffmpeg recording (the editor is aside already).
 /// False if Stop (Cancel) was pressed in the countdown.
-fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
+fn begin(app: &AppHandle, target: &Target) -> Result<bool, String> {
     let dir = folder(app);
     std::fs::create_dir_all(&dir).map_err(|e| format!("can't make {}: {e}", dir.display()))?;
     let template = app
@@ -970,7 +968,6 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
                         sources,
                         video,
                         file,
-                        add,
                         warning,
                         muted,
                         system_muted,
@@ -1366,7 +1363,9 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
             if !noted.clicks.is_empty() {
                 NOTED.lock().unwrap().push((r.file.clone(), noted));
             }
-            crate::editor::request_open(app, r.file, r.add);
+            // Opened, or with a timeline, added to it or replacing it as the editor asks
+            // (PLAN 5b.8c: asked now, not before).
+            crate::editor::offer_recording(app, r.file);
         }
         Err(message) => {
             logln!("[recording] failed: {message}");

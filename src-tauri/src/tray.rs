@@ -22,10 +22,6 @@ const TRAY_ID: &str = "main";
 /// hidden.
 pub const STARTED_ARG: &str = "--tray";
 
-/// Rust → the editor: the tray's Record (the editor's own Record, its questions and all).
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct RecordAsked;
-
 /// Rust → the editor: it's closing for the first time, ever, and Razorcat stays in the tray:
 /// the page says so, and the answer comes back (`closed_to_tray`).
 #[derive(Debug, Clone, Serialize, Type, Event)]
@@ -63,14 +59,12 @@ fn build_menu(app: &AppHandle, s: &Settings) -> tauri::Result<Menu<Wry>> {
     Ok(menu)
 }
 
-/// Record (the tray's, or its key from anywhere: PLAN 5b.8b): the editor's own Record, its
-/// questions and all. Nothing while a recording's being picked or made.
+/// Record (the tray's, or its key from anywhere: PLAN 5b.8b): the picker, the editor left as it
+/// is till the recording opens in it (5b.8c). Nothing while a recording's being picked or made.
 pub fn record(app: &AppHandle) {
-    if crate::recording::busy() || crate::picker::picking() {
-        return;
+    if let Err(e) = crate::picker::open(app) {
+        logln!("[tray] record: {e}");
     }
-    editor::show_window(app);
-    let _ = RecordAsked.emit_to(app, editor::LABEL);
 }
 
 /// The icon and its menu, as `s` has them.

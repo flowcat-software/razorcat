@@ -5,7 +5,9 @@
 // microphone, the system's sound, clicks and the camera are turned on or off by the bar's
 // buttons, or M, S, C and V (Settings › Recording's settings); the camera's bubble shows while
 // it's on (camera.rs). One selection over every monitor: starting one here clears the
-// others'. Selections are in the monitor's physical pixels, shown in CSS px.
+// others'. Selections are in the monitor's physical pixels, shown in CSS px. The first recording
+// ever asks where recordings go before it starts (PLAN 5b.7; here since 5b.8c, as Record may
+// come from the tray or its key with the editor away).
 
 import {
   useCallback,
@@ -16,6 +18,7 @@ import {
   type PointerEvent,
 } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { folderLabel } from "../shared/folderLabel";
 import { commands, events, type PickLoad } from "../shared/ipc";
 import { Struck } from "../shared/Struck";
 import {
@@ -75,6 +78,10 @@ export function PickerApp() {
   const [clicks, setClicks] = useState(false);
   /** The camera recorded, its bubble shown. */
   const [camera, setCamera] = useState(false);
+  /** The first recording's folder question, up: what's recorded once it's answered. */
+  const [asking, setAsking] = useState<{ go: () => void } | null>(null);
+  /** Answered here: not asked again. */
+  const answered = useRef(false);
 
   // The window is sized to its monitor after it's made: follow it.
   useEffect(() => {
@@ -134,11 +141,43 @@ export function PickerApp() {
     void commands.pickSelection(index, selection);
   }, [selection]);
 
-  const record = useCallback((rect: Rect | null) => {
-    void commands.pickArea(index, rect).then((r) => {
-      if (r.status === "error") console.error("[picker]", r.error);
+  /** `go` records: the first recording ever asks where recordings go first. */
+  const askFirst = useCallback(
+    (go: () => void) => {
+      if (load?.askFolder != null && !answered.current) setAsking({ go });
+      else go();
+    },
+    [load],
+  );
+  /** The folder question's answer: `folder` from now on (null: as it is); then it records. */
+  const answerFolder = useCallback(
+    (folder: string | null) => {
+      if (!asking) return;
+      answered.current = true;
+      setAsking(null);
+      void commands
+        .answerRecordingFolder(folder)
+        .then((r) => {
+          if (r.status === "error") console.error("[picker] folder:", r.error);
+        })
+        .finally(asking.go);
+    },
+    [asking],
+  );
+  const changeFolder = useCallback(() => {
+    void commands.pickFolder(load?.askFolder ?? "").then((picked) => {
+      if (picked) answerFolder(picked);
     });
-  }, []);
+  }, [load, answerFolder]);
+  const record = useCallback(
+    (rect: Rect | null) =>
+      askFirst(() => {
+        void commands.pickArea(index, rect).then((r) => {
+          if (r.status === "error") console.error("[picker]", r.error);
+        });
+      }),
+    [askFirst],
+  );
   const cancel = useCallback(() => void commands.pickCancel(), []);
   const toggleMic = useCallback(() => {
     setMic((on) => {
@@ -176,15 +215,25 @@ export function PickerApp() {
     (p: Point) => (load ? windowAt(load.windows, { x: p.x + load.x, y: p.y + load.y }) : null),
     [load],
   );
-  const pickWindow = useCallback((w: number) => {
-    void commands.pickWindow(w).then((r) => {
-      if (r.status === "error") console.error("[picker]", r.error);
-    });
-  }, []);
+  const pickWindow = useCallback(
+    (w: number) =>
+      askFirst(() => {
+        void commands.pickWindow(w).then((r) => {
+          if (r.status === "error") console.error("[picker]", r.error);
+        });
+      }),
+    [askFirst],
+  );
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
+      // The folder question: Enter uses the folder, Esc goes back to picking.
+      if (asking) {
+        if (e.key === "Enter") answerFolder(null);
+        else if (e.key === "Escape") setAsking(null);
+        return;
+      }
       const plain = !e.repeat && !e.ctrlKey && !e.altKey && !e.shiftKey;
       const plainW = plain && e.code === "KeyW";
       if (plain && e.code === "KeyM") return toggleMic();
@@ -223,7 +272,8 @@ export function PickerApp() {
     };
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();
-      cancel();
+      if (asking) setAsking(null);
+      else cancel();
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("contextmenu", onContextMenu);
@@ -247,13 +297,15 @@ export function PickerApp() {
     toggleSystem,
     toggleClicks,
     toggleCamera,
+    asking,
+    answerFolder,
   ]);
 
   const toLocal = (e: PointerEvent): Point =>
     clampPoint({ x: toPhysical(e.clientX, scale), y: toPhysical(e.clientY, scale) }, size);
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 || barRef.current?.contains(e.target as Node)) return;
+    if (e.button !== 0 || asking || barRef.current?.contains(e.target as Node)) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     if (picking) {
       pressedWindow.current = windowUnder(toLocal(e));
@@ -323,6 +375,7 @@ export function PickerApp() {
   };
 
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
+    if (asking) return;
     if (picking) {
       // Picked on release, so the release can't land on the window below.
       const w = pressedWindow.current;
@@ -480,7 +533,40 @@ export function PickerApp() {
           </button>
         </div>
       )}
-      {focused && !drag && (
+      {asking && load?.askFolder != null && (
+        <div
+          className={styles.ask}
+          role="dialog"
+          aria-labelledby="ask-title"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <h2 id="ask-title" className={styles.askTitle}>
+            Save recordings to this folder?
+          </h2>
+          <p>Your screen recordings will be saved here, and open in Razorcat when you stop:</p>
+          <p>
+            <strong>{folderLabel(load.askFolder)}</strong>
+          </p>
+          <p className={styles.askNote}>Settings › Recording changes this later.</p>
+          <div className={styles.askButtons}>
+            <button
+              type="button"
+              className={styles.record}
+              autoFocus
+              onClick={() => answerFolder(null)}
+            >
+              Use this folder
+            </button>
+            <button type="button" className={styles.cancel} onClick={changeFolder}>
+              Change…
+            </button>
+            <button type="button" className={styles.cancel} onClick={() => setAsking(null)}>
+              Back
+            </button>
+          </div>
+        </div>
+      )}
+      {focused && !drag && !asking && (
         <HintBar
           mic={mic}
           system={system}

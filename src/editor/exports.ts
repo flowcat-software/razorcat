@@ -162,15 +162,6 @@ export function onBeforeExport(ask: () => Promise<void>) {
   beforeExport = ask;
 }
 
-/**
- * A folder setting as a person reads it: under the profile, from there (`Videos\Razorcat`);
- * elsewhere, as it is.
- */
-export function folderLabel(setting: string): string {
-  const profile = /^%USERPROFILE%\\/i;
-  return profile.test(setting) ? setting.replace(profile, "") : setting;
-}
-
 /** Runs `start` with the markup sent; if it can't be, says why. */
 function withMarkup(doc: Doc, start: (marks: ExportMark[]) => Promise<unknown>) {
   beforeExport()
