@@ -1,7 +1,7 @@
 // A recording's camera in the preview (PLAN 5d.4): its own video, round, on top of everything
 // (Richard, 2026-10-27: markup and redactions go under it), where it was left while recording,
-// on the finished frame (cameraPlace.ts). Shown while the playhead's clip is from a recording
-// with a camera; faded with its clip. While its camera's still being fitted to it (camera.rs:
+// on the finished frame (cameraPlace.ts), at its clip's size (PLAN 5d.6a). Shown while the
+// playhead's clip is from a recording with a camera, placed as that clip says; faded with it. While its camera's still being fitted to it (camera.rs:
 // seconds a minute), where it'll be, a ring filling as it's fitted (PLAN 5d.5c).
 //
 // The camera's file is fitted to its recording (camera.rs), so its time is the recording's: it
@@ -13,11 +13,11 @@
 // stepping, it's sought to the picture's time.
 // Development builds log how far apart they played, and the frames dropped.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { CameraFitting, SourceCamera, SourceInfo } from "../shared/ipc";
 import { logLine } from "../shared/log";
 import type { Square } from "./cameraPlace";
-import { clipAt, clipOpacityAt } from "./doc";
+import { clipAt, clipOpacityAt, type Clip } from "./doc";
 import { useDoc } from "./docStore";
 import type { Player } from "./player";
 import { sourceFrame } from "./speed";
@@ -38,20 +38,28 @@ const RING = 43;
 
 interface Props {
   player: Player;
-  /** The files open, with their cameras (by file id) and where each shows on the stage. */
+  /** The files open, with their cameras (by file id). */
   sources: readonly SourceInfo[];
   cameras: Readonly<Record<string, SourceCamera>>;
   /** The cameras still being fitted (where they'll be, how far along), by file id. */
   fitting: Readonly<Record<string, CameraFitting>>;
-  places: Readonly<Record<string, Square>>;
+  /** Where a clip's camera shows on the stage (none: it has none). */
+  placeOf: (clip: Clip) => Square | null;
   /** It fades with its clip (Settings › Recording); else it stays as the clip fades. */
   fades: boolean;
 }
 
-export function CameraLayer({ player, sources, cameras, fitting, places, fades }: Props) {
+export function CameraLayer({ player, sources, cameras, fitting, placeOf, fades }: Props) {
   const videos = useRef(new Map<string, HTMLVideoElement>());
   /** Each camera's circle (its video's, or its stand-in's while it's fitted), by file id. */
   const circles = useRef(new Map<string, HTMLDivElement>());
+  // The latest, for `update` (the stage's size changes it; it's not re-subscribed for that).
+  const places = useRef(placeOf);
+  const updated = useRef<() => void>(() => {});
+  useLayoutEffect(() => {
+    places.current = placeOf;
+    updated.current();
+  });
   useEffect(() => {
     /** A stretch of playing, for the log: how far apart, and the camera's frames dropped. */
     let played: { apart: number[]; dropped: number; video: HTMLVideoElement } | null = null;
@@ -75,9 +83,18 @@ export function CameraLayer({ player, sources, cameras, fitting, places, fades }
       const { doc } = useDoc.getState();
       const { frame, speed } = player.getState();
       const at = clipAt(doc, frame);
-      const on = at && circles.current.has(at.clip.source) ? at.clip.source : null;
+      const square = at && circles.current.has(at.clip.source) ? places.current(at.clip) : null;
+      const on = at && square ? at.clip.source : null;
       for (const [id, circle] of circles.current) {
         circle.style.visibility = id === on ? "visible" : "hidden";
+      }
+      // Where its clip puts it (each clip has its own size).
+      const placed = on && circles.current.get(on);
+      if (placed && square) {
+        placed.style.left = `${square.left}px`;
+        placed.style.top = `${square.top}px`;
+        placed.style.width = placed.style.height = `${square.size}px`;
+        placed.style.fontSize = `${square.size * 0.075}px`;
       }
       for (const [id, v] of videos.current) {
         if (id !== on && !v.paused) v.pause();
@@ -133,6 +150,7 @@ export function CameraLayer({ player, sources, cameras, fitting, places, fades }
       if (Math.abs(v.currentTime - time) > 1e-4) v.currentTime = time;
     };
     update();
+    updated.current = update;
     const stopPlayer = player.subscribe(update);
     const stopPicture = player.onPicture(update);
     const stopDoc = useDoc.subscribe(update);
@@ -141,6 +159,7 @@ export function CameraLayer({ player, sources, cameras, fitting, places, fades }
       stopPlayer();
       stopPicture();
       stopDoc();
+      updated.current = () => {};
       endPlayed();
       for (const v of all.values()) v.pause();
     };
@@ -157,15 +176,9 @@ export function CameraLayer({ player, sources, cameras, fitting, places, fades }
       {sources.map((s) => {
         const camera = cameras[s.id];
         const waiting = fitting[s.id];
-        const at = places[s.id];
-        if ((!camera && !waiting) || !at) return null;
-        const square = {
-          left: at.left,
-          top: at.top,
-          width: at.size,
-          height: at.size,
-          visibility: "hidden" as const,
-        };
+        if (!camera && !waiting) return null;
+        // Placed and shown by `update`, as the playhead's clip says.
+        const square = { visibility: "hidden" as const };
         if (!camera) {
           // Being fitted: a ring filling round the inside of where it'll be, from the top.
           const done = Math.round(Math.min(1, Math.max(0, waiting.progress ?? 0)) * 100);
@@ -174,7 +187,7 @@ export function CameraLayer({ player, sources, cameras, fitting, places, fades }
               key={`fitting-${s.id}`}
               ref={circle(s.id)}
               className={`${styles.camera} ${styles.cameraFitting}`}
-              style={{ ...square, fontSize: at.size * 0.075 }}
+              style={square}
               role="progressbar"
               aria-label="Processing camera footage"
               aria-valuenow={done}

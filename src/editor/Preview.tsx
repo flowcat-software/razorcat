@@ -4,7 +4,7 @@ import { MarkupLayer } from "../markup/MarkupLayer";
 import { connectMarkup } from "../markup/model/store";
 import type { CameraFitting, SourceCamera, SourceInfo } from "../shared/ipc";
 import { CameraLayer } from "./CameraLayer";
-import { cameraOnStage, type Square } from "./cameraPlace";
+import { cameraOnStage, sizedPlace, type Square } from "./cameraPlace";
 import { CropOverlay } from "./CropOverlay";
 import {
   clipFadeColourAt,
@@ -13,6 +13,7 @@ import {
   crossfadeAt,
   crossfadeMix,
   crossfades,
+  type Clip,
   type Doc,
 } from "./doc";
 import { useDoc } from "./docStore";
@@ -119,19 +120,19 @@ export function Preview({
     width: source.width * scale,
     height: source.height * scale,
   };
-  // Each camera on the finished frame (being fitted, where it'll be).
-  const places: Record<string, Square> = {};
-  for (const s of sources) {
-    const place = cameras[s.id]?.place ?? fitting[s.id]?.place;
-    if (!place) continue;
-    places[s.id] = cameraOnStage(
-      { x: place.x ?? 0, y: place.y ?? 0, size: place.size ?? 0 },
+  // A clip's camera on the finished frame (being fitted, where it'll be), at its size.
+  const placeOf = (clip: Clip): Square | null => {
+    const s = sources.find((x) => x.id === clip.source);
+    const place = cameras[clip.source]?.place ?? fitting[clip.source]?.place;
+    if (!s || !place) return null;
+    return cameraOnStage(
+      sizedPlace({ x: place.x ?? 0, y: place.y ?? 0, size: place.size ?? 0 }, clip.cameraSize, s),
       s,
       source,
       { ...picture, left: inner.x + picture.left, top: inner.y + picture.top },
       { width: stage.width, height: stage.height },
     );
-  }
+  };
   const one = growMode(grow) === "one";
   // The grown sides (one colour: the frame's background).
   const sides = one
@@ -220,7 +221,7 @@ export function Preview({
             sources={sources}
             cameras={cameras}
             fitting={fitting}
-            places={places}
+            placeOf={placeOf}
             fades={cameraFades}
           />
         </div>

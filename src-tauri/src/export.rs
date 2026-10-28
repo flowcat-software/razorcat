@@ -82,6 +82,9 @@ pub struct ExportClip {
     /// Its speed, if not 100%.
     #[serde(default)]
     pub speed: Option<ClipSpeed>,
+    /// Its camera's size (PLAN 5d.6a), if one was chosen for it: else as recorded.
+    #[serde(default, rename = "cameraSize")]
+    pub camera_size: Option<crate::settings::CameraSize>,
 }
 
 impl ExportClip {
@@ -1508,8 +1511,9 @@ fn prepare(
         }
         let mut made = cut(input, first, c, keep_pitch);
         made.camera = input.camera.as_ref().map(|(path, place)| {
+            let place = place.sized(c.camera_size, input.width, input.height);
             let (x, y, size) =
-                camera_on_frame(*place, (input.width, input.height), first_size, frame, out);
+                camera_on_frame(place, (input.width, input.height), first_size, frame, out);
             let fades = camera_fades.then_some((made.fade_in, made.fade_out));
             let (fade_in, fade_out) = fades.unwrap_or_default();
             CutCamera {
@@ -2740,6 +2744,7 @@ mod tests {
             fade_out_colour: String::new(),
             crossfade: 0,
             speed: None,
+            camera_size: None,
         }
     }
 

@@ -44,6 +44,7 @@
 
 import { translateAnnotation } from "../markup/geometry";
 import type { Annotation, NewAnnotation } from "../markup/model/types";
+import type { CameraSize } from "../shared/ipc";
 import type { Rect, Size } from "./fit";
 import { fullFrame, keepCrop, sameGrow, type Frame, type Grow } from "./frame";
 import { retimedLength, type Speed } from "./speed";
@@ -85,6 +86,8 @@ export interface Clip {
   fadeOutColour?: string;
   /** How many frames it crossfades with the clip before it over (none if not set). */
   crossfade?: number;
+  /** Its camera's size (PLAN 5d.6a), if one was chosen for it; else as it was recorded. */
+  cameraSize?: CameraSize;
 }
 
 export type RangeId = number;
@@ -727,6 +730,7 @@ export interface ClipCopy {
   fadeOut?: number;
   fadeInColour?: string;
   fadeOutColour?: string;
+  cameraSize?: CameraSize;
   /** The markup anchored to it. */
   marks: readonly Mark[];
 }
@@ -748,6 +752,7 @@ export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
     ...fades(clip.fadeIn ?? 0, clip.fadeOut ?? 0),
     ...(clip.fadeInColour && { fadeInColour: clip.fadeInColour }),
     ...(clip.fadeOutColour && { fadeOutColour: clip.fadeOutColour }),
+    ...(clip.cameraSize && { cameraSize: clip.cameraSize }),
     marks,
   };
 }
@@ -771,6 +776,7 @@ export function insertClip(doc: Doc, copy: ClipCopy, at: number, keepFades = tru
     ...(keepFades && fades(copy.fadeIn ?? 0, copy.fadeOut ?? 0)),
     ...(keepFades && copy.fadeInColour && { fadeInColour: copy.fadeInColour }),
     ...(keepFades && copy.fadeOutColour && { fadeOutColour: copy.fadeOutColour }),
+    ...(copy.cameraSize && { cameraSize: copy.cameraSize }),
   };
   clips.splice(Math.max(0, Math.min(clips.length, at)), 0, clip);
   let nextMarkId = doc.nextMarkId;
@@ -802,6 +808,13 @@ export function duplicateClips(doc: Doc, ids: readonly ClipId[], keepFades = tru
   if (!copies.length) return doc;
   const last = Math.max(...doc.clips.flatMap((c, i) => (ids.includes(c.id) ? [i] : [])));
   return insertClips(doc, copies, last + 1, keepFades);
+}
+
+/** Clips `ids`'s cameras at `size` (PLAN 5d.6a). The same document if nothing changes. */
+export function setCameraSize(doc: Doc, ids: readonly ClipId[], size: CameraSize): Doc {
+  if (!doc.clips.some((c) => ids.includes(c.id) && c.cameraSize !== size)) return doc;
+  const clips = doc.clips.map((c) => (ids.includes(c.id) ? { ...c, cameraSize: size } : c));
+  return { ...doc, clips };
 }
 
 /** Mutes clips `ids`, or unmutes them. */

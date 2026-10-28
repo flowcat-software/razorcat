@@ -23,16 +23,19 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder}
 
 use crate::export::{bitrate, Encoder};
 use crate::recording::Screen;
+use crate::settings::CameraSize;
 use crate::sidecar::{self, Tool};
 
 pub const BUBBLE: &str = "camera";
-/// The bubble's window, CSS px square, and its gap from the monitor's corner.
-const BUBBLE_SIZE: f64 = 200.0;
-const BUBBLE_MARGIN: f64 = 32.0;
+/// The camera's gap from the picture's corner, a share of its shorter side, as its size is.
+const CORNER_GAP: f64 = 0.04;
+/// The bubble's circle at the least, CSS px (on a small area its share would be too small to
+/// see or grab).
+const BUBBLE_LEAST: f64 = 64.0;
 /// The circle's gap from the window's edge, CSS px (camera.css: room for its shadow).
 const BUBBLE_INSET: f64 = 8.0;
-/// The preview: a square this many pixels across, at this rate.
-const PREVIEW_SIDE: u32 = 320;
+/// The preview: a square this many pixels across, at this rate (Large is 475 px on 1440p).
+const PREVIEW_SIDE: u32 = 480;
 const PREVIEW_FPS: u32 = 15;
 /// The tallest picture a camera is opened at, and the rate wanted.
 const MAX_HEIGHT: u32 = 1080;
@@ -588,12 +591,22 @@ impl Area {
         }
     }
 
-    /// Where the bubble's window goes in its bottom-right corner (its margin inside it).
-    fn corner(&self) -> (i32, i32) {
-        let side = ((BUBBLE_SIZE + BUBBLE_MARGIN) * self.scale).round() as i32;
+    /// The bubble's window (top-left, and across) at `size` in its bottom-right corner: its
+    /// circle `size`'s share of the area's shorter side, the gap to the corner too, as the video
+    /// will show it.
+    fn bubble(&self, size: CameraSize) -> (i32, i32, u32) {
+        let short = f64::from(self.width.min(self.height));
+        let circle = (short * size.share())
+            .max(BUBBLE_LEAST * self.scale)
+            .round();
+        let gap = (short * CORNER_GAP).round();
+        let inset = (BUBBLE_INSET * self.scale).round();
+        let side = circle + 2.0 * inset;
+        let from_corner = (gap + circle + inset) as i32;
         (
-            self.x + self.width as i32 - side,
-            self.y + self.height as i32 - side,
+            self.x + self.width as i32 - from_corner,
+            self.y + self.height as i32 - from_corner,
+            side as u32,
         )
     }
 }
@@ -691,23 +704,40 @@ pub fn release(app: &AppHandle) {
 /// Overlay `by` (or the window picking) has `area` picked, `cleared` if that's its selection
 /// gone: the bubble goes into its corner, if it hasn't been dragged.
 pub fn follow(app: &AppHandle, by: u32, area: Area, cleared: bool) {
-    {
+    let dragged = {
         let mut f = FOLLOW.lock().unwrap();
-        if f.dragged || (cleared && f.by.is_some_and(|b| b != by)) {
+        if cleared && f.by.is_some_and(|b| b != by) {
             return;
         }
         f.by = Some(by);
         f.area = Some(area);
-    }
+        f.dragged
+    };
     if let Some(window) = app.get_webview_window(BUBBLE) {
-        put_bubble(&window, area);
+        put_bubble(&window, area, dragged);
     }
 }
 
-/// The bubble's window into `area`'s corner, its size kept on that monitor.
-fn put_bubble(window: &WebviewWindow, area: Area) {
-    let (x, y) = area.corner();
-    let side = (BUBBLE_SIZE * area.scale).round() as u32;
+/// The size Settings › Recording draws the camera at.
+fn chosen_size(app: &AppHandle) -> CameraSize {
+    app.state::<crate::state::AppState>()
+        .settings
+        .read()
+        .unwrap()
+        .recording
+        .camera_size
+}
+
+/// The bubble's window sized for `area` (its share of it), into its corner; or if it's been
+/// `dragged` somewhere, sized where it is (round its middle).
+fn put_bubble(window: &WebviewWindow, area: Area, dragged: bool) {
+    let (mut x, mut y, side) = area.bubble(chosen_size(window.app_handle()));
+    if dragged {
+        if let (Ok(at), Ok(was)) = (window.outer_position(), window.outer_size()) {
+            let middle = |p: i32, s: u32| p + (s / 2) as i32 - (side / 2) as i32;
+            (x, y) = (middle(at.x, was.width), middle(at.y, was.height));
+        }
+    }
     // There before it's shown (Tauri's moves land later).
     crate::recording::place(window, x, y, side, side);
 }
@@ -743,9 +773,14 @@ pub fn sync(app: &AppHandle) {
                     let _ = start_feed(&mut feed, name, None);
                 }
                 drop(feed);
-                if bubble.is_none() {
-                    let area = FOLLOW.lock().unwrap().area;
-                    open_bubble(&app, area.unwrap_or_else(|| Area::of(&screen)));
+                let (area, dragged) = {
+                    let f = FOLLOW.lock().unwrap();
+                    (f.area.unwrap_or_else(|| Area::of(&screen)), f.dragged)
+                };
+                match bubble {
+                    None => open_bubble(&app, area),
+                    // Up already: sized as Settings › Recording now says.
+                    Some(w) => put_bubble(&w, area, dragged),
                 }
             }
             _ => {
@@ -957,12 +992,35 @@ impl Place {
         Some(Self { x, y, size })
     }
 
+    /// The place at `size` on a `width` × `height` picture (None: as it is): the corner it's
+    /// nearest kept where it is, so one tucked into a corner stays there (Richard). As the
+    /// preview's (cameraPlace.ts).
+    pub fn sized(self, size: Option<CameraSize>, width: u32, height: u32) -> Self {
+        let Some(size) = size else {
+            return self;
+        };
+        let (w, h) = (f64::from(width), f64::from(height));
+        let across = (w.min(h) * size.share()).round();
+        let keep = |at: f64, room: f64| {
+            if at + self.size / 2.0 < room / 2.0 {
+                at
+            } else {
+                at + self.size - across
+            }
+        };
+        Self {
+            x: keep(self.x, w),
+            y: keep(self.y, h),
+            size: across,
+        }
+    }
+
     /// Where a camera with no place said goes on a picture `width` × `height`: its bottom-right
-    /// corner, a little in, a quarter as tall as the picture's shorter side and a bit.
+    /// corner, a little in, Medium.
     fn default_for(width: u32, height: u32) -> Self {
         let short = f64::from(width.min(height));
-        let size = (short * 0.28).round();
-        let margin = (short * 0.04).round();
+        let size = (short * CameraSize::Medium.share()).round();
+        let margin = (short * CORNER_GAP).round();
         Self {
             x: f64::from(width) - size - margin,
             y: f64::from(height) - size - margin,
@@ -1201,7 +1259,7 @@ fn open_bubble(app: &AppHandle, area: Area) {
         Ok(window) => {
             crate::recording::exclude_from_capture(&window);
             crate::picker::no_transitions(&window);
-            put_bubble(&window, area);
+            put_bubble(&window, area, false);
             show_quietly(&window);
         }
         Err(e) => logln!("[camera] the bubble failed: {e}"),
@@ -1259,11 +1317,23 @@ mod tests {
             height: 1080,
             scale: 1.5,
         };
-        // (200 + 32) × 1.5 = 348 px from the corner, inside it.
-        assert_eq!(Area::of(&screen).corner(), (-348, 732));
+        // Medium: the circle 23% of 1080 (248), 4% (43) from the corner; the window round it
+        // 8 × 1.5 = 12 px more each side: 248 + 43 + 12 = 303 from the corner, 272 across.
+        assert_eq!(
+            Area::of(&screen).bubble(CameraSize::Medium),
+            (-303, 1080 - 303, 272)
+        );
+        // Large on a picked area 800 × 600: the circle 198, the gap 24.
         let picked = Area::on(&screen, 100, 50, 800, 600);
         assert_eq!((picked.x, picked.y), (-1820, 50));
-        assert_eq!(picked.corner(), (-1820 + 800 - 348, 50 + 600 - 348));
+        let from = 198 + 24 + 12;
+        assert_eq!(
+            picked.bubble(CameraSize::Large),
+            (-1820 + 800 - from, 50 + 600 - from, 222)
+        );
+        // Small on a tiny area: no less than 64 CSS px (96 here).
+        let tiny = Area::on(&screen, 0, 0, 200, 150);
+        assert_eq!(tiny.bubble(CameraSize::Small).2, 96 + 24);
     }
 
     const DEVICES: &str = r#"[in#0 @ 0000019d3eb32200] "Logitech StreamCam" (video)
@@ -1431,7 +1501,7 @@ Error opening input file dummy."#;
         assert_eq!(
             preview,
             "-hide_banner -loglevel error -f dshow -i video=Cam -vf \
-             fps=15,crop='min(iw,ih)':'min(iw,ih)',scale=320:320 \
+             fps=15,crop='min(iw,ih)':'min(iw,ih)',scale=480:480 \
              -c:v mjpeg -q:v 6 -f image2pipe pipe:1"
         );
         let path = PathBuf::from(r"D:\Takes\Recording.camera.mkv");
@@ -1521,15 +1591,38 @@ Error opening input file dummy."#;
             })
         );
         assert_eq!(Place::from_description("comment : something else"), None);
-        // None said: the bottom-right corner.
+        // None said: the bottom-right corner, Medium (23% of 1080 is 248; the gap 4%, 43).
         assert_eq!(
             Place::default_for(1920, 1080),
             Place {
-                x: 1575.0,
-                y: 735.0,
-                size: 302.0
+                x: 1629.0,
+                y: 789.0,
+                size: 248.0
             }
         );
+    }
+
+    #[test]
+    fn a_resized_camera_keeps_its_nearest_corner() {
+        let place = |x, y, size| Place { x, y, size };
+        let bottom_right = place(1629.0, 789.0, 248.0);
+        // Large (33% of 1080 is 356): its bottom-right corner stays where it was.
+        assert_eq!(
+            bottom_right.sized(Some(CameraSize::Large), 1920, 1080),
+            place(1521.0, 681.0, 356.0)
+        );
+        // Top-left: its top-left stays. Small: 15% is 162.
+        assert_eq!(
+            place(43.0, 43.0, 248.0).sized(Some(CameraSize::Small), 1920, 1080),
+            place(43.0, 43.0, 162.0)
+        );
+        // Top-right.
+        assert_eq!(
+            place(1629.0, 43.0, 248.0).sized(Some(CameraSize::Small), 1920, 1080),
+            place(1715.0, 43.0, 162.0)
+        );
+        // None: as it is.
+        assert_eq!(bottom_right.sized(None, 1920, 1080), bottom_right);
     }
 
     #[test]

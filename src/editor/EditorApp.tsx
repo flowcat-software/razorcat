@@ -20,6 +20,7 @@ import {
   type SourceInfo,
   type ThumbsInfo,
 } from "../shared/ipc";
+import { sizeOfPlace } from "./cameraPlace";
 import { CommandBar } from "./CommandBar";
 import { useToolKeys } from "./cropTool";
 import { EmptyEditor } from "./EmptyEditor";
@@ -341,6 +342,21 @@ export function EditorApp() {
   const [fitting, setFitting] = useState<Record<string, CameraFitting>>({});
   /** Each file's thumbnails as they're made, by its id. */
   const [thumbs, setThumbs] = useState<Record<string, ThumbsInfo>>({});
+  /**
+   * Each recording with a camera (fitted or being fitted), by file id: the size it was recorded
+   * at, which its clips show at till one's chosen (PLAN 5d.6a). The same object while those
+   * stay the same (being fitted, it's told how far along a few times a second).
+   */
+  const recordedSizes = Object.fromEntries(
+    sources.flatMap((s) => {
+      const place = cameras[s.id]?.place ?? fitting[s.id]?.place;
+      if (!place) return [];
+      return [[s.id, sizeOfPlace({ x: 0, y: 0, size: place.size ?? 0 }, s)] as const];
+    }),
+  );
+  const recordedKey = JSON.stringify(recordedSizes);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const cameraSizes = useMemo(() => recordedSizes, [recordedKey]);
   // The player plays at the first file's rate; a new first file is a new player.
   const sourceId = source?.id;
   const fps = source ? source.rateNum / source.rateDen : 0;
@@ -894,7 +910,12 @@ export function EditorApp() {
         inFrames={inFrames}
         onToggleFrames={() => setInFrames((f) => !f)}
       />
-      <TimelineOptions source={source} inFrames={inFrames} player={player} />
+      <TimelineOptions
+        source={source}
+        inFrames={inFrames}
+        player={player}
+        cameraSizes={cameraSizes}
+      />
       <SpeedPopover source={source} inFrames={inFrames} />
       <div className={styles.timeline} style={{ height: timelineH }}>
         {source && player && (
@@ -905,6 +926,7 @@ export function EditorApp() {
             inFrames={inFrames}
             thumbs={fileThumbs}
             waves={fileWaves}
+            cameraSizes={cameraSizes}
           />
         )}
       </div>

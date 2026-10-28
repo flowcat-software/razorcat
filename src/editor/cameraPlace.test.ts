@@ -1,7 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { cameraOnStage } from "./cameraPlace";
+import { cameraOnStage, sizedPlace, sizeOfPlace } from "./cameraPlace";
 
 const hd = { width: 1920, height: 1080 };
+
+// The same cases as camera.rs's `a_resized_camera_keeps_its_nearest_corner`.
+describe("sizedPlace", () => {
+  const bottomRight = { x: 1629, y: 789, size: 248 };
+
+  it("keeps the corner it's nearest where it is", () => {
+    expect(sizedPlace(bottomRight, "large", hd)).toEqual({ x: 1521, y: 681, size: 356 });
+    expect(sizedPlace({ x: 43, y: 43, size: 248 }, "small", hd)).toEqual({
+      x: 43,
+      y: 43,
+      size: 162,
+    });
+    expect(sizedPlace({ x: 1629, y: 43, size: 248 }, "small", hd)).toEqual({
+      x: 1715,
+      y: 43,
+      size: 162,
+    });
+  });
+
+  it("leaves it as recorded with no size chosen", () => {
+    expect(sizedPlace(bottomRight, undefined, hd)).toBe(bottomRight);
+  });
+});
+
+describe("sizeOfPlace", () => {
+  it("is the size nearest the place's", () => {
+    expect(sizeOfPlace({ x: 0, y: 0, size: 248 }, hd)).toBe("medium");
+    expect(sizeOfPlace({ x: 0, y: 0, size: 150 }, hd)).toBe("small");
+    expect(sizeOfPlace({ x: 0, y: 0, size: 400 }, hd)).toBe("large");
+    // The old default, 28%: nearer Medium than Large.
+    expect(sizeOfPlace({ x: 0, y: 0, size: 302 }, hd)).toBe("medium");
+  });
+});
 
 describe("cameraOnStage", () => {
   it("is where it was on the picture, at the preview's scale", () => {

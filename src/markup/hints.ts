@@ -124,6 +124,8 @@ export const CONTROL_HINTS = {
     "The clip's speed, 10% to 1000% · drag or type · [Enter] keeps it, [Esc] puts it back",
   "clip.duration":
     "How long the clip lasts, by changing its speed: all of its video kept · [Enter] keeps it, [Esc] puts it back",
+  "clip.cameraSize":
+    "The camera's size in this clip · the corner it's nearest stays put · Settings › Recording sets it for new recordings",
   "clip.fadeColour":
     "The colour the clip fades from or to · black or white also from the fade handle's right-click",
   "grow.colour": "The colour of the space grown · one for every side, once they meet",

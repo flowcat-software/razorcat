@@ -924,6 +924,21 @@ export const sections: Section[] = [
             keywords: ["camera", "webcam", "device", "input", "video"],
           },
           {
+            id: "recordingCameraSize",
+            kind: "choice",
+            path: "recording.cameraSize",
+            label: "Camera size",
+            description:
+              "How big the bubble is, as a share of what you record: it shows at this size while you record, as the video will have it. Each clip's size can be changed afterwards.",
+            options: [
+              { value: "small", label: "Small" },
+              { value: "medium", label: "Medium" },
+              { value: "large", label: "Large" },
+            ],
+            disabled: (s) => !s.recording.camera,
+            keywords: ["camera", "size", "bubble", "small", "medium", "large", "big"],
+          },
+          {
             id: "recordingCameraFades",
             kind: "toggle",
             path: "recording.cameraFades",

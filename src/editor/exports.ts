@@ -55,6 +55,7 @@ export function exportClips(doc: Doc, ids?: readonly ClipId[]) {
             fadeInColour: fadeColours(c).fadeIn,
             fadeOutColour: fadeColours(c).fadeOut,
             crossfade: i > 0 && picked(i - 1) ? xf[i] : 0,
+            cameraSize: c.cameraSize ?? null,
           },
         ]
       : [],

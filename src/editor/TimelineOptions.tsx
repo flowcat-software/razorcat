@@ -1,4 +1,4 @@
-import type { SourceInfo } from "../shared/ipc";
+import type { CameraSize, SourceInfo } from "../shared/ipc";
 import { ColorSwatch } from "../markup/ColorSwatch";
 import { hint } from "../markup/HintLine";
 import {
@@ -20,6 +20,7 @@ import {
   type RangeId,
 } from "./doc";
 import { useDoc } from "./docStore";
+import { CAMERA_SIZE_NAMES, CAMERA_SIZES } from "./cameraPlace";
 import { NumberField } from "./NumberField";
 import { clipFrame, sourceFrame, videoEnd } from "./speed";
 import { useSqueeze } from "./squeeze";
@@ -33,6 +34,8 @@ interface Props {
   inFrames: boolean;
   /** Editing where something starts or ends shows that frame. */
   player: Player | null;
+  /** Each recording with a camera, by file id: the size it was recorded at. */
+  cameraSizes: Readonly<Record<string, CameraSize>>;
 }
 
 /** How fast the fade fields drag, against the others: fades are short (Richard). */
@@ -58,12 +61,40 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** A clip's camera size (PLAN 5d.6a): Small, Medium or Large. */
+function CameraSizes({ size, onPick }: { size: CameraSize; onPick: (size: CameraSize) => void }) {
+  return (
+    <>
+      <span className={styles.optionsSep} />
+      <span className={styles.field}>
+        <span className={styles.optionsWord}>Camera</span>
+        <span className={styles.chips} role="radiogroup" aria-label="Camera size">
+          {CAMERA_SIZES.map((k) => (
+            <button
+              key={k}
+              type="button"
+              role="radio"
+              className={styles.toggle}
+              aria-checked={size === k}
+              {...hint("clip.cameraSize")}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onPick(k)}
+            >
+              {CAMERA_SIZE_NAMES[k]}
+            </button>
+          ))}
+        </span>
+      </span>
+    </>
+  );
+}
+
 /**
  * The timeline's options bar (the mockup's): the timing of what's selected on the timeline (a
  * clip's In, Out and Length, in the source's time), or what can be done; the edit's summary on
  * the right.
  */
-export function TimelineOptions({ source, inFrames, player }: Props) {
+export function TimelineOptions({ source, inFrames, player, cameraSizes }: Props) {
   const doc = useDoc((s) => s.doc);
   const selected = useDoc((s) => s.doc.clips.find((c) => c.id === s.selected) ?? null);
   const selectedRange = useDoc((s) => s.selectedRange);
@@ -396,6 +427,24 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
               )
             }
           />
+          {cameraSizes[selected.source] && (
+            <CameraSizes
+              size={selected.cameraSize ?? cameraSizes[selected.source]}
+              // With several selected, the ones with cameras (as their fades).
+              onPick={(size) =>
+                useDoc.getState().setCameraSize(
+                  doc.clips
+                    .filter(
+                      (c) =>
+                        (c.id === selected.id || selectedClips.includes(c.id)) &&
+                        cameraSizes[c.source],
+                    )
+                    .map((c) => c.id),
+                  size,
+                )
+              }
+            />
+          )}
         </>
       ) : (
         <span className={styles.optionsText}>

@@ -320,6 +320,13 @@ export type CameraReady = {
 	camera: SourceCamera,
 };
 
+/**
+ *  How big the camera shows (PLAN 5d.6; Richard, 2026-10-27): its circle across, a share of the
+ *  picture's shorter side, never pixels, so it's the same on any screen
+ *  (`mockup/camera-sizes.html`). Large stays under the 720 px recorded on 4K.
+ */
+export type CameraSize = "small" | "medium" | "large";
+
 /**  Rust → editor: check the source just opened. */
 export type CheckFrames = {
 	/**  The source (its `SourceInfo::id`). */
@@ -478,6 +485,8 @@ export type ExportClip = {
 	crossfade: number,
 	/**  Its speed, if not 100%. */
 	speed?: ClipSpeed | null,
+	/**  Its camera's size (PLAN 5d.6a), if one was chosen for it: else as recorded. */
+	cameraSize?: CameraSize | null,
 };
 
 /**
@@ -848,6 +857,11 @@ export type Recording = {
 	 */
 	camera?: boolean,
 	cameraDevice?: string,
+	/**
+	 *  How big the bubble's drawn while recording (what the video will show), and the size the
+	 *  recording's clips start at (PLAN 5d.6a).
+	 */
+	cameraSize?: CameraSize,
 	/**
 	 *  The camera fades with its clip (PLAN 5d.5; Richard, 2026-10-27); off, it stays as its
 	 *  clip fades.

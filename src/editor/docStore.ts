@@ -22,6 +22,7 @@ import {
   duplicateClips,
   insertClips,
   muteClips,
+  setCameraSize,
   packLanes,
   moveClips,
   fadeEnds,
@@ -68,7 +69,7 @@ import {
   type SourceId,
 } from "./doc";
 import type { Rect, Size } from "./fit";
-import type { RecordedInput } from "../shared/ipc";
+import type { CameraSize, RecordedInput } from "../shared/ipc";
 import { withRecordedClicks, type RecordedClickStyle } from "./recordedInput";
 import { restyleClicks, type ClickFrames, type ClickStyle } from "./clickStyles";
 import type { Grow } from "./frame";
@@ -154,6 +155,8 @@ export interface DocState {
   /** Inserts `copies` from position `at` on, selected; their ids. */
   pasteClips: (copies: readonly ClipCopy[], at: number) => ClipId[];
   muteClips: (ids: readonly ClipId[], muted: boolean) => boolean;
+  /** Clips `ids`'s cameras at `size` (PLAN 5d.6a): one undo step. */
+  setCameraSize: (ids: readonly ClipId[], size: CameraSize) => boolean;
   /** Moves clips `ids` together (gathered, in order) to place `at` among the others. */
   moveClips: (ids: readonly ClipId[], at: number) => boolean;
   /** Mutes all the sound, or unmutes it. */
@@ -416,6 +419,7 @@ export const useDoc = create<DocState>()((set, get) => {
         copies.length,
       ),
     muteClips: (ids, muted) => apply((doc) => muteClips(doc, ids, muted)),
+    setCameraSize: (ids, size) => apply((doc) => setCameraSize(doc, ids, size)),
     moveClips: (ids, at) => applyClips((doc) => moveClips(doc, ids, at)),
     muteTrack: (muted) => apply((doc) => muteTrack(doc, muted)),
     setClipFades: (id, set) => apply((doc) => setClipFades(doc, id, set)),

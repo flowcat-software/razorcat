@@ -110,6 +110,9 @@ pub struct Recording {
     /// empty: the first connected. Off until chosen.
     pub camera: bool,
     pub camera_device: String,
+    /// How big the bubble's drawn while recording (what the video will show), and the size the
+    /// recording's clips start at (PLAN 5d.6a).
+    pub camera_size: CameraSize,
     /// The camera fades with its clip (PLAN 5d.5; Richard, 2026-10-27); off, it stays as its
     /// clip fades.
     pub camera_fades: bool,
@@ -153,6 +156,29 @@ pub enum ClickLook {
     /// The default (Richard, 2026-10-26): it draws the eye to where the click was.
     #[default]
     Ripple,
+}
+
+/// How big the camera shows (PLAN 5d.6; Richard, 2026-10-27): its circle across, a share of the
+/// picture's shorter side, never pixels, so it's the same on any screen
+/// (`mockup/camera-sizes.html`). Large stays under the 720 px recorded on 4K.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CameraSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+impl CameraSize {
+    /// Its share of the picture's shorter side.
+    pub fn share(self) -> f64 {
+        match self {
+            CameraSize::Small => 0.15,
+            CameraSize::Medium => 0.23,
+            CameraSize::Large => 0.33,
+        }
+    }
 }
 
 /// How big a recorded click can be (px across).
@@ -219,6 +245,7 @@ impl Default for Recording {
             system_sound: false,
             camera: false,
             camera_device: String::new(),
+            camera_size: CameraSize::Medium,
             camera_fades: true,
             cursor: true,
             fps: 60,
@@ -862,9 +889,8 @@ pub fn update(app: &AppHandle<Wry>, new: Settings) -> Result<Settings, String> {
         crate::tray::start_with_windows(app, new.tray.start_with_windows);
     }
     crate::tray::refresh(app, &new);
-    if (new.recording.camera, &new.recording.camera_device)
-        != (old.recording.camera, &old.recording.camera_device)
-    {
+    let camera = |r: &Recording| (r.camera, r.camera_device.clone(), r.camera_size);
+    if camera(&new.recording) != camera(&old.recording) {
         crate::camera::sync(app);
     }
 
