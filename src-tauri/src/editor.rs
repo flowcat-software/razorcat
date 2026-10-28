@@ -46,6 +46,11 @@ pub struct EditorState {
     shown: bool,
     /// The project open, once saved or opened (PLAN PR2): Save writes it.
     project: Option<PathBuf>,
+    /// What the title names: the project, else the first file.
+    title: String,
+    /// The timeline has changes not saved (PLAN PR3), as the page says (`set_unsaved`): the title
+    /// shows a dot, and quitting asks first.
+    unsaved: bool,
 }
 
 /// Held while files open, so the files of one request, and requests one after another, open
@@ -91,7 +96,14 @@ pub struct OpenOffered {
     pub names: Vec<String>,
     /// A recording just stopped (PLAN 5b.8c), not files dropped.
     pub recording: bool,
+    /// A project (PLAN PR3): it can only replace the timeline, which has unsaved changes.
+    pub project: bool,
 }
+
+/// Rust → editor: Razorcat is quitting (the tray's Quit, or closing the editor quits) with
+/// unsaved changes (PLAN PR3): the page asks whether to save them, then `quit_now`.
+#[derive(Clone, Serialize, Type, Event)]
+pub struct QuitAsked;
 
 /// Rust → editor: the open source plays from a converted copy now (its codec): the same
 /// source, at a new URL.
@@ -383,11 +395,58 @@ fn show(
     info
 }
 
-/// The window's title: `name` (a file's, or the project's), then Razorcat.
+/// The window's title names `name` (a file's, or the project's) now, with nothing unsaved yet.
 fn set_title(app: &AppHandle, name: &str) {
-    if let Some(window) = app.get_webview_window(LABEL) {
-        let _ = window.set_title(&format!("{name} — {}", crate::product_name(app)));
+    {
+        let app_state = app.state::<AppState>();
+        let mut state = app_state.editor.lock().unwrap();
+        state.title = name.into();
+        state.unsaved = false;
     }
+    show_title(app);
+}
+
+/// The timeline has changes not saved, or hasn't (the page says so as it changes: PLAN PR3).
+pub fn set_unsaved(app: &AppHandle, unsaved: bool) {
+    app.state::<AppState>().editor.lock().unwrap().unsaved = unsaved;
+    show_title(app);
+}
+
+/// The window's title: what's open (a dot before it while it has unsaved changes), then
+/// Razorcat.
+fn show_title(app: &AppHandle) {
+    let (name, unsaved) = {
+        let app_state = app.state::<AppState>();
+        let state = app_state.editor.lock().unwrap();
+        (state.title.clone(), state.unsaved)
+    };
+    let title = match (name.is_empty(), unsaved) {
+        (true, _) => crate::product_name(app),
+        (false, false) => format!("{name} — {}", crate::product_name(app)),
+        (false, true) => format!("• {name} — {}", crate::product_name(app)),
+    };
+    if let Some(window) = app.get_webview_window(LABEL) {
+        let _ = window.set_title(&title);
+    }
+}
+
+/// Razorcat is to quit: with unsaved changes the editor comes out and asks first (PLAN PR3),
+/// and true is returned (the page quits, `quit_now`, once answered); else false.
+pub fn asks_before_quit(app: &AppHandle) -> bool {
+    let (ready, unsaved) = {
+        let app_state = app.state::<AppState>();
+        let state = app_state.editor.lock().unwrap();
+        (state.ready, state.unsaved)
+    };
+    if !ready || !unsaved {
+        return false;
+    }
+    show_window(app);
+    if let Err(e) = QuitAsked.emit_to(app, LABEL) {
+        logln!("[editor] couldn't ask before quitting: {e}");
+        return false;
+    }
+    true
 }
 
 fn is_project(path: &Path) -> bool {
@@ -568,9 +627,25 @@ fn offer_as(app: &AppHandle, paths: Vec<PathBuf>, recording: bool) {
     if paths.is_empty() {
         return;
     }
-    // A project replaces the timeline (PR3 asks first if it's unsaved).
+    // A project replaces the timeline, asking first if it has unsaved changes (PLAN PR3).
     if paths.iter().any(|p| is_project(p)) {
-        request_open_all(app, paths, false);
+        let (ready, unsaved) = {
+            let app_state = app.state::<AppState>();
+            let state = app_state.editor.lock().unwrap();
+            (state.ready, state.unsaved)
+        };
+        if !ready || !unsaved {
+            request_open_all(app, paths, false);
+            return;
+        }
+        let names = paths.iter().map(|p| source::file_name(p)).collect();
+        app.state::<AppState>().editor.lock().unwrap().offered = paths;
+        let _ = OpenOffered {
+            names,
+            recording: false,
+            project: true,
+        }
+        .emit_to(app, LABEL);
         return;
     }
     let empty = {
@@ -585,7 +660,12 @@ fn offer_as(app: &AppHandle, paths: Vec<PathBuf>, recording: bool) {
     }
     let names = paths.iter().map(|p| source::file_name(p)).collect();
     app.state::<AppState>().editor.lock().unwrap().offered = paths;
-    let _ = OpenOffered { names, recording }.emit_to(app, LABEL);
+    let _ = OpenOffered {
+        names,
+        recording,
+        project: false,
+    }
+    .emit_to(app, LABEL);
 }
 
 /// The page's answer to [`OpenOffered`]: add the files, replace the timeline's with them (`add`

@@ -27,7 +27,7 @@ import { CommandBar } from "./CommandBar";
 import { useToolKeys } from "./cropTool";
 import { EmptyEditor } from "./EmptyEditor";
 import { playedClips, total, type ClipId, type Doc } from "./doc";
-import { useDoc } from "./docStore";
+import { unsaved, useDoc } from "./docStore";
 import {
   addRangeAtPlayhead,
   copySelectedClip,
@@ -65,8 +65,6 @@ import { useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
 const openVideo = () => void commands.openDialog(false);
-/** The timeline has edits (that undo could take back): replacing it would lose them. */
-const edited = () => useDoc.getState().past.length > 0;
 /** Add Video (Ctrl+Shift+O): a file on the end of the timeline (PLAN 4.5e). */
 const addVideo = () => void commands.openDialog(true);
 
@@ -214,16 +212,28 @@ function addRecordedInput(s: SourceInfo, clip: number, first: SourceInfo): void 
     if (!input?.clicks.length) return;
     // Settings › Recording's look and timing (PLAN 5b.6d).
     const style = useClickSettings.getState();
-    useDoc
-      .getState()
-      .addRecordedClicks(
-        clip,
-        input,
-        first.rateNum / first.rateDen,
-        { width: s.width, height: s.height },
-        style,
-      );
+    keepSaved(() =>
+      useDoc
+        .getState()
+        .addRecordedClicks(
+          clip,
+          input,
+          first.rateNum / first.rateDen,
+          { width: s.width, height: s.height },
+          style,
+        ),
+    );
   });
+}
+
+/**
+ * Makes an edit no one asked for (a recording's clicks, its camera's start, as it opens): a
+ * timeline with nothing unsaved before it has nothing unsaved after it (PLAN PR3).
+ */
+function keepSaved(edit: () => void): void {
+  const clean = !unsaved(useDoc.getState());
+  edit();
+  if (clean) useDoc.getState().markSaved();
 }
 
 export function EditorApp() {
@@ -245,11 +255,12 @@ export function EditorApp() {
       if (r.status === "error") setNotice({ text: r.error, error: true });
     });
   /**
-   * A question before the timeline is replaced (PLAN 4.5e3): Open with edits on it, or a file
-   * dropped on it (add or replace).
+   * A question: before the timeline is replaced (PLAN 4.5e3), a file dropped on it (add or
+   * replace), or anything that loses unsaved changes (PLAN PR3).
    */
   const [asking, setAsking] = useState<
-    | { open: true }
+    /** Save the timeline's changes first? Then `go` (unless cancelled: `stop`). */
+    | { save: true; go: () => void; stop?: () => void }
     /** Files dropped, or a recording just stopped: add them, or replace the timeline? */
     | { offered: string[]; recording: boolean }
     /** The first export: save to a default folder? `folder` as the setting holds it. */
@@ -279,33 +290,65 @@ export function EditorApp() {
     if (recording) void commands.stopRecording();
     else startRecording();
   };
-  /** Open (the button, Ctrl+O): with edits, asks first. */
-  const replace = () => (edited() ? setAsking({ open: true }) : openVideo());
+  /**
+   * Does `go`, which loses the timeline's changes, asking first whether to save them if any are
+   * unsaved (PLAN PR3); cancelled, `stop`.
+   */
+  const unlessUnsaved = (go: () => void, stop?: () => void) => {
+    if (unsaved(useDoc.getState())) setAsking({ save: true, go, stop });
+    else go();
+  };
+  /** Open (the button, Ctrl+O): with unsaved changes, asks first. */
+  const replace = () => unlessUnsaved(openVideo);
+  const replaceNow = useRef(replace);
+  useEffect(() => {
+    replaceNow.current = replace;
+  });
   /** The timeline's files, as they are now (for what's run later: a save, a load). */
   const latest = useRef(sources);
+  /** The project open (its name, without `.rct`), once saved or opened (PLAN PR2). */
+  const [projectName, setProjectName] = useState<string | null>(null);
   /** A project's document, opened: it's loaded once its first file is (the load below). */
   const projectDoc = useRef<Doc | null>(null);
   /**
    * Saves the timeline as a project (PLAN PR2): to the one open, or (`as`, or none yet) where
-   * the Save dialog says.
+   * the Save dialog says. True once it's saved (not if the dialog was cancelled, or it failed).
    */
-  const saveProject = (as: boolean) => {
+  const saveProject = async (as: boolean): Promise<boolean> => {
     const { doc } = useDoc.getState();
-    if (!doc.clips.length) return;
+    if (!doc.clips.length) return false;
     const paths = doc.sources.map((r) => latest.current.find((s) => s.id === r.id)?.path);
     if (paths.some((p) => p === undefined)) {
       setNotice({ text: "The project couldn't be saved: a file is missing.", error: true });
-      return;
+      return false;
     }
-    void commands.saveProject(JSON.stringify(doc), paths as string[], as).then((r) => {
-      if (r.status === "error") setNotice({ text: r.error, error: true });
-      else if (r.data) setNotice({ text: `Saved ${r.data}.` });
-    });
+    const r = await commands.saveProject(JSON.stringify(doc), paths as string[], as);
+    if (r.status === "error") {
+      setNotice({ text: r.error, error: true });
+      return false;
+    }
+    if (!r.data) return false;
+    // What was sent is saved, whatever's changed since.
+    useDoc.setState({ saved: doc });
+    setProjectName(r.data.replace(/\.rct$/i, ""));
+    setNotice({ text: `Saved ${r.data}.` });
+    return true;
   };
   const saveNow = useRef(saveProject);
   useEffect(() => {
     saveNow.current = saveProject;
   });
+  // Rust shows a dot in the title while there are unsaved changes, and asks before quitting.
+  useEffect(() => {
+    let was = unsaved(useDoc.getState());
+    void commands.setUnsaved(was);
+    return useDoc.subscribe((s) => {
+      const now = unsaved(s);
+      if (now === was) return;
+      was = now;
+      void commands.setUnsaved(now);
+    });
+  }, []);
   /** Time as frame numbers, not timecode: the readout and the ruler (a click on the readout). */
   const [inFrames, setInFrames] = useState(false);
   /** The timeline's height, the resizer above it dragged (its own, to start). */
@@ -372,7 +415,7 @@ export function EditorApp() {
         at: Math.round(((time ?? 0) * s.rateNum) / s.rateDen),
         state: recordedCamera({ x: place.x ?? 0, y: place.y ?? 0, size: place.size ?? 0 }, picture),
       }));
-      useDoc.getState().startCamera(clip, recorded[id].state, moves);
+      keepSaved(() => useDoc.getState().startCamera(clip, recorded[id].state, moves));
     }
   }, [sources, cameras, fitting]);
   // The player plays at the first file's rate; a new first file is a new player.
@@ -458,6 +501,7 @@ export function EditorApp() {
     doc.load(sourceFrames, { width: sourceWidth, height: sourceHeight }, sourceId);
     for (const s of latest.current.slice(1)) doc.addSource(s.id, s.frames);
     useDoc.setState({ past: [], future: [] });
+    doc.markSaved();
     // A recording's clicks, on its one clip, and its camera's start.
     const first = latest.current[0];
     if (first) addRecordedInput(first, 1, first);
@@ -521,6 +565,7 @@ export function EditorApp() {
       // Rust's f64s arrive typed `number | null` (see ipc.ts): `SourceInfo` is what's sent.
       events.sourceOpened.listen(({ payload }) => {
         setSources([payload as SourceInfo]);
+        setProjectName(null);
         useTimeline.getState().setDropAt(null);
         setNotice(null);
         setConverting(null);
@@ -531,6 +576,7 @@ export function EditorApp() {
         const opened = openedDoc(payload.doc, files);
         projectDoc.current = opened?.doc ?? null;
         setSources(files);
+        setProjectName(opened ? payload.name : null);
         useTimeline.getState().setDropAt(null);
         setConverting(null);
         setNotice(
@@ -552,9 +598,18 @@ export function EditorApp() {
       events.openOffered.listen(({ payload }) => {
         const at = useTimeline.getState().dropAt;
         useTimeline.getState().setDropAt(null);
-        if (at !== null) void commands.answerOffer(true, at);
+        // A project can only replace the timeline: Rust asks only if that loses changes.
+        if (payload.project) {
+          setAsking({
+            save: true,
+            go: () => void commands.answerOffer(false, null),
+            stop: () => void commands.answerOffer(null, null),
+          });
+        } else if (at !== null) void commands.answerOffer(true, at);
         else setAsking({ offered: payload.names, recording: payload.recording });
       }),
+      // Quitting (the tray's Quit, or closing quits) with unsaved changes (PLAN PR3).
+      events.quitAsked.listen(() => setAsking({ save: true, go: () => void commands.quitNow() })),
       // One more file, on the end of the timeline (one undo step).
       events.sourceAdded.listen(({ payload }) => {
         const added = payload.source as SourceInfo;
@@ -787,7 +842,7 @@ export function EditorApp() {
       // Ctrl+S saves the project, Ctrl+Shift+S as another (PLAN PR2).
       if (e.code === "KeyS") {
         e.preventDefault();
-        saveNow.current(e.shiftKey);
+        void saveNow.current(e.shiftKey);
         return;
       }
       if (e.shiftKey) return;
@@ -833,8 +888,7 @@ export function EditorApp() {
         else sayWhy("export.none");
       } else if (e.code === "KeyO") {
         e.preventDefault();
-        if (edited()) setAsking({ open: true });
-        else openVideo();
+        replaceNow.current();
       } else if (e.code === "Comma") {
         e.preventDefault();
         void commands.openSettings(null);
@@ -934,7 +988,7 @@ export function EditorApp() {
         exporting={exporting !== null}
         settings={settings}
         onOpen={replace}
-        onSave={saveProject}
+        onSave={(as) => void saveProject(as)}
         onAdd={addVideo}
         recording={recording}
         onRecord={recordClicked}
@@ -987,18 +1041,33 @@ export function EditorApp() {
         empty={empty}
         scrollHints={settings?.appearance.scrollHints ?? true}
       />
-      {asking && "open" in asking && (
+      {asking && "save" in asking && (
         <ConfirmDialog
-          title="Replace the timeline?"
-          confirm="Replace"
+          title={
+            projectName ? `Save changes to ${projectName}?` : "Save the timeline as a project?"
+          }
+          confirm="Save"
           onConfirm={() => {
             setAsking(null);
-            openVideo();
+            void saveProject(false).then((saved) => (saved ? asking.go() : asking.stop?.()));
           }}
-          onCancel={() => setAsking(null)}
+          onCancel={() => {
+            setAsking(null);
+            asking.stop?.();
+          }}
+          other={{
+            label: "Don't save",
+            onClick: () => {
+              setAsking(null);
+              asking.go();
+            },
+          }}
         >
-          <p>Opening a video replaces the timeline, and its edits are lost.</p>
-          <p>To put another video after these, use Add Video (Ctrl+Shift+O).</p>
+          <p>
+            {projectName
+              ? "The timeline has changes that aren't saved. Without saving, they're lost."
+              : "The timeline has edits that aren't saved in a project. Without saving, they're lost."}
+          </p>
         </ConfirmDialog>
       )}
       {asking && "folder" in asking && (
@@ -1070,7 +1139,10 @@ export function EditorApp() {
             label: "Replace",
             onClick: () => {
               setAsking(null);
-              void commands.answerOffer(false, null);
+              unlessUnsaved(
+                () => void commands.answerOffer(false, null),
+                () => void commands.answerOffer(null, null),
+              );
             },
           }}
         >
@@ -1093,7 +1165,6 @@ export function EditorApp() {
               </p>
             </>
           )}
-          {edited() && <p>Replacing loses the timeline&apos;s edits.</p>}
         </ConfirmDialog>
       )}
     </div>

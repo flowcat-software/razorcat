@@ -144,6 +144,21 @@ pub fn closed_to_tray(app: AppHandle, keep: bool) -> Result<(), String> {
     crate::tray::closed_to_tray(&app, keep)
 }
 
+/// The timeline has changes not saved, or hasn't (PLAN PR3): the title shows a dot, and
+/// quitting asks first.
+#[tauri::command]
+#[specta::specta]
+pub fn set_unsaved(app: AppHandle, unsaved: bool) {
+    crate::editor::set_unsaved(&app, unsaved);
+}
+
+/// Razorcat quits: the page has asked about unsaved changes (`QuitAsked`, PLAN PR3).
+#[tauri::command]
+#[specta::specta]
+pub fn quit_now(app: AppHandle) {
+    app.exit(0);
+}
+
 /// Settings is recording a new shortcut (PLAN 5b.8b): ours let go of, so pressing one is
 /// recorded instead of acted on.
 #[tauri::command]

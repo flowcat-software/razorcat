@@ -90,6 +90,13 @@ export const commands = {
 	 *  does that from now on (PLAN 5b.8a).
 	 */
 	closedToTray: (keep: boolean) => typedError<null, string>(__TAURI_INVOKE("closed_to_tray", { keep })),
+	/**
+	 *  The timeline has changes not saved, or hasn't (PLAN PR3): the title shows a dot, and
+	 *  quitting asks first.
+	 */
+	setUnsaved: (unsaved: boolean) => __TAURI_INVOKE<void>("set_unsaved", { unsaved }),
+	/**  Razorcat quits: the page has asked about unsaved changes (`QuitAsked`, PLAN PR3). */
+	quitNow: () => __TAURI_INVOKE<void>("quit_now"),
 	/**  Flowcat Software's website, the maker (Settings › About). A fixed address. */
 	openFlowcatSite: () => __TAURI_INVOKE<void>("open_flowcat_site"),
 	/**  The current settings. */
@@ -286,6 +293,7 @@ export const events = {
 	proxyProgress: makeEvent<ProxyProgress>("proxy-progress"),
 	proxyReady: makeEvent<ProxyReady>("proxy-ready"),
 	proxyStopped: makeEvent<ProxyStopped>("proxy-stopped"),
+	quitAsked: makeEvent<QuitAsked>("quit-asked"),
 	recordingChanged: makeEvent<RecordingChanged>("recording-changed"),
 	recordingPaused: makeEvent<RecordingPaused>("recording-paused"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
@@ -784,6 +792,8 @@ export type OpenOffered = {
 	names: string[],
 	/**  A recording just stopped (PLAN 5b.8c), not files dropped. */
 	recording: boolean,
+	/**  A project (PLAN PR3): it can only replace the timeline, which has unsaved changes. */
+	project: boolean,
 };
 
 /**  Rust → overlays: a selection started on monitor `except`; the others drop theirs. */
@@ -910,6 +920,12 @@ export type ProxyReady = {
 export type ProxyStopped = {
 	source: string,
 };
+
+/**
+ *  Rust → editor: Razorcat is quitting (the tray's Quit, or closing the editor quits) with
+ *  unsaved changes (PLAN PR3): the page asks whether to save them, then `quit_now`.
+ */
+export type QuitAsked = null;
 
 /**  A click where it lands on the recorded picture, and when (s). */
 export type RecordedClick = {

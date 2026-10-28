@@ -85,7 +85,11 @@ pub fn create(app: &AppHandle, s: &Settings) -> tauri::Result<()> {
                     logln!("[tray] launch on login: {e}");
                 }
             }
-            "quit" => app.exit(0),
+            "quit" => {
+                if !editor::asks_before_quit(app) {
+                    app.exit(0);
+                }
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -127,8 +131,8 @@ pub fn start_with_windows(app: &AppHandle, on: bool) {
 }
 
 /// The editor is closing (its window's close): hidden, Razorcat staying in the tray, unless
-/// Settings says closing quits. The first time, ever, the page says so first. True if the close
-/// is to go ahead (Razorcat quits).
+/// Settings says closing quits (asking first with unsaved changes: PLAN PR3). The first time,
+/// ever, the page says so first. True if the close is to go ahead (Razorcat quits).
 pub fn editor_closing(app: &AppHandle, window: &tauri::Window) -> bool {
     let tray = app
         .state::<AppState>()
@@ -138,7 +142,7 @@ pub fn editor_closing(app: &AppHandle, window: &tauri::Window) -> bool {
         .tray
         .clone();
     if !tray.keep_running {
-        return true;
+        return !editor::asks_before_quit(app);
     }
     if tray.told {
         let _ = window.hide();
@@ -159,7 +163,7 @@ pub fn closed_to_tray(app: &AppHandle, keep: bool) -> Result<(), String> {
         if let Some(w) = app.get_webview_window(editor::LABEL) {
             let _ = w.hide();
         }
-    } else {
+    } else if !editor::asks_before_quit(app) {
         app.exit(0);
     }
     Ok(())

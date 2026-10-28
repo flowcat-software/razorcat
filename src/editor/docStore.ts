@@ -119,6 +119,11 @@ export interface DocState {
   /** The Doc when the current gesture began, or null outside a gesture. */
   gestureStart: Doc | null;
   /**
+   * The Doc as last saved or opened (PLAN PR3): any other has unsaved changes (`unsaved`), so
+   * undoing back to it is saved again.
+   */
+  saved: Doc;
+  /**
    * The selected clip, range or markup (one or none). Not part of history; cleared if an edit,
    * undo or redo takes it away.
    */
@@ -146,6 +151,8 @@ export interface DocState {
   load: (frames: number, size?: Size, id?: SourceId) => void;
   /** A project's document in place of the timeline's (PLAN PR2): nothing to undo yet. */
   loadDoc: (doc: Doc) => void;
+  /** The Doc as it is now was saved (or is as opened): nothing unsaved (PLAN PR3). */
+  markSaved: () => void;
   /** Source `id`, `frames` long, on the end of the timeline (PLAN 4.5e): one undo step. */
   addSource: (id: SourceId, frames: number, at?: number | null) => boolean;
   /** Splits the clip under timeline frame `f`. False if there was nothing to split. */
@@ -295,6 +302,11 @@ export interface DocState {
   setOptions: (options: RangeOptions) => void;
 }
 
+/** The timeline has changes not saved (PLAN PR3); an empty one never has. */
+export function unsaved(s: DocState): boolean {
+  return s.doc !== s.saved && s.doc.clips.length > 0;
+}
+
 export function canUndo(s: DocState): boolean {
   return s.past.length > 0 && s.gestureStart === null;
 }
@@ -391,8 +403,10 @@ export const useDoc = create<DocState>()((set, get) => {
     }
   };
 
+  const empty = wholeSource(0);
   return {
-    doc: wholeSource(0),
+    doc: empty,
+    saved: empty,
     past: [],
     future: [],
     gestureStart: null,
@@ -421,6 +435,7 @@ export const useDoc = create<DocState>()((set, get) => {
       keysEdited = false;
       set({
         doc,
+        saved: doc,
         past: [],
         future: [],
         gestureStart: null,
@@ -563,6 +578,8 @@ export const useDoc = create<DocState>()((set, get) => {
     removeMarks: (ids) => apply((doc) => deleteMarks(doc, ids)),
     crop: (crop) => apply((doc) => setCrop(doc, crop)),
     grow: (grow) => apply((doc) => setGrow(doc, grow)),
+
+    markSaved: () => set({ saved: get().doc }),
 
     beginGesture: () => {
       gestures++;
