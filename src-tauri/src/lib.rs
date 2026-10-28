@@ -15,6 +15,7 @@ mod export;
 mod ffmpeg;
 mod folders;
 mod fonts;
+mod hotkeys;
 mod input;
 mod markup;
 mod media;
@@ -63,6 +64,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::preview_recording_name,
             commands::reset_settings,
             commands::default_settings,
+            commands::hotkeys_pause,
+            commands::hotkeys_resume,
+            commands::hotkey_check,
+            commands::print_screen_opens_snipping,
+            commands::open_keyboard_settings,
             commands::closed_to_tray,
             commands::open_flowcat_site,
             commands::get_settings,
@@ -239,6 +245,7 @@ pub fn run() {
                 let state = app.state::<AppState>();
                 let settings = state.settings.read().unwrap().clone();
                 tray::create(app.handle(), &settings)?;
+                hotkeys::register(app.handle(), &settings.hotkeys);
                 tray::start_with_windows(app.handle(), settings.tray.start_with_windows);
             }
             let cwd = std::env::current_dir().unwrap_or_default();

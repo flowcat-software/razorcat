@@ -6,6 +6,7 @@ import {
   EditingIcon,
   ExportIcon,
   GeneralIcon,
+  KeyboardIcon,
   MarkupIcon,
   ProxiesIcon,
   RecordIcon,
@@ -1186,6 +1187,28 @@ export const sections: Section[] = [
             max: 50,
             disabled: (s) => !s.proxies.enabled,
             keywords: ["proxy", "cache", "size", "limit", "space", "disk", "storage", "gb"],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "shortcuts",
+    title: "Keyboard shortcuts",
+    icon: KeyboardIcon,
+    description: "Shortcuts that work anywhere in Windows, even with the editor closed.",
+    groups: [
+      {
+        title: "Recording",
+        description: "They work anywhere in Windows. Click Change, then press the new shortcut.",
+        items: [
+          {
+            id: "hotkeyRecord",
+            kind: "hotkey",
+            path: "hotkeys.record",
+            label: "Record",
+            description: "Starts a recording, as Record in the editor or the tray.",
+            keywords: ["hotkey", "shortcut", "keyboard", "key", "record", "global", "start"],
           },
         ],
       },

@@ -63,6 +63,16 @@ fn build_menu(app: &AppHandle, s: &Settings) -> tauri::Result<Menu<Wry>> {
     Ok(menu)
 }
 
+/// Record (the tray's, or its key from anywhere: PLAN 5b.8b): the editor's own Record, its
+/// questions and all. Nothing while a recording's being picked or made.
+pub fn record(app: &AppHandle) {
+    if crate::recording::busy() || crate::picker::picking() {
+        return;
+    }
+    editor::show_window(app);
+    let _ = RecordAsked.emit_to(app, editor::LABEL);
+}
+
 /// The icon and its menu, as `s` has them.
 pub fn create(app: &AppHandle, s: &Settings) -> tauri::Result<()> {
     TrayIconBuilder::with_id(TRAY_ID)
@@ -71,10 +81,7 @@ pub fn create(app: &AppHandle, s: &Settings) -> tauri::Result<()> {
         .menu(&build_menu(app, s)?)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "record" => {
-                editor::show_window(app);
-                let _ = RecordAsked.emit_to(app, editor::LABEL);
-            }
+            "record" => record(app),
             "editor" => editor::show_window(app),
             "settings" => settings_window::open(app, None),
             "start-with-windows" => {

@@ -50,6 +50,8 @@ pub struct Settings {
     pub reset: Reset,
     /// Razorcat in the tray (PLAN 5b.8a): Settings › General.
     pub tray: Tray,
+    /// Settings › Keyboard shortcuts (PLAN 5b.8b).
+    pub hotkeys: Hotkeys,
 }
 
 impl Default for Settings {
@@ -68,6 +70,7 @@ impl Default for Settings {
             debugging: Debugging::default(),
             reset: Reset::default(),
             tray: Tray::default(),
+            hotkeys: Hotkeys::default(),
         }
     }
 }
@@ -226,6 +229,32 @@ pub const COUNTDOWNS: [u32; 4] = [0, 3, 5, 10];
 
 /// How dark the dimming can be, either way.
 pub const DIM_RANGE: std::ops::RangeInclusive<f64> = 0.05..=0.9;
+
+/// Settings › Keyboard shortcuts (PLAN 5b.8b; Vandal's): global shortcuts, as Windows writes
+/// them (`Win+F11`; hotkeys.rs). `None`: unset.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Hotkeys {
+    /// Record, from anywhere (5b.8b1): as the tray's Record.
+    pub record: Option<String>,
+}
+
+impl Default for Hotkeys {
+    fn default() -> Self {
+        // Free on stock Windows (Vandal's are Win+F12 and its kin). Development builds add
+        // Ctrl, so they run beside an installed copy without the two fighting over it.
+        let key = |k: &str| {
+            Some(if cfg!(debug_assertions) {
+                format!("Ctrl+{k}")
+            } else {
+                k.to_string()
+            })
+        };
+        Self {
+            record: key("Win+F11"),
+        }
+    }
+}
 
 impl Default for Recording {
     fn default() -> Self {
@@ -893,6 +922,9 @@ pub fn update(app: &AppHandle<Wry>, new: Settings) -> Result<Settings, String> {
         crate::tray::start_with_windows(app, new.tray.start_with_windows);
     }
     crate::tray::refresh(app, &new);
+    if old.hotkeys != new.hotkeys {
+        crate::hotkeys::register(app, &new.hotkeys);
+    }
     let camera = |r: &Recording| (r.camera, r.camera_device.clone(), r.camera_size);
     if camera(&new.recording) != camera(&old.recording) {
         crate::camera::sync(app);

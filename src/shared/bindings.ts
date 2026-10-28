@@ -62,6 +62,19 @@ export const commands = {
 	/**  Every setting as installed: what a group's Reset (Settings, its heading's link) puts back. */
 	defaultSettings: () => __TAURI_INVOKE<Settings>("default_settings"),
 	/**
+	 *  Settings is recording a new shortcut (PLAN 5b.8b): ours let go of, so pressing one is
+	 *  recorded instead of acted on.
+	 */
+	hotkeysPause: () => __TAURI_INVOKE<void>("hotkeys_pause"),
+	/**  Done recording one: ours again, as settings have them now. */
+	hotkeysResume: () => __TAURI_INVOKE<void>("hotkeys_resume"),
+	/**  Whether a just-recorded shortcut can be ours; the reason if not. */
+	hotkeyCheck: (hotkey: string) => __TAURI_INVOKE<string | null>("hotkey_check", { hotkey }),
+	/**  Whether Windows 11 keeps PrintScreen for its own screen capture. */
+	printScreenOpensSnipping: () => __TAURI_INVOKE<boolean>("print_screen_opens_snipping"),
+	/**  Windows Settings › Accessibility › Keyboard (the Print Screen switch). */
+	openKeyboardSettings: () => __TAURI_INVOKE<void>("open_keyboard_settings"),
+	/**
 	 *  The editor's first close, ever: Razorcat stays in the tray (`keep`) or quits, and closing
 	 *  does that from now on (PLAN 5b.8a).
 	 */
@@ -646,6 +659,15 @@ export type GrowSide = {
  */
 export type GrowUnit = "px" | "percent";
 
+/**
+ *  Settings › Keyboard shortcuts (PLAN 5b.8b; Vandal's): global shortcuts, as Windows writes
+ *  them (`Win+F11`; hotkeys.rs). `None`: unset.
+ */
+export type Hotkeys = {
+	/**  Record, from anywhere (5b.8b1): as the tray's Record. */
+	record?: string | null,
+};
+
 /**  What an item of markup is to the export, as the page names it. */
 export type MarkLayer = 
 /**  Laid over the frame. */
@@ -982,6 +1004,8 @@ export type Settings = {
 	reset?: Reset,
 	/**  Razorcat in the tray (PLAN 5b.8a): Settings › General. */
 	tray?: Tray,
+	/**  Settings › Keyboard shortcuts (PLAN 5b.8b). */
+	hotkeys?: Hotkeys,
 };
 
 /**  Rust → all windows: settings changed (from any source), here's the new state. */

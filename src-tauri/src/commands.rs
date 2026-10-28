@@ -128,6 +128,44 @@ pub fn closed_to_tray(app: AppHandle, keep: bool) -> Result<(), String> {
     crate::tray::closed_to_tray(&app, keep)
 }
 
+/// Settings is recording a new shortcut (PLAN 5b.8b): ours let go of, so pressing one is
+/// recorded instead of acted on.
+#[tauri::command]
+#[specta::specta]
+pub fn hotkeys_pause(app: AppHandle) {
+    crate::hotkeys::pause(&app);
+}
+
+/// Done recording one: ours again, as settings have them now.
+#[tauri::command]
+#[specta::specta]
+pub fn hotkeys_resume(app: AppHandle) {
+    crate::hotkeys::resume(&app);
+}
+
+/// Whether a just-recorded shortcut can be ours; the reason if not.
+#[tauri::command]
+#[specta::specta]
+pub fn hotkey_check(app: AppHandle, hotkey: String) -> Option<String> {
+    crate::hotkeys::check(&app, &hotkey).err()
+}
+
+/// Whether Windows 11 keeps PrintScreen for its own screen capture.
+#[tauri::command]
+#[specta::specta]
+pub fn print_screen_opens_snipping() -> bool {
+    crate::hotkeys::print_screen_opens_snipping()
+}
+
+/// Windows Settings › Accessibility › Keyboard (the Print Screen switch).
+#[tauri::command]
+#[specta::specta]
+pub fn open_keyboard_settings() {
+    let _ = std::process::Command::new("explorer.exe")
+        .arg("ms-settings:easeofaccess-keyboard")
+        .spawn();
+}
+
 /// Every setting as installed: what a group's Reset (Settings, its heading's link) puts back.
 #[tauri::command]
 #[specta::specta]

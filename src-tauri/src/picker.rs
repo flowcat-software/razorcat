@@ -76,6 +76,11 @@ pub fn label(index: usize) -> String {
 }
 
 /// Puts the editor aside and the overlays up, one per monitor; `add` goes on to the recording.
+/// Whether a recording's being picked.
+pub fn picking() -> bool {
+    PICKING.lock().unwrap().is_some()
+}
+
 pub fn open(app: &AppHandle, add: bool) -> Result<(), String> {
     if crate::recording::busy() || PICKING.lock().unwrap().is_some() {
         return Err("A recording is under way.".into());

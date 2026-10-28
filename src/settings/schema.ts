@@ -87,6 +87,12 @@ export interface CameraItem extends BaseItem {
   path: PathOf<Settings, string>;
 }
 
+/** A global shortcut (PLAN 5b.8b; Vandal's): recorded from the keys pressed. */
+export interface HotkeyItem extends BaseItem {
+  kind: "hotkey";
+  path: PathOf<Settings, string | null>;
+}
+
 /** A number dragged along a slider, `min`–`max` by `step`, shown by `format`. */
 export interface SliderItem extends BaseItem {
   kind: "slider";
@@ -214,6 +220,7 @@ export type Item =
   | SliderItem
   | MicrophoneItem
   | CameraItem
+  | HotkeyItem
   | FolderItem
   | ProxyLimitItem
   | GrowPresetsItem
