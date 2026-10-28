@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
@@ -968,7 +968,8 @@ pub fn on_picture(circle: (f64, f64, f64), origin: (f64, f64), size: (f64, f64))
 }
 
 /// Where the camera shows on its recording's picture: the bubble's top-left and across (px).
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Type)]
+/// A clip moved it (PLAN 5d.6b): the clip's own.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Type)]
 pub struct Place {
     pub x: f64,
     pub y: f64,

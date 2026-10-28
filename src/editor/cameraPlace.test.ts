@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cameraOnStage, sizedPlace, sizeOfPlace } from "./cameraPlace";
+import { cameraOnStage, movedPlace, sizedPlace, sizeOfPlace } from "./cameraPlace";
 
 const hd = { width: 1920, height: 1080 };
 
@@ -23,6 +23,24 @@ describe("sizedPlace", () => {
 
   it("leaves it as recorded with no size chosen", () => {
     expect(sizedPlace(bottomRight, undefined, hd)).toBe(bottomRight);
+  });
+});
+
+describe("movedPlace", () => {
+  // 248 across on 1080p: the gap's 43, so the far edges' snap at 1629 and 789.
+  const place = { x: 800, y: 400, size: 248 };
+
+  it("moves by the drag, in whole pixels", () => {
+    expect(movedPlace(place, 100.4, -50.6, hd, 10)).toEqual({ x: 900, y: 349, size: 248 });
+  });
+
+  it("snaps to the gap from an edge when it's near", () => {
+    expect(movedPlace(place, 825, 385, hd, 10)).toEqual({ x: 1629, y: 789, size: 248 });
+    expect(movedPlace(place, -750, -350, hd, 10)).toEqual({ x: 43, y: 43, size: 248 });
+  });
+
+  it("stays on the picture", () => {
+    expect(movedPlace(place, 5000, -5000, hd, 10)).toEqual({ x: 1672, y: 0, size: 248 });
   });
 });
 

@@ -487,6 +487,8 @@ export type ExportClip = {
 	speed?: ClipSpeed | null,
 	/**  Its camera's size (PLAN 5d.6a), if one was chosen for it: else as recorded. */
 	cameraSize?: CameraSize | null,
+	/**  Where its camera was moved to (PLAN 5d.6b), on its file's picture: else as recorded. */
+	cameraPlace?: Place | null,
 };
 
 /**
@@ -745,7 +747,10 @@ export type PickWindow = {
 	hovered: number | null,
 };
 
-/**  Where the camera shows on its recording's picture: the bubble's top-left and across (px). */
+/**
+ *  Where the camera shows on its recording's picture: the bubble's top-left and across (px).
+ *  A clip moved it (PLAN 5d.6b): the clip's own.
+ */
 export type Place = {
 	x: number | null,
 	y: number | null,

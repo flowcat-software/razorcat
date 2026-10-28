@@ -45,6 +45,7 @@
 import { translateAnnotation } from "../markup/geometry";
 import type { Annotation, NewAnnotation } from "../markup/model/types";
 import type { CameraSize } from "../shared/ipc";
+import type { CameraPlace } from "./cameraPlace";
 import type { Rect, Size } from "./fit";
 import { fullFrame, keepCrop, sameGrow, type Frame, type Grow } from "./frame";
 import { retimedLength, type Speed } from "./speed";
@@ -88,6 +89,11 @@ export interface Clip {
   crossfade?: number;
   /** Its camera's size (PLAN 5d.6a), if one was chosen for it; else as it was recorded. */
   cameraSize?: CameraSize;
+  /**
+   * Where its camera was moved to (PLAN 5d.6b), on its file's picture (px); else where it was
+   * recorded. Its size then is what a size chosen since is made from (its nearest corner kept).
+   */
+  cameraPlace?: CameraPlace;
 }
 
 export type RangeId = number;
@@ -731,6 +737,7 @@ export interface ClipCopy {
   fadeInColour?: string;
   fadeOutColour?: string;
   cameraSize?: CameraSize;
+  cameraPlace?: CameraPlace;
   /** The markup anchored to it. */
   marks: readonly Mark[];
 }
@@ -753,6 +760,7 @@ export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
     ...(clip.fadeInColour && { fadeInColour: clip.fadeInColour }),
     ...(clip.fadeOutColour && { fadeOutColour: clip.fadeOutColour }),
     ...(clip.cameraSize && { cameraSize: clip.cameraSize }),
+    ...(clip.cameraPlace && { cameraPlace: clip.cameraPlace }),
     marks,
   };
 }
@@ -777,6 +785,7 @@ export function insertClip(doc: Doc, copy: ClipCopy, at: number, keepFades = tru
     ...(keepFades && copy.fadeInColour && { fadeInColour: copy.fadeInColour }),
     ...(keepFades && copy.fadeOutColour && { fadeOutColour: copy.fadeOutColour }),
     ...(copy.cameraSize && { cameraSize: copy.cameraSize }),
+    ...(copy.cameraPlace && { cameraPlace: copy.cameraPlace }),
   };
   clips.splice(Math.max(0, Math.min(clips.length, at)), 0, clip);
   let nextMarkId = doc.nextMarkId;
@@ -814,6 +823,19 @@ export function duplicateClips(doc: Doc, ids: readonly ClipId[], keepFades = tru
 export function setCameraSize(doc: Doc, ids: readonly ClipId[], size: CameraSize): Doc {
   if (!doc.clips.some((c) => ids.includes(c.id) && c.cameraSize !== size)) return doc;
   const clips = doc.clips.map((c) => (ids.includes(c.id) ? { ...c, cameraSize: size } : c));
+  return { ...doc, clips };
+}
+
+/**
+ * Clips `ids`'s cameras moved to `place` (PLAN 5d.6b), on their file's picture: its size is the
+ * one they show at, so a size chosen since resizes from there. The same document if nothing
+ * changes.
+ */
+export function setCameraPlace(doc: Doc, ids: readonly ClipId[], place: CameraPlace): Doc {
+  const same = (p: CameraPlace | undefined) =>
+    !!p && p.x === place.x && p.y === place.y && p.size === place.size;
+  if (!doc.clips.some((c) => ids.includes(c.id) && !same(c.cameraPlace))) return doc;
+  const clips = doc.clips.map((c) => (ids.includes(c.id) ? { ...c, cameraPlace: place } : c));
   return { ...doc, clips };
 }
 

@@ -4,7 +4,7 @@ import { MarkupLayer } from "../markup/MarkupLayer";
 import { connectMarkup } from "../markup/model/store";
 import type { CameraFitting, SourceCamera, SourceInfo } from "../shared/ipc";
 import { CameraLayer } from "./CameraLayer";
-import { cameraOnStage, sizedPlace, type Square } from "./cameraPlace";
+import { cameraOnStage, sizedPlace, type ShownCamera } from "./cameraPlace";
 import { CropOverlay } from "./CropOverlay";
 import {
   clipFadeColourAt,
@@ -120,18 +120,27 @@ export function Preview({
     width: source.width * scale,
     height: source.height * scale,
   };
-  // A clip's camera on the finished frame (being fitted, where it'll be), at its size.
-  const placeOf = (clip: Clip): Square | null => {
+  // A clip's camera on the finished frame (being fitted, where it'll be): where it was moved to
+  // or recorded, at its size.
+  const cameraOf = (clip: Clip): ShownCamera | null => {
     const s = sources.find((x) => x.id === clip.source);
-    const place = cameras[clip.source]?.place ?? fitting[clip.source]?.place;
-    if (!s || !place) return null;
-    return cameraOnStage(
-      sizedPlace({ x: place.x ?? 0, y: place.y ?? 0, size: place.size ?? 0 }, clip.cameraSize, s),
+    const recorded = cameras[clip.source]?.place ?? fitting[clip.source]?.place;
+    if (!s || !recorded) return null;
+    const place = sizedPlace(
+      clip.cameraPlace ?? { x: recorded.x ?? 0, y: recorded.y ?? 0, size: recorded.size ?? 0 },
+      clip.cameraSize,
       s,
-      source,
-      { ...picture, left: inner.x + picture.left, top: inner.y + picture.top },
-      { width: stage.width, height: stage.height },
     );
+    const shownAt = { ...picture, left: inner.x + picture.left, top: inner.y + picture.top };
+    return {
+      square: cameraOnStage(place, s, source, shownAt, {
+        width: stage.width,
+        height: stage.height,
+      }),
+      place,
+      picture: s,
+      scale: s.width > 0 ? fitIn(s, source, shownAt).width / s.width : 0,
+    };
   };
   const one = growMode(grow) === "one";
   // The grown sides (one colour: the frame's background).
@@ -221,7 +230,7 @@ export function Preview({
             sources={sources}
             cameras={cameras}
             fitting={fitting}
-            placeOf={placeOf}
+            cameraOf={cameraOf}
             fades={cameraFades}
           />
         </div>

@@ -1,8 +1,10 @@
 // A recording's camera in the preview (PLAN 5d.4): its own video, round, on top of everything
 // (Richard, 2026-10-27: markup and redactions go under it), where it was left while recording,
 // on the finished frame (cameraPlace.ts), at its clip's size (PLAN 5d.6a). Shown while the
-// playhead's clip is from a recording with a camera, placed as that clip says; faded with it. While its camera's still being fitted to it (camera.rs:
-// seconds a minute), where it'll be, a ring filling as it's fitted (PLAN 5d.5c).
+// playhead's clip is from a recording with a camera, placed as that clip says; faded with it.
+// Dragged, it moves in that clip (PLAN 5d.6b), snapping to the gap from the picture's edges; it's
+// picked as markup is (a press selects its clip). While its camera's still being fitted to it
+// (camera.rs: seconds a minute), where it'll be, a ring filling as it's fitted (PLAN 5d.5c).
 //
 // The camera's file is fitted to its recording (camera.rs), so its time is the recording's: it
 // follows the video on screen (the player's, original or proxy), its time and its speed.
@@ -16,9 +18,11 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { CameraFitting, SourceCamera, SourceInfo } from "../shared/ipc";
 import { logLine } from "../shared/log";
-import type { Square } from "./cameraPlace";
-import { clipAt, clipOpacityAt, type Clip } from "./doc";
+import { useStyleConfig } from "../markup/styles";
+import { movedPlace, type ShownCamera } from "./cameraPlace";
+import { clipAt, clipOpacityAt, type Clip, type ClipId } from "./doc";
 import { useDoc } from "./docStore";
+import { useTool } from "./toolStore";
 import type { Player } from "./player";
 import { sourceFrame } from "./speed";
 import styles from "./EditorApp.module.css";
@@ -36,6 +40,24 @@ const NUDGE = 0.03;
 /** The ring round a camera being fitted: its radius, of the circle's 100 (its stroke's in CSS). */
 const RING = 43;
 
+/** How far (CSS px) the pointer goes before a press on the camera is a drag. */
+const DRAG_START = 3;
+/** How near (CSS px) to an edge's gap a dragged camera snaps to it. */
+const PULL = 10;
+
+/** The tools that never pick it: the pen and highlighter draw (as over markup); crop and grow. */
+const DRAWS_ALWAYS = new Set(["pen", "highlighter", "crop", "grow"]);
+
+/** A drag of the camera: where it started, and the clips it moves. */
+interface Drag {
+  pointer: number;
+  x: number;
+  y: number;
+  ids: readonly ClipId[];
+  shown: ShownCamera;
+  moved: boolean;
+}
+
 interface Props {
   player: Player;
   /** The files open, with their cameras (by file id). */
@@ -43,24 +65,27 @@ interface Props {
   cameras: Readonly<Record<string, SourceCamera>>;
   /** The cameras still being fitted (where they'll be, how far along), by file id. */
   fitting: Readonly<Record<string, CameraFitting>>;
-  /** Where a clip's camera shows on the stage (none: it has none). */
-  placeOf: (clip: Clip) => Square | null;
+  /** A clip's camera as the preview shows it (none: it has none). */
+  cameraOf: (clip: Clip) => ShownCamera | null;
   /** It fades with its clip (Settings › Recording); else it stays as the clip fades. */
   fades: boolean;
 }
 
-export function CameraLayer({ player, sources, cameras, fitting, placeOf, fades }: Props) {
+export function CameraLayer({ player, sources, cameras, fitting, cameraOf, fades }: Props) {
   const videos = useRef(new Map<string, HTMLVideoElement>());
   /** Each camera's circle (its video's, or its stand-in's while it's fitted), by file id. */
   const circles = useRef(new Map<string, HTMLDivElement>());
   // The latest, for `update` (the stage's size changes it; it's not re-subscribed for that).
-  const places = useRef(placeOf);
+  const shownOf = useRef(cameraOf);
   const updated = useRef<() => void>(() => {});
   useLayoutEffect(() => {
-    places.current = placeOf;
+    shownOf.current = cameraOf;
     updated.current();
   });
+  const drag = useRef<Drag | null>(null);
   useEffect(() => {
+    /** Ctrl's held. */
+    let ctrl = false;
     /** A stretch of playing, for the log: how far apart, and the camera's frames dropped. */
     let played: { apart: number[]; dropped: number; video: HTMLVideoElement } | null = null;
     const endPlayed = () => {
@@ -83,18 +108,29 @@ export function CameraLayer({ player, sources, cameras, fitting, placeOf, fades 
       const { doc } = useDoc.getState();
       const { frame, speed } = player.getState();
       const at = clipAt(doc, frame);
-      const square = at && circles.current.has(at.clip.source) ? places.current(at.clip) : null;
-      const on = at && square ? at.clip.source : null;
+      const camera = at && circles.current.has(at.clip.source) ? shownOf.current(at.clip) : null;
+      const on = at && camera ? at.clip.source : null;
       for (const [id, circle] of circles.current) {
         circle.style.visibility = id === on ? "visible" : "hidden";
       }
-      // Where its clip puts it (each clip has its own size).
+      // Where its clip puts it (each clip has its own size and place).
       const placed = on && circles.current.get(on);
-      if (placed && square) {
-        placed.style.left = `${square.left}px`;
-        placed.style.top = `${square.top}px`;
-        placed.style.width = placed.style.height = `${square.size}px`;
-        placed.style.fontSize = `${square.size * 0.075}px`;
+      if (at && placed && camera) {
+        const { left, top, size } = camera.square;
+        placed.style.left = `${left}px`;
+        placed.style.top = `${top}px`;
+        placed.style.width = placed.style.height = `${size}px`;
+        placed.style.fontSize = `${size * 0.075}px`;
+        // Its clip selected: outlined. Picked as markup is (MarkupLayer's `picksObjects`): always
+        // with Select; the pen and highlighter draw; the other tools per Settings › Markup's
+        // "Drawing tools select", Ctrl flipping it, so they can draw under it.
+        const selected = useDoc.getState().selectedClips.includes(at.clip.id);
+        placed.classList.toggle(styles.cameraSelected, selected);
+        const { tool } = useTool.getState();
+        const picks =
+          tool === "select" ||
+          (!DRAWS_ALWAYS.has(tool) && useStyleConfig.getState().drawingToolsSelect !== ctrl);
+        placed.classList.toggle(styles.cameraGrabbable, picks);
       }
       for (const [id, v] of videos.current) {
         if (id !== on && !v.paused) v.pause();
@@ -154,11 +190,31 @@ export function CameraLayer({ player, sources, cameras, fitting, placeOf, fades 
     const stopPlayer = player.subscribe(update);
     const stopPicture = player.onPicture(update);
     const stopDoc = useDoc.subscribe(update);
+    const stopTool = useTool.subscribe(update);
+    const stopStyles = useStyleConfig.subscribe(update);
+    // Ctrl held flips whether a drawing tool picks it.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Control" || ctrl === (e.type === "keydown")) return;
+      ctrl = e.type === "keydown";
+      update();
+    };
+    const letCtrlGo = () => {
+      ctrl = false;
+      update();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKey);
+    window.addEventListener("blur", letCtrlGo);
     const all = videos.current;
     return () => {
       stopPlayer();
       stopPicture();
       stopDoc();
+      stopTool();
+      stopStyles();
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKey);
+      window.removeEventListener("blur", letCtrlGo);
       updated.current = () => {};
       endPlayed();
       for (const v of all.values()) v.pause();
@@ -169,6 +225,64 @@ export function CameraLayer({ player, sources, cameras, fitting, placeOf, fades 
   const circle = (id: string) => (el: HTMLDivElement | null) => {
     if (el) circles.current.set(id, el);
     else circles.current.delete(id);
+  };
+
+  // Dragging it (PLAN 5d.6b): the clip under the playhead, selected by the press if it wasn't
+  // (and with it any other selected clips of the same recording); one undo step.
+  const press = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const store = useDoc.getState();
+    const at = clipAt(store.doc, player.getState().frame);
+    const shown = at && shownOf.current(at.clip);
+    if (!at || !shown) return;
+    e.preventDefault();
+    e.stopPropagation();
+    let ids = store.selectedClips;
+    if (!ids.includes(at.clip.id)) {
+      store.select(at.clip.id);
+      ids = [at.clip.id];
+    }
+    e.currentTarget.setPointerCapture(e.pointerId);
+    drag.current = {
+      pointer: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      ids: store.doc.clips
+        .filter((c) => ids.includes(c.id) && c.source === at.clip.source)
+        .map((c) => c.id),
+      shown,
+      moved: false,
+    };
+  };
+  const move = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    if (!d || d.pointer !== e.pointerId) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (!d.moved) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < DRAG_START) return;
+      d.moved = true;
+      useDoc.getState().beginGesture();
+    }
+    const { place, picture, scale } = d.shown;
+    if (scale <= 0) return;
+    useDoc
+      .getState()
+      .setCameraPlace(d.ids, movedPlace(place, dx / scale, dy / scale, picture, PULL / scale));
+  };
+  const letGo = (e: React.PointerEvent<HTMLDivElement>, keep: boolean) => {
+    const d = drag.current;
+    if (!d || d.pointer !== e.pointerId) return;
+    drag.current = null;
+    if (!d.moved) return;
+    if (keep) useDoc.getState().endGesture();
+    else useDoc.getState().cancelGesture();
+  };
+  const grab = {
+    onPointerDown: press,
+    onPointerMove: move,
+    onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => letGo(e, true),
+    onPointerCancel: (e: React.PointerEvent<HTMLDivElement>) => letGo(e, false),
   };
 
   return (
@@ -188,6 +302,7 @@ export function CameraLayer({ player, sources, cameras, fitting, placeOf, fades 
               ref={circle(s.id)}
               className={`${styles.camera} ${styles.cameraFitting}`}
               style={square}
+              {...grab}
               role="progressbar"
               aria-label="Processing camera footage"
               aria-valuenow={done}
@@ -213,7 +328,13 @@ export function CameraLayer({ player, sources, cameras, fitting, placeOf, fades 
           );
         }
         return (
-          <div key={camera.url} ref={circle(s.id)} className={styles.camera} style={square}>
+          <div
+            key={camera.url}
+            ref={circle(s.id)}
+            className={styles.camera}
+            style={square}
+            {...grab}
+          >
             <video
               ref={(v) => {
                 if (v) videos.current.set(s.id, v);

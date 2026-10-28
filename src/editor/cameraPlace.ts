@@ -40,6 +40,32 @@ export function sizedPlace(place: CameraPlace, size: CameraSize | undefined, s: 
   return { x: keep(place.x, s.width), y: keep(place.y, s.height), size: across };
 }
 
+/** The camera's gap from the picture's edges where it snaps, a share of its shorter side. */
+export const CAMERA_GAP = 0.04;
+
+/**
+ * `place` moved by (`dx`, `dy`) on picture `s` (its px), kept on it; within `pull` px of an
+ * edge's gap (its corners' as recorded), snapped to it (PLAN 5d.6b), else where it's put. Whole
+ * pixels.
+ */
+export function movedPlace(
+  place: CameraPlace,
+  dx: number,
+  dy: number,
+  s: Size,
+  pull: number,
+): CameraPlace {
+  const gap = Math.round(Math.min(s.width, s.height) * CAMERA_GAP);
+  const snap = (v: number, room: number) => {
+    const far = room - gap - place.size;
+    const kept = Math.min(Math.max(v, 0), Math.max(0, room - place.size));
+    if (Math.abs(kept - gap) <= pull) return gap;
+    if (Math.abs(kept - far) <= pull) return far;
+    return Math.round(kept);
+  };
+  return { x: snap(place.x + dx, s.width), y: snap(place.y + dy, s.height), size: place.size };
+}
+
 /** The size nearest `place`'s on picture `s`: what a clip with none chosen shows as. */
 export function sizeOfPlace(place: CameraPlace, s: Size): CameraSize {
   const share = place.size / Math.max(1, Math.min(s.width, s.height));
@@ -53,6 +79,17 @@ export interface Square {
   left: number;
   top: number;
   size: number;
+}
+
+/**
+ * A clip's camera as the preview shows it: on the stage, and its place on its file's picture
+ * (`picture`, px) with the stage's CSS px to one of the picture's (to move it by).
+ */
+export interface ShownCamera {
+  square: Square;
+  place: CameraPlace;
+  picture: Size;
+  scale: number;
 }
 
 /**

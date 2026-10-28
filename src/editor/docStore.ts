@@ -23,6 +23,7 @@ import {
   insertClips,
   muteClips,
   setCameraSize,
+  setCameraPlace,
   packLanes,
   moveClips,
   fadeEnds,
@@ -69,6 +70,7 @@ import {
   type SourceId,
 } from "./doc";
 import type { Rect, Size } from "./fit";
+import type { CameraPlace } from "./cameraPlace";
 import type { CameraSize, RecordedInput } from "../shared/ipc";
 import { withRecordedClicks, type RecordedClickStyle } from "./recordedInput";
 import { restyleClicks, type ClickFrames, type ClickStyle } from "./clickStyles";
@@ -157,6 +159,8 @@ export interface DocState {
   muteClips: (ids: readonly ClipId[], muted: boolean) => boolean;
   /** Clips `ids`'s cameras at `size` (PLAN 5d.6a): one undo step. */
   setCameraSize: (ids: readonly ClipId[], size: CameraSize) => boolean;
+  /** Clips `ids`'s cameras moved to `place` (PLAN 5d.6b; a drag's a gesture). */
+  setCameraPlace: (ids: readonly ClipId[], place: CameraPlace) => boolean;
   /** Moves clips `ids` together (gathered, in order) to place `at` among the others. */
   moveClips: (ids: readonly ClipId[], at: number) => boolean;
   /** Mutes all the sound, or unmutes it. */
@@ -420,6 +424,7 @@ export const useDoc = create<DocState>()((set, get) => {
       ),
     muteClips: (ids, muted) => apply((doc) => muteClips(doc, ids, muted)),
     setCameraSize: (ids, size) => apply((doc) => setCameraSize(doc, ids, size)),
+    setCameraPlace: (ids, place) => apply((doc) => setCameraPlace(doc, ids, place)),
     moveClips: (ids, at) => applyClips((doc) => moveClips(doc, ids, at)),
     muteTrack: (muted) => apply((doc) => muteTrack(doc, muted)),
     setClipFades: (id, set) => apply((doc) => setClipFades(doc, id, set)),

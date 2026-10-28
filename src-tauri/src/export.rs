@@ -85,6 +85,9 @@ pub struct ExportClip {
     /// Its camera's size (PLAN 5d.6a), if one was chosen for it: else as recorded.
     #[serde(default, rename = "cameraSize")]
     pub camera_size: Option<crate::settings::CameraSize>,
+    /// Where its camera was moved to (PLAN 5d.6b), on its file's picture: else as recorded.
+    #[serde(default, rename = "cameraPlace")]
+    pub camera_place: Option<Place>,
 }
 
 impl ExportClip {
@@ -1511,6 +1514,7 @@ fn prepare(
         }
         let mut made = cut(input, first, c, keep_pitch);
         made.camera = input.camera.as_ref().map(|(path, place)| {
+            let place = c.camera_place.unwrap_or(*place);
             let place = place.sized(c.camera_size, input.width, input.height);
             let (x, y, size) =
                 camera_on_frame(place, (input.width, input.height), first_size, frame, out);
@@ -2745,6 +2749,7 @@ mod tests {
             crossfade: 0,
             speed: None,
             camera_size: None,
+            camera_place: None,
         }
     }
 

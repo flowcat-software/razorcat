@@ -749,6 +749,17 @@
   background: #000;
 }
 
+/* It can be dragged (PLAN 5d.6b): the layer lets the pointer through, it doesn't. */
+.cameraGrabbable {
+  pointer-events: auto;
+  cursor: move;
+}
+
+/* Its clip selected: outlined. */
+.cameraSelected {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
 .camera video {
   display: block;
   width: 100%;

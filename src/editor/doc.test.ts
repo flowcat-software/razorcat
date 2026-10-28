@@ -12,6 +12,7 @@ import {
   muteClip,
   muteTrack,
   pasteSlot,
+  setCameraPlace,
   setCameraSize,
   split,
   total,
@@ -228,6 +229,15 @@ describe("camera size", () => {
       "small",
     ]);
     expect(copyClip(sized, 1)).not.toHaveProperty("cameraSize");
+  });
+
+  it("moves the clips' camera, and keeps it in their parts and copies", () => {
+    const place = { x: 43, y: 43, size: 248 };
+    const moved = setCameraPlace(doc, [2], place);
+    expect(moved.clips.map((c) => c.cameraPlace)).toEqual([undefined, place]);
+    expect(setCameraPlace(moved, [2], { ...place })).toBe(moved);
+    expect(split(moved, 70).clips[2].cameraPlace).toEqual(place);
+    expect(duplicateClip(moved, 2).clips[2].cameraPlace).toEqual(place);
   });
 });
 
