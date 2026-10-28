@@ -77,6 +77,7 @@ import {
   setCameraAt,
   startCamera,
   type CameraKey,
+  type CameraMove,
   type CameraState,
   type KeyId,
 } from "./cameraKeys";
@@ -182,7 +183,7 @@ export interface DocState {
   /** Camera keyframes `ids` selected, and nothing else. */
   selectKeys: (ids: readonly KeyId[]) => void;
   /** Clip `clip`'s recording's camera, on its first frame, as it was recorded. */
-  startCamera: (clip: ClipId, state: CameraState) => boolean;
+  startCamera: (clip: ClipId, state: CameraState, moves?: readonly CameraMove[]) => boolean;
   /** Moves clips `ids` together (gathered, in order) to place `at` among the others. */
   moveClips: (ids: readonly ClipId[], at: number) => boolean;
   /** Mutes all the sound, or unmutes it. */
@@ -474,7 +475,8 @@ export const useDoc = create<DocState>()((set, get) => {
         selectedRange: null,
         selectedMarks: [],
       }),
-    startCamera: (clip, state) => apply((doc) => startCamera(doc, clip, state), [], true),
+    startCamera: (clip, state, moves) =>
+      apply((doc) => startCamera(doc, clip, state, moves), [], true),
     moveClips: (ids, at) => applyClips((doc) => moveClips(doc, ids, at)),
     muteTrack: (muted) => apply((doc) => muteTrack(doc, muted)),
     setClipFades: (id, set) => apply((doc) => setClipFades(doc, id, set)),

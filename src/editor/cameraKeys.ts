@@ -113,11 +113,36 @@ function withKey(doc: Doc, clip: ClipId, at: number, state: CameraState): Doc {
   return { ...doc, cameraKeys: [...doc.cameraKeys, key], nextKeyId: doc.nextKeyId + 1 };
 }
 
-/** Clip `clip`'s camera as it was recorded, on its first frame (PLAN 5d.8: it never inherits). */
-export function startCamera(doc: Doc, clip: ClipId, state: CameraState): Doc {
+/** The bubble moved while recording (PLAN 5d.7): on the recording's frame `at`, to `state`. */
+export interface CameraMove {
+  at: number;
+  state: CameraState;
+}
+
+/**
+ * Clip `clip`'s camera as it was recorded, once: on its first frame (PLAN 5d.8: it never
+ * inherits), then a keyframe at each of the bubble's `moves` in it (PLAN 5d.7; on one frame, the
+ * last; none where it's as it was).
+ */
+export function startCamera(
+  doc: Doc,
+  clip: ClipId,
+  state: CameraState,
+  moves: readonly CameraMove[] = [],
+): Doc {
   const c = doc.clips.find((x) => x.id === clip);
   if (!c || doc.cameraKeys.some((k) => k.clip === clip && k.at === c.in)) return doc;
-  return withKey(doc, clip, c.in, state);
+  const keys = new Map([[c.in, state]]);
+  for (const m of [...moves].sort((a, b) => a.at - b.at)) {
+    keys.set(Math.min(c.out - 1, Math.max(c.in, m.at)), m.state);
+  }
+  let was: CameraState | null = null;
+  for (const [at, s] of keys) {
+    if (sameCamera(was, s)) continue;
+    doc = withKey(doc, clip, at, s);
+    was = s;
+  }
+  return doc;
 }
 
 /** Keyframes `ids` set as `to` says, from each. The same document if none changes. */

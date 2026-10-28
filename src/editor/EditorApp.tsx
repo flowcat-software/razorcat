@@ -344,8 +344,8 @@ export function EditorApp() {
   /** Each file's thumbnails as they're made, by its id. */
   const [thumbs, setThumbs] = useState<Record<string, ThumbsInfo>>({});
   /**
-   * The files just opened, and their clips: each gets its camera's keyframe on its first frame
-   * once where it was recorded is known (PLAN 5d.8).
+   * The files just opened, and their clips: each gets its camera's keyframe on its first frame,
+   * and one at each of the bubble's moves, once where it was recorded is known (PLAN 5d.8, 5d.7).
    */
   const unstarted = useRef(new Map<string, ClipId>());
   // Each recording's camera as recorded (fitted or being fitted), for everything that shows it;
@@ -365,9 +365,16 @@ export function EditorApp() {
       useRecordedCameras.setState({ cameras: recorded });
     }
     for (const [id, clip] of unstarted.current) {
-      if (!recorded[id]) continue;
+      const s = sources.find((x) => x.id === id);
+      if (!recorded[id] || !s) continue;
       unstarted.current.delete(id);
-      useDoc.getState().startCamera(clip, recorded[id].state);
+      // The bubble's moves while recording (PLAN 5d.7), each on the frame it shows.
+      const picture = recorded[id].picture;
+      const moves = (cameras[id]?.moves ?? fitting[id]?.moves ?? []).map(({ time, place }) => ({
+        at: Math.round(((time ?? 0) * s.rateNum) / s.rateDen),
+        state: recordedCamera({ x: place.x ?? 0, y: place.y ?? 0, size: place.size ?? 0 }, picture),
+      }));
+      useDoc.getState().startCamera(clip, recorded[id].state, moves);
     }
   }, [sources, cameras, fitting]);
   // The player plays at the first file's rate; a new first file is a new player.

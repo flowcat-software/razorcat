@@ -314,9 +314,61 @@ fn recording_time(spans: &[(i64, i64)], qpc: i64) -> Option<f64> {
     None
 }
 
-/// The clicks on the recording: each on its time and its picture (dropped in a pause, or off
-/// it).
-fn recorded(presses: Vec<Press>, spans: &[(i64, i64)], target: &Target) -> RecordedInput {
+/// When the bubble moved at `qpc` (100 ns) shows in the joined recording (s), given its
+/// segments' spans in order: in a pause, or before the first, as the next one starts (it's
+/// there when the picture is); None after the last.
+fn move_time(spans: &[(i64, i64)], qpc: i64) -> Option<f64> {
+    let mut before = 0;
+    for &(a, b) in spans {
+        if qpc < b {
+            return Some((before + (qpc - a).max(0)) as f64 / 1e7);
+        }
+        before += b - a;
+    }
+    None
+}
+
+/// Where the bubble was through the recording (PLAN 5d.7), on its picture (`at`: a circle's
+/// place there): as it started (or as it was left, if that's not known), then each move, timed
+/// in the recording's segments' `spans`.
+fn bubble_path(
+    moves: crate::camera::Moves,
+    left: Option<crate::camera::Circle>,
+    spans: &[(i64, i64)],
+    at: impl Fn(crate::camera::Circle) -> crate::camera::Place,
+) -> Option<crate::camera::BubblePath> {
+    let place = at(moves.start.or(left)?);
+    let moves = moves
+        .moves
+        .into_iter()
+        .filter_map(|(qpc, circle)| {
+            Some(crate::camera::BubbleMove {
+                time: move_time(spans, qpc)?,
+                place: at(circle),
+            })
+        })
+        .collect();
+    Some(crate::camera::BubblePath { place, moves })
+}
+
+/// Whether a click at `qpc` on (`x`, `y`) was on the bubble (`moves`: where it was): the
+/// start of a drag, not a click on what's recorded.
+fn on_bubble(moves: &crate::camera::Moves, qpc: i64, x: i32, y: i32) -> bool {
+    let landed = moves.moves.iter().rev().find(|(at, _)| *at <= qpc);
+    let Some((cx, cy, across)) = landed.map(|(_, c)| *c).or(moves.start) else {
+        return false;
+    };
+    (f64::from(x) - cx).hypot(f64::from(y) - cy) <= across / 2.0
+}
+
+/// The clicks on the recording: each on its time and its picture (dropped in a pause, off it,
+/// or on the bubble).
+fn recorded(
+    presses: Vec<Press>,
+    spans: &[(i64, i64)],
+    target: &Target,
+    bubble: &crate::camera::Moves,
+) -> RecordedInput {
     let mut out = RecordedInput::default();
     for p in presses {
         match p {
@@ -328,6 +380,9 @@ fn recorded(presses: Vec<Press>, spans: &[(i64, i64)], target: &Target) -> Recor
                 double,
                 window,
             } => {
+                if on_bubble(bubble, qpc, x, y) {
+                    continue;
+                }
                 let (Some(time), Some((x, y))) =
                     (recording_time(spans, qpc), target.on_picture(x, y, window))
                 else {
@@ -1255,6 +1310,7 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
         }
     }
     let take = crate::camera::stop_recording(app).filter(|_| r.camera);
+    let moves = crate::camera::take_moves();
     // Each part's length, read before they're joined, for the camera.
     let fps = f64::from(r.video.fps);
     let lengths: Vec<f64> = r
@@ -1264,7 +1320,7 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
         .collect();
     // The clicks, on the recording (5b.6b makes markup of them).
     let presses = r.input.take().map(input::Watch::stop).unwrap_or_default();
-    let noted = recorded(presses, &r.spans, &r.target);
+    let noted = recorded(presses, &r.spans, &r.target, &moves);
     if !noted.clicks.is_empty() {
         logln!("[recording] {} clicks noted", noted.clicks.len());
     }
@@ -1291,14 +1347,17 @@ fn finish(app: &AppHandle, mut r: Running, ended: bool) {
             .emit_to(app, LABEL);
             if let Some(take) = take {
                 let parts: Vec<(i64, f64)> = r.starts.iter().copied().zip(lengths).collect();
-                // Where the bubble was left, on the picture: kept in the camera's file.
+                // Where the bubble was through it, on the picture: kept in the camera's file.
                 let (x, y, _, _) = r.target.on_screen();
                 let s = &r.target.screen;
                 let origin = (f64::from(s.x + x), f64::from(s.y + y));
                 let (w, h) = r.target.size();
-                let place = circle
-                    .map(|c| crate::camera::on_picture(c, origin, (f64::from(w), f64::from(h))));
-                fit_camera(app, take, parts, r.encoder, r.file.clone(), place);
+                let at = |c| crate::camera::on_picture(c, origin, (f64::from(w), f64::from(h)));
+                let path = bubble_path(moves, circle, &r.spans, at);
+                if let Some(p) = path.as_ref().filter(|p| !p.moves.is_empty()) {
+                    logln!("[recording] the bubble moved {} times", p.moves.len());
+                }
+                fit_camera(app, take, parts, r.encoder, r.file.clone(), path);
             }
             if !noted.clicks.is_empty() {
                 NOTED.lock().unwrap().push((r.file.clone(), noted));
@@ -1324,7 +1383,7 @@ fn camera_take(base: &std::path::Path) -> PathBuf {
 }
 
 /// Fits the camera's take to the recording's `parts` (each's start and length), beside the
-/// recording `file`, the bubble's `place` with it, in the background: the recording opens
+/// recording `file`, the bubble's `path` with it, in the background: the recording opens
 /// meanwhile, and gets its camera once it's ready. If it fails, the take is kept.
 fn fit_camera(
     app: &AppHandle,
@@ -1332,11 +1391,11 @@ fn fit_camera(
     parts: Vec<(i64, f64)>,
     encoder: Encoder,
     file: PathBuf,
-    place: Option<crate::camera::Place>,
+    path: Option<crate::camera::BubblePath>,
 ) {
     let app = app.clone();
     // Known as being fitted before the editor opens the recording, so it shows where it'll be.
-    crate::camera::fitting(&app, &file, place, 0.0);
+    crate::camera::fitting(&app, &file, path.as_ref(), 0.0);
     std::thread::spawn(move || {
         let t0 = Instant::now();
         let out = crate::camera::beside(&file);
@@ -1345,10 +1404,10 @@ fn fit_camera(
         let progress = |p: f64| {
             if told.elapsed() >= FITTING_TOLD || p >= 1.0 {
                 told = Instant::now();
-                crate::camera::fitting(&app, &file, place, p);
+                crate::camera::fitting(&app, &file, None, p);
             }
         };
-        let fitted = crate::camera::fit(&take, &parts, encoder, &out, place, progress);
+        let fitted = crate::camera::fit(&take, &parts, encoder, &out, path.as_ref(), progress);
         match fitted {
             Ok(()) => {
                 logln!(
@@ -1834,6 +1893,39 @@ mod tests {
     }
 
     #[test]
+    fn a_bubble_move_shows_when_the_picture_does() {
+        let spans = [(10_000_000, 30_000_000), (50_000_000, 60_000_000)];
+        // Before it starts (in the countdown): at 0.
+        assert_eq!(move_time(&spans, 0), Some(0.0));
+        assert_eq!(move_time(&spans, 20_000_000), Some(1.0));
+        // In the pause: as the next segment starts.
+        assert_eq!(move_time(&spans, 40_000_000), Some(2.0));
+        assert_eq!(move_time(&spans, 55_000_000), Some(2.5));
+        assert_eq!(move_time(&spans, 60_000_000), None);
+        // Each on the picture, after where it started; one after the end left out.
+        let moves = crate::camera::Moves {
+            start: Some((100.0, 100.0, 50.0)),
+            moves: vec![
+                (20_000_000, (300.0, 100.0, 50.0)),
+                (70_000_000, (0.0, 0.0, 50.0)),
+            ],
+        };
+        let at = |(x, y, size): crate::camera::Circle| crate::camera::Place { x, y, size };
+        let path = bubble_path(moves, Some((9.0, 9.0, 50.0)), &spans, at).unwrap();
+        assert_eq!(path.place.x, 100.0);
+        assert_eq!(path.moves.len(), 1);
+        assert_eq!((path.moves[0].time, path.moves[0].place.x), (1.0, 300.0));
+        // Not known where it started: where it was left.
+        let unknown = bubble_path(
+            crate::camera::Moves::default(),
+            Some((9.0, 9.0, 50.0)),
+            &spans,
+            at,
+        );
+        assert_eq!(unknown.map(|p| p.place.x), Some(9.0));
+    }
+
+    #[test]
     fn a_click_lands_on_the_picture_or_is_dropped() {
         // The screen at x -1920; an area at (100, 50), 800 × 600.
         let area = Target::of(screen(), Some((100, 50, 800, 600)));
@@ -1885,9 +1977,25 @@ mod tests {
                 window: None,
             },
         ];
-        let r = recorded(presses, &spans, &t);
+        let r = recorded(presses, &spans, &t, &crate::camera::Moves::default());
         assert_eq!(r.clicks.len(), 1);
         assert_eq!((r.clicks[0].x, r.clicks[0].time), (20.0, 0.5));
+    }
+
+    #[test]
+    fn a_click_on_the_bubble_is_left_out() {
+        // Started at (100, 100), 50 across; dragged to (300, 100) at 2 s.
+        let moves = crate::camera::Moves {
+            start: Some((100.0, 100.0, 50.0)),
+            moves: vec![(20_000_000, (300.0, 100.0, 50.0))],
+        };
+        assert!(on_bubble(&moves, 10_000_000, 110, 110));
+        assert!(!on_bubble(&moves, 10_000_000, 130, 100));
+        // Once it's moved, where it landed.
+        assert!(!on_bubble(&moves, 30_000_000, 110, 110));
+        assert!(on_bubble(&moves, 30_000_000, 290, 100));
+        // No camera, no bubble.
+        assert!(!on_bubble(&crate::camera::Moves::default(), 0, 100, 100));
     }
 
     #[test]

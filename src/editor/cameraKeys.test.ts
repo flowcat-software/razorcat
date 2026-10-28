@@ -13,6 +13,7 @@ import {
   resizedCamera,
   restyleKeys,
   setCameraAt,
+  shownKeys,
   startCamera,
   type CameraState,
 } from "./cameraKeys";
@@ -87,6 +88,25 @@ describe("setting the camera at a frame", () => {
     const doc = startCamera(wholeSource(100), 1, medium);
     expect(cameraAt(doc, 0)).toEqual(medium);
     expect(startCamera(doc, 1, small)).toBe(doc);
+  });
+
+  it("adds a keyframe at each of the bubble's moves while recording", () => {
+    const doc = startCamera(wholeSource(100), 1, medium, [
+      { at: 60, state: large },
+      { at: 20, state: small },
+      // Moved and put back as it was: nothing to show.
+      { at: 40, state: small },
+      // On one frame, the last; past the end, its last frame.
+      { at: 80, state: medium },
+      { at: 80, state: large },
+      { at: 500, state: medium },
+    ]);
+    expect(shownKeys(doc).map((k) => [k.f, k.key.size])).toEqual([
+      [0, "medium"],
+      [20, "small"],
+      [60, "large"],
+      [99, "medium"],
+    ]);
   });
 });
 

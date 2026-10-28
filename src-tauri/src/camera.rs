@@ -639,6 +639,8 @@ pub fn unfollow() {
 struct Grab {
     pointer: (i32, i32),
     at: (i32, i32),
+    /// It's gone far enough to be a drag (a click alone isn't).
+    moved: bool,
 }
 
 static GRAB: Mutex<Option<Grab>> = Mutex::new(None);
@@ -666,6 +668,7 @@ pub fn grab(app: &AppHandle) {
         (Some(pointer), Some(at)) => Some(Grab {
             pointer,
             at: (at.x, at.y),
+            moved: false,
         }),
         _ => None,
     };
@@ -674,31 +677,57 @@ pub fn grab(app: &AppHandle) {
 /// The pointer's moved with the bubble pressed: the bubble goes with it. Once it's gone a few
 /// pixels it's been put somewhere, and no longer follows what's picked; a click alone isn't.
 pub fn drag(app: &AppHandle) {
-    let (Some(g), Some(p)) = (
-        GRAB.lock().unwrap().as_ref().map(|g| (g.pointer, g.at)),
-        pointer(),
-    ) else {
+    let Some(p) = pointer() else {
         return;
     };
-    let ((x0, y0), (wx, wy)) = g;
-    let (dx, dy) = (p.0 - x0, p.1 - y0);
-    {
-        let mut f = FOLLOW.lock().unwrap();
-        if !f.dragged && dx.abs().max(dy.abs()) < DRAG_START {
+    let (x, y) = {
+        let mut grab = GRAB.lock().unwrap();
+        let Some(g) = grab.as_mut() else {
+            return;
+        };
+        let (dx, dy) = (p.0 - g.pointer.0, p.1 - g.pointer.1);
+        if !g.moved && dx.abs().max(dy.abs()) < DRAG_START {
             return;
         }
-        f.dragged = true;
-    }
+        g.moved = true;
+        (g.at.0 + dx, g.at.1 + dy)
+    };
+    FOLLOW.lock().unwrap().dragged = true;
     if let Some(w) = app.get_webview_window(BUBBLE) {
-        let _ = w.set_position(tauri::PhysicalPosition::new(wx + dx, wy + dy));
+        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
     }
 }
 
 /// The bubble's let go: the picker's overlay has the keys back (the click took them; given back
 /// while it was pressed, the drag could end).
 pub fn release(app: &AppHandle) {
-    *GRAB.lock().unwrap() = None;
+    let moved = GRAB.lock().unwrap().take().is_some_and(|g| g.moved);
+    // Recording: where it landed, and when (PLAN 5d.7).
+    if moved {
+        if let (Some(m), Some(circle)) = (MOVES.lock().unwrap().as_mut(), bubble_circle(app)) {
+            m.moves.push((crate::audio::qpc_now(), circle));
+        }
+    }
     crate::picker::refocus(app);
+}
+
+/// A circle on the screen (virtual-desktop px): its middle, and across.
+pub type Circle = (f64, f64, f64);
+
+/// The bubble while recording (PLAN 5d.7): where it was as the camera started, and each drag's
+/// landing, when (the performance counter, 100 ns).
+#[derive(Debug, Default)]
+pub struct Moves {
+    pub start: Option<Circle>,
+    pub moves: Vec<(i64, Circle)>,
+}
+
+/// While the camera's recorded.
+static MOVES: Mutex<Option<Moves>> = Mutex::new(None);
+
+/// The bubble's moves while recording, once it's done.
+pub fn take_moves() -> Moves {
+    MOVES.lock().unwrap().take().unwrap_or_default()
 }
 
 /// Overlay `by` (or the window picking) has `area` picked, `cleared` if that's its selection
@@ -822,7 +851,12 @@ pub fn record(app: &AppHandle, path: PathBuf, encoder: Encoder) -> Result<(), St
         .recording
         .camera_device
         .clone();
-    start_feed(&mut FEED.lock().unwrap(), &name, Some((path, encoder)))
+    start_feed(&mut FEED.lock().unwrap(), &name, Some((path, encoder)))?;
+    *MOVES.lock().unwrap() = Some(Moves {
+        start: bubble_circle(app),
+        moves: Vec::new(),
+    });
+    Ok(())
 }
 
 /// The recording's done with the camera: its file, whole, if it was recorded. The bubble goes.
@@ -834,7 +868,7 @@ pub fn stop_recording(app: &AppHandle) -> Option<Take> {
 }
 
 /// Where the bubble's circle is on the screen (virtual-desktop px): its middle, and across.
-pub fn bubble_circle(app: &AppHandle) -> Option<(f64, f64, f64)> {
+pub fn bubble_circle(app: &AppHandle) -> Option<Circle> {
     let w = app.get_webview_window(BUBBLE)?;
     let (at, size, scale) = (
         w.outer_position().ok()?,
@@ -852,14 +886,14 @@ pub fn bubble_circle(app: &AppHandle) -> Option<(f64, f64, f64)> {
 /// The camera's file fitted to the recording, at `out`: from the take's frames, the stretch of
 /// each of the recording's parts (each started at µs since 1970, lasting s), less the camera's
 /// delay, one after another, at a steady 30 fps from the recording's first frame; where the
-/// bubble was left (`place`) kept in it; `progress` hears how far along it is (0 to 1). Then the
+/// bubble was through it (`path`) kept in it; `progress` hears how far along it is (0 to 1). Then the
 /// take is deleted.
 pub fn fit(
     take: &Take,
     parts: &[(i64, f64)],
     encoder: Encoder,
     out: &Path,
-    place: Option<Place>,
+    path: Option<&BubblePath>,
     mut progress: impl FnMut(f64),
 ) -> Result<(), String> {
     let (filter, frames) = fit_filter(take.origin_us, parts, encoder.pixels());
@@ -876,7 +910,7 @@ pub fn fit(
         // A keyframe a second, so the editor seeks it quickly (spike 5d.1 measured it so; the
         // encoders' own, NVENC's 250, made a seek decode up to 8 s).
         .args(["-g", "30"]);
-    if let Some(p) = place {
+    if let Some(p) = path {
         cmd.args(["-metadata".into(), format!("comment={}", p.tag())]);
     }
     // How far it's got, as frames written (`progress`, 0 to 1), on stdout.
@@ -957,7 +991,7 @@ fn fit_filter(origin_us: i64, parts: &[(i64, f64)], pixels: &str) -> (String, u6
 /// Where the bubble (its circle: middle and across, virtual-desktop px) goes on a picture
 /// `size` whose top-left is at `origin` on the screen: its top-left and across on the picture,
 /// kept on it (as large as the picture, at most).
-pub fn on_picture(circle: (f64, f64, f64), origin: (f64, f64), size: (f64, f64)) -> Place {
+pub fn on_picture(circle: Circle, origin: (f64, f64), size: (f64, f64)) -> Place {
     let (cx, cy, across) = circle;
     let across = across.min(size.0).min(size.1).max(0.0);
     Place {
@@ -976,23 +1010,63 @@ pub struct Place {
     pub size: f64,
 }
 
-/// What the camera's file says it is, in its `comment`: "razorcat-camera x y size".
+/// The bubble dragged while recording (PLAN 5d.7): when in the recording (s), and where it landed.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Type)]
+pub struct BubbleMove {
+    pub time: f64,
+    pub place: Place,
+}
+
+/// Where the bubble was through a recording: as it started, then each move.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BubblePath {
+    pub place: Place,
+    pub moves: Vec<BubbleMove>,
+}
+
+/// What the camera's file says it is, in its `comment`: "razorcat-camera x y size", then
+/// " | time x y size" for each move (none before 5d.7).
 const PLACE_TAG: &str = "razorcat-camera";
 
-impl Place {
-    fn tag(self) -> String {
-        format!("{PLACE_TAG} {:.1} {:.1} {:.1}", self.x, self.y, self.size)
+impl BubblePath {
+    fn tag(&self) -> String {
+        let p = self.place;
+        let mut tag = format!("{PLACE_TAG} {:.1} {:.1} {:.1}", p.x, p.y, p.size);
+        for m in &self.moves {
+            let p = m.place;
+            tag += &format!(" | {:.3} {:.1} {:.1} {:.1}", m.time, p.x, p.y, p.size);
+        }
+        tag
     }
 
-    /// The place in ffmpeg's description of a file (its `comment` line), if it has one.
+    /// The path in ffmpeg's tags of a file (its `comment` line), if it has one.
     fn from_description(text: &str) -> Option<Self> {
         let line = text.lines().find(|l| l.contains(PLACE_TAG))?;
         let rest = &line[line.find(PLACE_TAG)? + PLACE_TAG.len()..];
-        let mut n = rest.split_whitespace().map(|w| w.parse::<f64>());
-        let (x, y, size) = (n.next()?.ok()?, n.next()?.ok()?, n.next()?.ok()?);
-        Some(Self { x, y, size })
+        let mut parts = rest.split('|').map(|part| {
+            part.split_whitespace()
+                .map(|w| w.parse::<f64>().ok())
+                .collect::<Option<Vec<f64>>>()
+        });
+        let place = match parts.next()??.as_slice() {
+            &[x, y, size] => Place { x, y, size },
+            _ => return None,
+        };
+        // A move that doesn't read is left out, not the rest.
+        let moves = parts
+            .filter_map(|m| match m?.as_slice() {
+                &[time, x, y, size] => Some(BubbleMove {
+                    time,
+                    place: Place { x, y, size },
+                }),
+                _ => None,
+            })
+            .collect();
+        Some(Self { place, moves })
     }
+}
 
+impl Place {
     /// Where a camera with no place said goes on a picture `width` × `height`: its bottom-right
     /// corner, a little in, Medium.
     fn default_for(width: u32, height: u32) -> Self {
@@ -1018,6 +1092,8 @@ pub fn beside(file: &Path) -> PathBuf {
 pub struct SourceCamera {
     pub url: String,
     pub place: Place,
+    /// The bubble's moves while recording (PLAN 5d.7).
+    pub moves: Vec<BubbleMove>,
 }
 
 /// Rust → editor: an open file has a camera (PLAN 5d.4): found beside it as it opened, or fitted
@@ -1038,6 +1114,7 @@ pub struct CameraFitting {
     /// The source it's for (its `SourceInfo::id`).
     pub source: String,
     pub place: Place,
+    pub moves: Vec<BubbleMove>,
     pub progress: f64,
 }
 
@@ -1045,28 +1122,34 @@ pub struct CameraFitting {
 struct Fitting {
     /// The recording's file.
     file: PathBuf,
-    /// The bubble's place (None: the usual).
-    place: Option<Place>,
+    /// Where the bubble was (None: the usual place).
+    path: Option<BubblePath>,
     /// How far along (0 to 1).
     progress: f64,
 }
 
 static FITTING: Mutex<Vec<Fitting>> = Mutex::new(Vec::new());
 
-/// The camera of recording `file` is being fitted, `progress` of the way (its bubble at
-/// `place`): the editor's told, if it has the file open.
-pub fn fitting(app: &AppHandle, file: &Path, place: Option<Place>, progress: f64) {
-    {
+/// The camera of recording `file` is being fitted, `progress` of the way (its bubble along
+/// `path`): the editor's told, if it has the file open.
+pub fn fitting(app: &AppHandle, file: &Path, path: Option<&BubblePath>, progress: f64) {
+    let path = {
         let mut all = FITTING.lock().unwrap();
         match all.iter_mut().find(|f| f.file == file) {
-            Some(f) => f.progress = progress,
-            None => all.push(Fitting {
-                file: file.to_path_buf(),
-                place,
-                progress,
-            }),
+            Some(f) => {
+                f.progress = progress;
+                f.path.clone()
+            }
+            None => {
+                all.push(Fitting {
+                    file: file.to_path_buf(),
+                    path: path.cloned(),
+                    progress,
+                });
+                path.cloned()
+            }
         }
-    }
+    };
     let open: Vec<u64> = app
         .state::<crate::state::AppState>()
         .sources
@@ -1077,7 +1160,7 @@ pub fn fitting(app: &AppHandle, file: &Path, place: Option<Place>, progress: f64
         .map(|s| s.generation)
         .collect();
     for generation in open {
-        tell_fitting(app, generation, place, progress);
+        tell_fitting(app, generation, path.as_ref(), progress);
     }
 }
 
@@ -1119,7 +1202,7 @@ pub fn wait_fitted(files: &[PathBuf], stop: &AtomicBool, mut progress: impl FnMu
 }
 
 /// Tells the editor the camera of the source opened as `generation` is being fitted.
-fn tell_fitting(app: &AppHandle, generation: u64, place: Option<Place>, progress: f64) {
+fn tell_fitting(app: &AppHandle, generation: u64, path: Option<&BubblePath>, progress: f64) {
     let info = app
         .state::<crate::state::AppState>()
         .sources
@@ -1133,7 +1216,8 @@ fn tell_fitting(app: &AppHandle, generation: u64, place: Option<Place>, progress
     };
     let fitting = CameraFitting {
         source: info.id,
-        place: place.unwrap_or_else(|| Place::default_for(info.width, info.height)),
+        place: path.map_or_else(|| Place::default_for(info.width, info.height), |p| p.place),
+        moves: path.map(|p| p.moves.clone()).unwrap_or_default(),
         progress,
     };
     let _ = tauri_specta::Event::emit_to(&fitting, app, crate::editor::LABEL);
@@ -1167,18 +1251,27 @@ fn look_now(app: &AppHandle, generation: u64) {
             .unwrap()
             .iter()
             .find(|f| f.file == path)
-            .map(|f| (f.place, f.progress));
-        if let Some((place, progress)) = fitting {
-            tell_fitting(app, generation, place, progress);
+            .map(|f| (f.path.clone(), f.progress));
+        if let Some((path, progress)) = fitting {
+            tell_fitting(app, generation, path.as_ref(), progress);
         }
         return;
     }
-    let described = sidecar::command(Tool::Ffmpeg)
-        .ok()
-        .and_then(|mut c| c.args(["-hide_banner", "-i"]).arg(&file).output().ok());
-    let place = described
-        .and_then(|o| Place::from_description(&String::from_utf8_lossy(&o.stderr)))
-        .unwrap_or_else(|| Place::default_for(info.width, info.height));
+    // Its tags as ffmpeg writes them out: whole (its description of the file cuts a long line).
+    let described = sidecar::command(Tool::Ffmpeg).ok().and_then(|mut c| {
+        c.args(["-hide_banner", "-loglevel", "error", "-i"])
+            .arg(&file)
+            .args(["-f", "ffmetadata", "-"])
+            .output()
+            .ok()
+    });
+    let path = described
+        .and_then(|o| BubblePath::from_description(&String::from_utf8_lossy(&o.stdout)))
+        .unwrap_or_else(|| BubblePath {
+            place: Place::default_for(info.width, info.height),
+            moves: Vec::new(),
+        });
+    let place = path.place;
     {
         let mut sources = state.sources.lock().unwrap();
         let Some(s) = sources.iter_mut().find(|s| s.generation == generation) else {
@@ -1186,12 +1279,16 @@ fn look_now(app: &AppHandle, generation: u64) {
         };
         s.camera = Some((file, place));
     }
-    logln!("[camera] found with a source, at {place:?}");
+    logln!(
+        "[camera] found with a source, at {place:?}, moved {} times",
+        path.moves.len()
+    );
     let ready = CameraReady {
         source: info.id,
         camera: SourceCamera {
             url: crate::protocol::camera_url(generation),
             place,
+            moves: path.moves,
         },
     };
     let _ = tauri_specta::Event::emit_to(&ready, app, crate::editor::LABEL);
@@ -1549,26 +1646,54 @@ Error opening input file dummy."#;
 
     #[test]
     fn the_place_is_kept_in_the_cameras_file() {
-        let p = Place {
-            x: 1100.0,
-            y: 540.25,
-            size: 180.0,
+        let place = |x, y, size| Place { x, y, size };
+        let still = BubblePath {
+            place: place(1100.0, 540.25, 180.0),
+            moves: Vec::new(),
         };
-        assert_eq!(p.tag(), "razorcat-camera 1100.0 540.2 180.0");
-        // As ffmpeg describes the file.
-        let described =
-            "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'x (camera).mp4':\n  Metadata:\n    \
-                         major_brand     : isom\n    \
-                         comment         : razorcat-camera 1100.0 540.2 180.0\n";
+        assert_eq!(still.tag(), "razorcat-camera 1100.0 540.2 180.0");
+        // As ffmpeg writes out the file's tags.
+        let described = |tag: &str| {
+            format!(";FFMETADATA1\nmajor_brand=isom\ncomment={tag}\nencoder=Lavf62.12.103\n")
+        };
+        let read = BubblePath::from_description(&described(&still.tag())).unwrap();
+        assert_eq!(read.place, place(1100.0, 540.2, 180.0));
+        assert!(read.moves.is_empty());
+        // Moved while recording (PLAN 5d.7): each move after the place it started at.
+        let moved = BubblePath {
+            place: place(1100.0, 540.0, 180.0),
+            moves: vec![
+                BubbleMove {
+                    time: 2.5,
+                    place: place(40.0, 30.0, 180.0),
+                },
+                BubbleMove {
+                    time: 61.25,
+                    place: place(900.0, 30.0, 180.0),
+                },
+            ],
+        };
         assert_eq!(
-            Place::from_description(described),
-            Some(Place {
-                x: 1100.0,
-                y: 540.2,
-                size: 180.0
-            })
+            moved.tag(),
+            "razorcat-camera 1100.0 540.0 180.0 | 2.500 40.0 30.0 180.0 | 61.250 900.0 30.0 180.0"
         );
-        assert_eq!(Place::from_description("comment : something else"), None);
+        assert_eq!(
+            BubblePath::from_description(&described(&moved.tag())),
+            Some(moved)
+        );
+        assert_eq!(BubblePath::from_description("comment=something else"), None);
+        // Many moves (Richard's 55 s had 47): all of them.
+        let many = BubblePath {
+            place: place(1.0, 2.0, 3.0),
+            moves: (0..200)
+                .map(|i| BubbleMove {
+                    time: f64::from(i),
+                    place: place(1000.0, 1000.0, 300.0),
+                })
+                .collect(),
+        };
+        let read = BubblePath::from_description(&described(&many.tag())).unwrap();
+        assert_eq!(read.moves.len(), 200);
         // None said: the bottom-right corner, Medium (23% of 1080 is 248; the gap 4%, 43).
         assert_eq!(
             Place::default_for(1920, 1080),

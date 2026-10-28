@@ -279,6 +279,12 @@ export type Appearance = {
 	scrollHints?: boolean,
 };
 
+/**  The bubble dragged while recording (PLAN 5d.7): when in the recording (s), and where it landed. */
+export type BubbleMove = {
+	time: number | null,
+	place: Place,
+};
+
 export type Button = "left" | "right" | "middle";
 
 /**  The cache's size, and what a limit would drop (Settings asks before lowering it). */
@@ -307,6 +313,7 @@ export type CameraFitting = {
 	/**  The source it's for (its `SourceInfo::id`). */
 	source: string,
 	place: Place,
+	moves: BubbleMove[],
 	progress: number | null,
 };
 
@@ -985,6 +992,8 @@ export type SourceAdded = {
 export type SourceCamera = {
 	url: string,
 	place: Place,
+	/**  The bubble's moves while recording (PLAN 5d.7). */
+	moves: BubbleMove[],
 };
 
 /**
