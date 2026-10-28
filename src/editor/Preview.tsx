@@ -4,7 +4,7 @@ import { MarkupLayer } from "../markup/MarkupLayer";
 import { connectMarkup } from "../markup/model/store";
 import type { CameraFitting, SourceCamera, SourceInfo } from "../shared/ipc";
 import { CameraLayer } from "./CameraLayer";
-import { cameraShownAt, placeOf } from "./cameraKeys";
+import { cameraShownAt, keyAt, placeOf } from "./cameraKeys";
 import { cameraOnStage, type ShownCamera } from "./cameraPlace";
 import { useRecordedCameras } from "./cameraStore";
 import { CropOverlay } from "./CropOverlay";
@@ -125,16 +125,17 @@ export function Preview({
   };
   // A clip's camera on the finished frame at timeline frame `f` (being fitted, where it'll
   // be): as the keyframes say (PLAN 5d.8), faded at them (5d.9), or before any, as it was
-  // recorded; hidden, none.
+  // recorded; hidden, none. Paused on a keyframe, as that keyframe sets it, whole: a fade starts
+  // there with the old place, so it's what's being changed that shows to drag or resize.
   const cameraOf = (clip: Clip, f: number): ShownCamera | null => {
     const s = sources.find((x) => x.id === clip.source);
     const rec = recorded[clip.source];
     if (!s || !rec) return null;
+    const { doc } = useDoc.getState();
     const { fade } = useRecordedCameras.getState();
-    const { state, opacity } = cameraShownAt(useDoc.getState().doc, f, fade) ?? {
-      state: rec.state,
-      opacity: 1,
-    };
+    const key = player.getState().speed === 0 ? keyAt(doc, f) : null;
+    const { state, opacity } = (key && { state: key, opacity: 1 }) ??
+      cameraShownAt(doc, f, fade) ?? { state: rec.state, opacity: 1 };
     if (state.hidden) return null;
     const place = placeOf(state, s);
     const shownAt = { ...picture, left: inner.x + picture.left, top: inner.y + picture.top };
