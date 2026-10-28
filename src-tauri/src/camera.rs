@@ -241,6 +241,11 @@ struct Frames {
     seq: u64,
     jpeg: Option<Arc<Vec<u8>>>,
     ended: Option<String>,
+    /// Said over the last picture until the next comes (the camera reopening to record).
+    note: Option<&'static str>,
+    /// Pictures before this aren't shown: the camera's first, reopened (one said it was
+    /// offline).
+    quiet_until: Option<Instant>,
 }
 
 static FRAMES: Mutex<Frames> = Mutex::new(Frames {
@@ -248,7 +253,15 @@ static FRAMES: Mutex<Frames> = Mutex::new(Frames {
     seq: 0,
     jpeg: None,
     ended: None,
+    note: None,
+    quiet_until: None,
 });
+
+/// Over the bubble while the camera reopens to record.
+const READYING: &str = "Getting ready to record…";
+
+/// How long the camera's first pictures, reopened to record, are left out of the bubble.
+const QUIET: Duration = Duration::from_secs(1);
 static NEW_FRAME: Condvar = Condvar::new();
 
 /// The camera's ffmpeg: the camera it has (as Settings names it), its input (`q` ends a
@@ -282,6 +295,8 @@ pub enum Next {
     Frame(u64, Arc<Vec<u8>>),
     /// None newer yet.
     Waiting,
+    /// None newer yet, and this to say over the last.
+    Note(&'static str),
     /// The preview stopped, and why.
     Ended(String),
 }
@@ -291,14 +306,15 @@ pub fn next_frame(after: u64) -> Next {
     let frames = FRAMES.lock().unwrap();
     let (frames, _) = NEW_FRAME
         .wait_timeout_while(frames, Duration::from_secs(2), |f| {
-            f.seq <= after && f.ended.is_none()
+            f.seq <= after && f.ended.is_none() && f.note.is_none()
         })
         .unwrap();
     if let Some(why) = &frames.ended {
         return Next::Ended(why.clone());
     }
-    match &frames.jpeg {
-        Some(jpeg) if frames.seq > after => Next::Frame(frames.seq, jpeg.clone()),
+    match (&frames.jpeg, frames.note) {
+        (Some(jpeg), _) if frames.seq > after => Next::Frame(frames.seq, jpeg.clone()),
+        (_, Some(note)) => Next::Note(note),
         _ => Next::Waiting,
     }
 }
@@ -370,14 +386,20 @@ fn start_feed(
     name: &str,
     record: Option<(PathBuf, Encoder)>,
 ) -> Result<(), String> {
-    end_feed(feed.take());
+    // The old one over before it's stopped, or its stopping could be said as this one's.
     let this = {
         let mut f = FRAMES.lock().unwrap();
         f.preview += 1;
         f.jpeg = None;
         f.ended = None;
+        // Reopened to record: the bubble keeps its picture, says why it's still, and leaves
+        // out the camera's first pictures.
+        f.note = record.is_some().then_some(READYING);
+        f.quiet_until = record.is_some().then(|| Instant::now() + QUIET);
         f.preview
     };
+    NEW_FRAME.notify_all();
+    end_feed(feed.take());
     let fail = |why: String| {
         ended(this, why.clone());
         Err(why)
@@ -496,7 +518,9 @@ fn read_jpegs(preview: u64, mut out: impl Read) {
         while let Some(at) = buf[i..].windows(2).position(|w| w == [0xff, 0xd9]) {
             let end = i + at + 2;
             let mut f = FRAMES.lock().unwrap();
-            if f.preview == preview {
+            let quiet = f.quiet_until.is_some_and(|t| Instant::now() < t);
+            if f.preview == preview && !quiet {
+                f.note = None;
                 f.seq += 1;
                 f.jpeg = Some(Arc::new(buf[start..end].to_vec()));
                 drop(f);
@@ -667,9 +691,9 @@ pub fn follow(app: &AppHandle, by: u32, area: Area, cleared: bool) {
 /// The bubble's window into `area`'s corner, its size kept on that monitor.
 fn put_bubble(window: &WebviewWindow, area: Area) {
     let (x, y) = area.corner();
-    // Position first, then size: moving onto a monitor of another scale rescales the window.
-    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-    let _ = window.set_size(tauri::LogicalSize::new(BUBBLE_SIZE, BUBBLE_SIZE));
+    let side = (BUBBLE_SIZE * area.scale).round() as u32;
+    // There before it's shown (Tauri's moves land later).
+    crate::recording::place(window, x, y, side, side);
 }
 
 /// One `sync` at a time: two would make two bubbles.
@@ -988,8 +1012,11 @@ pub fn fitted(app: &AppHandle, file: &Path) {
 /// The bubble, in the bottom-right corner of `area`: round, over everything (the picker's
 /// overlays too), never taking the keys from them, and left out of the recording.
 fn open_bubble(app: &AppHandle, area: Area) {
+    let made = crate::recording::made_at(area.x, area.y, area.width, area.height, area.scale);
     let built = WebviewWindowBuilder::new(app, BUBBLE, WebviewUrl::App("camera.html".into()))
         .title("Camera")
+        .position(made.0, made.1)
+        .inner_size(crate::recording::MADE_SIZE, crate::recording::MADE_SIZE)
         .decorations(false)
         .resizable(false)
         .shadow(false)
@@ -1004,6 +1031,7 @@ fn open_bubble(app: &AppHandle, area: Area) {
     match built {
         Ok(window) => {
             crate::recording::exclude_from_capture(&window);
+            crate::picker::no_transitions(&window);
             put_bubble(&window, area);
             show_quietly(&window);
         }

@@ -9,7 +9,7 @@ use std::ffi::c_void;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::webview::Color;
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow};
 use tauri_specta::Event;
 
 use crate::camera::Area;
@@ -137,8 +137,11 @@ pub fn open(app: &AppHandle, add: bool) -> Result<(), String> {
 fn create(app: &AppHandle, index: usize, s: &Screen) -> tauri::Result<WebviewWindow> {
     let builder =
         tauri::WebviewWindowBuilder::new(app, label(index), WebviewUrl::App("picker.html".into()));
+    let made = crate::recording::made_at(s.x, s.y, s.width, s.height, s.scale);
     let window = builder
         .title("Record")
+        .position(made.0, made.1)
+        .inner_size(crate::recording::MADE_SIZE, crate::recording::MADE_SIZE)
         .decorations(false)
         .resizable(false)
         .shadow(false)
@@ -150,16 +153,15 @@ fn create(app: &AppHandle, index: usize, s: &Screen) -> tauri::Result<WebviewWin
         .focused(false)
         .build()?;
     no_transitions(&window);
-    // Position first, then size: moving onto a monitor of another scale rescales the window.
-    window.set_position(PhysicalPosition::new(s.x, s.y))?;
-    window.set_size(PhysicalSize::new(s.width, s.height))?;
+    // There before it's shown (Tauri's moves land later, and it showed where it was made).
+    crate::recording::place(&window, s.x, s.y, s.width, s.height);
     window.show()?;
     Ok(window)
 }
 
 /// No show or hide animation (Vandal's): a window the size of a monitor zooming in makes the
-/// whole screen jump.
-fn no_transitions(window: &WebviewWindow) {
+/// whole screen jump. The recording's windows too (recording.rs).
+pub fn no_transitions(window: &WebviewWindow) {
     use windows::core::BOOL;
     use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED};
     let Ok(hwnd) = window.hwnd() else {

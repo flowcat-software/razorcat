@@ -25,9 +25,12 @@ body {
     0 12px 40px rgb(0 0 0 / 0.4);
   color: #fff;
   font:
-    600 72px "Segoe UI Variable Display",
-    "Segoe UI",
-    system-ui;
+    700 72px Arial,
+    Helvetica,
+    sans-serif;
+  line-height: 1;
+  /* The line box cut to the digits (no room for accents above), so they sit in the middle. */
+  text-box: trim-both cap alphabetic;
   font-variant-numeric: tabular-nums;
 }
 

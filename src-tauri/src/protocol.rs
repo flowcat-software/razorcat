@@ -16,8 +16,9 @@
 //! `/camera/{generation}` is the camera recorded with it (camera.rs, PLAN 5d.4), once found.
 //!
 //! `/bubble/{after}`: the camera's live preview (camera.rs), its first picture numbered past `after`
-//! (a JPEG, its number in `x-frame`), waited for a while: 204 if none came, 410 and why if the
-//! camera stopped.
+//! (a JPEG, its number in `x-frame`), waited for a while: 204 if none came, 202 and a note to
+//! show over the last if none's coming yet (reopening to record), 410 and why if the camera
+//! stopped.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -243,6 +244,7 @@ fn bubble(after: u64) -> Response<Vec<u8>> {
     let (status, kind, frame, body) = match crate::camera::next_frame(after) {
         crate::camera::Next::Frame(n, jpeg) => (StatusCode::OK, "image/jpeg", n, jpeg.to_vec()),
         crate::camera::Next::Waiting => (StatusCode::NO_CONTENT, "text/plain", after, vec![]),
+        crate::camera::Next::Note(note) => (StatusCode::ACCEPTED, "text/plain", after, note.into()),
         crate::camera::Next::Ended(why) => (StatusCode::GONE, "text/plain", after, why.into()),
     };
     Response::builder()

@@ -13,7 +13,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Stdio};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -36,6 +36,8 @@ pub const RECORDER: &str = "recorder";
 const OUTLINE_LABEL: &str = "recording-outline";
 /// The countdown's window (countdown.html).
 const COUNTDOWN_LABEL: &str = "recording-countdown";
+/// The longest the countdown waits for its page to load before it starts anyway.
+const COUNTDOWN_LOADING: Duration = Duration::from_secs(2);
 /// The control's size (logical px) and its gap from the monitor's top: the dot, the time, clicks,
 /// Pause and Stop. Wide enough for "Starts in 10" (a 10 s countdown) beside them.
 const CONTROL: (f64, f64) = (288.0, 44.0);
@@ -823,7 +825,23 @@ fn begin(app: &AppHandle, add: bool, target: &Target) -> Result<bool, String> {
             None => false,
         };
     if count > 0 {
-        open_countdown(app, target, count);
+        let loaded = open_countdown(app, target, count);
+        // Counted from when its page is up, and the page started then too: counted from when
+        // the window was made, the page (loading as the camera starts) showed its first number
+        // late, and caught up with a jolt.
+        let asked = Instant::now();
+        while asked.elapsed() < COUNTDOWN_LOADING {
+            if *STOP_ASKED.lock().unwrap() {
+                close_countdown(app);
+                return Ok(false);
+            }
+            if loaded.recv_timeout(Duration::from_millis(50)).is_ok() {
+                break;
+            }
+        }
+        if let Some(w) = app.get_webview_window(COUNTDOWN_LABEL) {
+            let _ = w.eval("window.startCountdown?.()");
+        }
         let until = Instant::now() + Duration::from_secs(u64::from(count));
         while Instant::now() < until {
             if *STOP_ASKED.lock().unwrap() {
@@ -1402,6 +1420,18 @@ fn open_control(
 ) {
     let buttons = u8::from(mic) + u8::from(system);
     let width = CONTROL.0 + f64::from(buttons) * CONTROL_MIC;
+    // In physical pixels on its monitor, then sized there (its scale).
+    let wide = (width * screen.scale).round() as i32;
+    let x = screen.x + (screen.width as i32 - wide) / 2;
+    let y = screen.y + (CONTROL_TOP * screen.scale).round() as i32;
+    let screen_scale = screen.scale;
+    let made = made_at(
+        screen.x,
+        screen.y,
+        screen.width,
+        screen.height,
+        screen.scale,
+    );
     let builder = WebviewWindowBuilder::new(app, RECORDER, WebviewUrl::App("recorder.html".into()))
         // The microphone's and the system sound's mute buttons, when they're recorded; the
         // countdown it shows first; the clicks noted at the start.
@@ -1411,7 +1441,16 @@ fn open_control(
         ));
     let built = crate::appearance::themed(app, builder)
         .title("Recording")
-        .inner_size(width, CONTROL.1)
+        .position(made.0, made.1)
+        .inner_size(MADE_SIZE, MADE_SIZE)
+        // Put in place and shown once its page has loaded, as the outline is.
+        .on_page_load(move |window, page| {
+            if page.event() == tauri::webview::PageLoadEvent::Finished {
+                let tall = (CONTROL.1 * screen_scale).round() as u32;
+                place(&window, x, y, wide as u32, tall);
+                let _ = window.show();
+            }
+        })
         .decorations(false)
         // With a shadow, resizing a window with no frame adds the frame's size back.
         .shadow(false)
@@ -1427,14 +1466,8 @@ fn open_control(
     match built {
         Ok(window) => {
             exclude_from_capture(&window);
+            crate::picker::no_transitions(&window);
             crate::webview_crash::watch(&window);
-            // Placed in physical pixels on its monitor, then sized there (its scale).
-            let wide = (width * screen.scale).round() as i32;
-            let x = screen.x + (screen.width as i32 - wide) / 2;
-            let y = screen.y + (CONTROL_TOP * screen.scale).round() as i32;
-            let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-            let _ = window.set_size(tauri::LogicalSize::new(width, CONTROL.1));
-            let _ = window.show();
         }
         Err(e) => logln!("[recording] the control failed: {e}"),
     }
@@ -1468,10 +1501,34 @@ fn open_outline(
             script += &format!("window.liveClickStyle = {json};");
         }
     }
+    let made = made_at(
+        screen.x,
+        screen.y,
+        screen.width,
+        screen.height,
+        screen.scale,
+    );
     let built =
         WebviewWindowBuilder::new(app, OUTLINE_LABEL, WebviewUrl::App("outline.html".into()))
             .initialization_script(script)
             .title("Recording area")
+            .position(made.0, made.1)
+            .inner_size(MADE_SIZE, MADE_SIZE)
+            .on_page_load({
+                let screen = screen.clone();
+                move |window, page| {
+                    if page.event() == tauri::webview::PageLoadEvent::Finished {
+                        show_over(&window, &screen);
+                        // Shown after them, it would darken the control and the camera's
+                        // bubble (outside what's recorded): they go back over it.
+                        let app = window.app_handle();
+                        if let Some(control) = app.get_webview_window(RECORDER) {
+                            to_top(&control);
+                        }
+                        crate::camera::raise(app);
+                    }
+                }
+            })
             .decorations(false)
             .resizable(false)
             .shadow(false)
@@ -1485,30 +1542,106 @@ fn open_outline(
     match built {
         Ok(window) => {
             exclude_from_capture(&window);
+            crate::picker::no_transitions(&window);
             let _ = window.set_ignore_cursor_events(true);
-            // Position first, then size: moving onto a monitor of another scale rescales it.
-            let _ = window.set_position(tauri::PhysicalPosition::new(screen.x, screen.y));
-            let _ = window.set_size(tauri::PhysicalSize::new(screen.width, screen.height));
-            let _ = window.show();
         }
         Err(e) => logln!("[recording] the outline failed: {e}"),
     }
 }
 
+/// `window` back on top of the windows always on top, without taking the keys.
+fn to_top(window: &tauri::WebviewWindow) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    };
+    if let Ok(hwnd) = window.hwnd() {
+        // SAFETY: a valid window handle.
+        let _ = unsafe {
+            SetWindowPos(
+                hwnd,
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            )
+        };
+    }
+}
+
+/// `window` over all of `screen`, shown, once its page has loaded: before, its first paint
+/// flashed white over the screen.
+fn show_over(window: &tauri::WebviewWindow, screen: &Screen) {
+    place(window, screen.x, screen.y, screen.width, screen.height);
+    let _ = window.show();
+}
+
+/// Where to make a window that's then put on the monitor at (`x`, `y`), `width` × `height`
+/// (physical px; `scale`): its bottom-right pixel, logical px, the window 1 px (`MADE_SIZE`). A
+/// webview window shows for a moment where it's made, white, hidden or not: made here, Windows
+/// makes it its least (136 × 39), all but a pixel of it off the monitor. Made nowhere in
+/// particular, it showed at Windows' default place and size, 800 × 600 near the top left (a
+/// place off every monitor is taken for nowhere); made its full size, it flashed over the whole
+/// monitor. Put in place, it still shows for a moment at 136 × 39 in the monitor's top-left
+/// corner (its webview, sized after it): the least of what was tried (Richard).
+pub fn made_at(x: i32, y: i32, width: u32, height: u32, scale: f64) -> (f64, f64) {
+    let right = f64::from(x) + f64::from(width) - 1.0;
+    let bottom = f64::from(y) + f64::from(height) - 1.0;
+    (right / scale, bottom / scale)
+}
+
+/// The size a window's made at (logical px): see `made_at`.
+pub const MADE_SIZE: f64 = 1.0;
+
+/// Puts `window` at (`x`, `y`), `width` × `height` (physical px), before this returns. Tauri's
+/// moves land later: a window shown straight after one showed for a moment where it was made
+/// (Windows' default place, at its least size), as a white box.
+pub fn place(window: &tauri::WebviewWindow, x: i32, y: i32, width: u32, height: u32) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    };
+    let Ok(hwnd) = window.hwnd() else {
+        return;
+    };
+    let keep = SWP_NOZORDER | SWP_NOACTIVATE;
+    let (w, h) = (width as i32, height as i32);
+    // SAFETY: a valid window handle. Moved first, then sized: moving onto a monitor of another
+    // scale rescales it. (Sized first too, where it was made, it flashed twice, not once.)
+    unsafe {
+        let _ = SetWindowPos(hwnd, None, x, y, 0, 0, keep | SWP_NOSIZE);
+        let _ = SetWindowPos(hwnd, None, 0, 0, w, h, keep | SWP_NOMOVE);
+    }
+}
+
 /// The countdown: big numbers over what's to be recorded, on all of its monitor, never taking
-/// the keys (the window picked stays active) or the pointer, and left out of the recording.
-fn open_countdown(app: &AppHandle, target: &Target, seconds: u32) {
+/// the keys (the window picked stays active) or the pointer, and left out of the recording. Its
+/// numbers wait to be started (`startCountdown`); what's returned hears when its page has loaded.
+fn open_countdown(app: &AppHandle, target: &Target, seconds: u32) -> Receiver<()> {
     let s = &target.screen;
     let (x, y, w, h) = target.on_screen();
+    let (loaded, has_loaded) = sync_channel(1);
+    let made = made_at(s.x, s.y, s.width, s.height, s.scale);
     let built = WebviewWindowBuilder::new(
         app,
         COUNTDOWN_LABEL,
         WebviewUrl::App("countdown.html".into()),
     )
+    .on_page_load({
+        let screen = s.clone();
+        move |window, page| {
+            if page.event() == tauri::webview::PageLoadEvent::Finished {
+                show_over(&window, &screen);
+                let _ = loaded.try_send(());
+            }
+        }
+    })
     .initialization_script(format!(
         "window.countdown = {{ seconds: {seconds}, x: {x}, y: {y}, width: {w}, height: {h} }};"
     ))
     .title("Countdown")
+    .position(made.0, made.1)
+    .inner_size(MADE_SIZE, MADE_SIZE)
     .decorations(false)
     .resizable(false)
     .shadow(false)
@@ -1520,15 +1653,15 @@ fn open_countdown(app: &AppHandle, target: &Target, seconds: u32) {
     .visible(false)
     .build();
     match built {
+        // Shown once its page has loaded, as the outline is.
         Ok(window) => {
             exclude_from_capture(&window);
+            crate::picker::no_transitions(&window);
             let _ = window.set_ignore_cursor_events(true);
-            let _ = window.set_position(tauri::PhysicalPosition::new(s.x, s.y));
-            let _ = window.set_size(tauri::PhysicalSize::new(s.width, s.height));
-            let _ = window.show();
         }
         Err(e) => logln!("[recording] the countdown failed: {e}"),
     }
+    has_loaded
 }
 
 fn close_countdown(app: &AppHandle) {
@@ -1609,6 +1742,16 @@ pub fn show_editor(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_are_made_on_their_monitors_last_pixel() {
+        // A monitor left of the main one, at 150%: its bottom-right pixel, in logical px.
+        assert_eq!(
+            made_at(-1920, 0, 1920, 1080, 1.5),
+            (-1.0 / 1.5, 1079.0 / 1.5)
+        );
+        assert_eq!(made_at(0, 0, 2560, 1440, 1.0), (2559.0, 1439.0));
+    }
 
     fn screen() -> Screen {
         Screen {

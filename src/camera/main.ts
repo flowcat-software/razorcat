@@ -57,6 +57,10 @@ async function show() {
         context?.drawImage(picture, 0, 0);
         picture.close();
         say("");
+      } else if (r.status === 202) {
+        // None coming yet (the camera reopening to record): the last picture stays.
+        say(await r.text());
+        await pause(250);
       } else if (r.status === 410) {
         say(await r.text());
         await pause(1000);
