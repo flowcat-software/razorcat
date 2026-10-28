@@ -185,7 +185,9 @@ export const CONTROL_HINTS = {
     "Drag left to crossfade: this clip blends in over the end of the one before, the timeline that much shorter · Right-click to add or remove one",
   "timeline.speaker": "[Shift+M] Mute or unmute all the sound · [M] the selected clips",
   "timeline.key":
-    "A camera keyframe: the camera's place, size and shown from here · [Ctrl] or [Shift]+click select more · Double-click: the playhead there · Right-click: show, hide, size · [Delete] removes it",
+    "A camera keyframe: the camera's place, size and shown from here · Drag to move it · [Ctrl] or [Shift]+click select more · Double-click: the playhead there · Right-click: show, hide, size · [Delete] removes it",
+  "timeline.firstKey":
+    "The first camera keyframe: it sets the camera from the start, so it stays put · Right-click: show, hide, size · Double-click: the playhead there",
   "timeline.keys":
     "Drag to select camera keyframes · [Ctrl] or [Shift] keeps the selection · Move or size the camera in the preview to add one at the playhead",
   "timeline.lanes":
@@ -220,7 +222,8 @@ export type DragHint =
   | "crossfade"
   | "range"
   | "scrub"
-  | "box";
+  | "box"
+  | "keyMove";
 
 const DRAG_HINTS: Record<DragHint, string> = {
   segment: "[Shift] 45° steps",
@@ -247,7 +250,9 @@ const DRAG_HINTS: Record<DragHint, string> = {
     "Left: a longer crossfade, the clips after it moving along · Right: shorter, all the way for none",
   range: "[Shift] no snapping · Ranges stop against each other",
   scrub: "[Shift] no snapping",
-  box: "Touching the clip row, it selects clips; else markup · [Ctrl] or [Shift] keeps what was selected",
+  box: "Touching the clip row, it selects clips; else the camera keyframes, touching their lane; else markup · [Ctrl] or [Shift] keeps what was selected",
+  keyMove:
+    "[Shift] no snapping · Let go on another keyframe to replace it · Never before the first keyframe",
 };
 
 /** Redact with its Detect text toggle on and words found (PLAN 3J). */

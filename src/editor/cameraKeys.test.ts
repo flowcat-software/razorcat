@@ -3,8 +3,11 @@ import {
   cameraAt,
   clipCamera,
   deleteKeys,
+  firstKey,
   keepCameraStarts,
   keyAt,
+  keyShift,
+  moveKeys,
   placeOf,
   recordedCamera,
   resizedCamera,
@@ -84,6 +87,58 @@ describe("setting the camera at a frame", () => {
     const doc = startCamera(wholeSource(100), 1, medium);
     expect(cameraAt(doc, 0)).toEqual(medium);
     expect(startCamera(doc, 1, small)).toBe(doc);
+  });
+});
+
+describe("moving keyframes along the timeline", () => {
+  const id = (doc: Doc, f: number) => keyAt(doc, f)!.id;
+
+  it("moves them onto the clip where they land, at its frame", () => {
+    const doc = abc();
+    // B's, from 150 into C at 230.
+    const moved = moveKeys(doc, [id(doc, 150)], 80);
+    expect(keyAt(moved, 230)).toMatchObject({ clip: 3, at: 230, ...medium });
+    expect(keyAt(moved, 150)).toBeNull();
+    expect(cameraAt(moved, 150)).toEqual(small);
+  });
+
+  it("moves several together, as far as they can go", () => {
+    const doc = abc();
+    const ids = [id(doc, 150), id(doc, 250)];
+    // Not past the timeline's end: the last can go to 299.
+    expect(keyShift(doc, ids, 100)).toBe(49);
+    // Not onto or before the first keyframe.
+    expect(keyShift(doc, ids, -200)).toBe(-149);
+    const moved = moveKeys(doc, ids, -200);
+    expect(keyAt(moved, 1)).toMatchObject(medium);
+    expect(keyAt(moved, 101)).toMatchObject(large);
+  });
+
+  it("replaces one where it lands", () => {
+    const doc = abc();
+    const moved = moveKeys(doc, [id(doc, 150)], 100);
+    expect(moved.cameraKeys).toHaveLength(2);
+    expect(keyAt(moved, 250)).toMatchObject(medium);
+  });
+
+  it("never moves or deletes the first", () => {
+    const doc = abc();
+    const first = id(doc, 0);
+    expect(firstKey(doc)?.key.id).toBe(first);
+    expect(moveKeys(doc, [first], 10)).toBe(doc);
+    expect(deleteKeys(doc, [first])).toBe(doc);
+    expect(
+      deleteKeys(
+        doc,
+        doc.cameraKeys.map((k) => k.id),
+      ).cameraKeys,
+    ).toHaveLength(1);
+  });
+
+  it("keeps one on the start when the first clip's start is trimmed off", () => {
+    const doc = abc();
+    const trimmed = keepCameraStarts(doc, trimClip(doc, 1, 20, 100), always);
+    expect(keyAt(trimmed, 0)).toMatchObject(small);
   });
 });
 
@@ -188,8 +243,11 @@ describe("the store, through edits", () => {
     expect(s().selectedClips).toEqual([]);
     s().select(1);
     expect(s().selectedKeys).toEqual([]);
-    s().selectKeys([id]);
-    s().deleteKeys([id]);
-    expect(s().selectedKeys).toEqual([]);
+    // The first stays, and stays selected; another deleted isn't.
+    s().setCamera(20, large);
+    const other = keyAt(s().doc, 20)!.id;
+    s().selectKeys([id, other]);
+    s().deleteKeys([id, other]);
+    expect(s().selectedKeys).toEqual([id]);
   });
 });

@@ -44,7 +44,14 @@ import {
   type ShownRange,
 } from "./doc";
 import { useDoc } from "./docStore";
-import { resizedCamera, shownKeys, type CameraKey, type KeyId } from "./cameraKeys";
+import {
+  firstKey,
+  keyShift,
+  resizedCamera,
+  shownKeys,
+  type CameraKey,
+  type KeyId,
+} from "./cameraKeys";
 import { CAMERA_SIZE_NAMES, CAMERA_SIZES } from "./cameraPlace";
 import { hasCamera, useRecordedCameras } from "./cameraStore";
 import {
@@ -61,7 +68,7 @@ import {
 } from "./edits";
 import { clipsExportItems, exportClip } from "./exports";
 import { Menu, type MenuItems } from "./Menu";
-import { markTargets, rangeTargets, scrubTargets, snap, trimTargets } from "./snap";
+import { keyTargets, markTargets, rangeTargets, scrubTargets, snap, trimTargets } from "./snap";
 import { useTimeline } from "./timelineStore";
 import {
   clipFrame,
@@ -223,7 +230,7 @@ type Hit =
   | { kind: Edge | "move" | "clipFadeIn" | "clipFadeOut" | "crossfade"; clip: Clip }
   | { kind: "rangeA" | "rangeB" | "rangeMove"; range: ShownRange }
   | { kind: "markStart" | "markEnd" | "markMove" | "fadeIn" | "fadeOut"; mark: ShownMark }
-  | { kind: "key"; key: CameraKey; f: number }
+  | { kind: "key" | "firstKey"; key: CameraKey; f: number }
   | { kind: "rangeNew" | "pendingIn" };
 
 /** What a handle does (the mockup's tooltips). */
@@ -247,7 +254,11 @@ const TIPS: Record<Hit["kind"], [string, string]> = {
   ],
   fadeIn: ["Fade in", "drag right for a longer fade"],
   fadeOut: ["Fade out", "drag left for a longer fade"],
-  key: ["Camera keyframe", "double-click: the playhead there · right-click: more"],
+  key: ["Camera keyframe", "drag to move · double-click: the playhead there · right-click: more"],
+  firstKey: [
+    "The first camera keyframe",
+    "it sets the camera from the start, so it stays · right-click: more",
+  ],
 };
 
 const CURSORS: Record<Hit["kind"], string> = {
@@ -267,8 +278,13 @@ const CURSORS: Record<Hit["kind"], string> = {
   markMove: "grab",
   fadeIn: "col-resize",
   fadeOut: "col-resize",
-  key: "pointer",
+  key: "grab",
+  firstKey: "pointer",
 };
+
+/** Whether `h` is on a camera keyframe (the first one too). */
+const onKey = (h: Hit | null): h is Extract<Hit, { kind: "key" | "firstKey" }> =>
+  h?.kind === "key" || h?.kind === "firstKey";
 
 /** How far down a markup bar its fade handles reach (px): below them, its edges trim it. */
 const FADE_HIT = 9;
@@ -518,7 +534,9 @@ function hitAt(
         near = k;
       }
     }
-    return near && { kind: "key", key: near.key, f: near.f };
+    if (!near) return null;
+    const kind = near.key.id === firstKey(doc)?.key.id ? "firstKey" : "key";
+    return { kind, key: near.key, f: near.f };
   }
   if (y < CLIP_TOP - 4) {
     if (y < LANE_TOP || y >= LANE_TOP + LANES_H) return null;
@@ -923,6 +941,17 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
     kept: readonly MarkId[];
     keptClips: readonly ClipId[];
     keptKeys: readonly KeyId[];
+    moved: boolean;
+  } | null>(null);
+  /**
+   * Camera keyframes being dragged (PLAN 5d.8c): the one pressed, at `f0`, and the others selected
+   * (`ids`), moved as far as it is. Until the pointer moves, a click.
+   */
+  const keyDrag = useRef<{
+    x0: number;
+    f0: number;
+    ids: readonly KeyId[];
+    playhead: number;
     moved: boolean;
   } | null>(null);
   /** How far the markup lanes are scrolled (px), and the selection last kept in view. */
@@ -1528,7 +1557,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
           const x = xOf(view, k.f);
           if (x < HEADER - KEY_HIT || x > W + KEY_HIT) return;
           const sel = picked.includes(k.key.id);
-          const grown = sel || (h?.kind === "key" && h.key.id === k.key.id);
+          const grown = sel || (onKey(h) && h.key.id === k.key.id);
           const r = grown ? 7 : 6;
           const gap = (j: number) =>
             j >= 0 && j < ks.length ? Math.abs(xOf(view, ks[j].f) - x) : Infinity;
@@ -2116,6 +2145,43 @@ ${d.group.length} items`,
   };
 
   /**
+   * Keyframes being dragged follow the pointer (PLAN 5d.8c): the one pressed snaps, the others
+   * selected move as far, all as far as they can go. The preview shows the camera where the one
+   * pressed lands, the playhead staying put.
+   */
+  const keyTo = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+    d: NonNullable<typeof keyDrag.current>,
+  ) => {
+    const { x, view } = at(e);
+    if (!d.moved && Math.abs(x - d.x0) < DRAG_PX) return;
+    const store = useDoc.getState();
+    if (!d.moved) {
+      d.moved = true;
+      store.beginGesture();
+    }
+    const base = useDoc.getState().gestureStart ?? store.doc;
+    const s = snap(
+      d.f0 + (x - d.x0) / view.zoom,
+      keyTargets(base, d.playhead, d.ids, store.pendingIn),
+      view.zoom,
+      snapping(e),
+    );
+    const by = keyShift(base, d.ids, s.frame - d.f0);
+    guide.current = by === s.frame - d.f0 ? s.target : null;
+    store.moveKeys(d.ids, by);
+    player.peekAt(d.f0 + by);
+    const fmt = formatter();
+    const n = d.ids.length;
+    showReadout(
+      `${fmt(d.f0 + by)}\n${n > 1 ? `${n} keyframes, ` : ""}${signed(by)}`,
+      e.clientX,
+      e.clientY,
+    );
+    draw.current();
+  };
+
+  /**
    * A crossfade follows the pointer: the clip after the cut starts where it is, over the end of
    * the one before (left, longer; right, shorter, to none), as far as the clips let it.
    */
@@ -2259,6 +2325,9 @@ ${d.group.length} items`,
   const keyItems = (key: CameraKey, f: number): MenuItems => {
     const { doc, selectedKeys, restyleKeys, deleteKeys } = useDoc.getState();
     const ids = selectedKeys.length ? selectedKeys : [key.id];
+    // The first stays (it sets the camera from the start).
+    const pinned = firstKey(doc)?.key.id;
+    const gone = ids.filter((id) => id !== pinned);
     const picked = doc.cameraKeys.filter((k) => ids.includes(k.id));
     const pictureOf = (k: CameraKey) => {
       const clip = doc.clips.find((c) => c.id === k.clip);
@@ -2286,9 +2355,10 @@ ${d.group.length} items`,
       "-",
       { label: "Go to keyframe", hint: "Double-click", run: () => player.seek(f) },
       {
-        label: ids.length > 1 ? `Delete ${ids.length} keyframes` : "Delete keyframe",
+        label: gone.length > 1 ? `Delete ${gone.length} keyframes` : "Delete keyframe",
         hint: "Delete",
-        run: () => deleteKeys(ids),
+        disabled: !gone.length,
+        run: () => deleteKeys(gone),
       },
     ];
   };
@@ -2306,6 +2376,7 @@ ${d.group.length} items`,
       return d.kind === "start" || d.kind === "end" ? "markEdge" : "fade";
     }
     if (boxing.current) return "box";
+    if (keyDrag.current?.moved) return "keyMove";
     return scrubbing ? "scrub" : null;
   };
 
@@ -2342,6 +2413,14 @@ ${d.group.length} items`,
       if (d.ghost && e.type === "pointerup") dropCopies(d, d.ghost);
       docState.endGesture();
       player.peek(null);
+    }
+    if (keyDrag.current) {
+      const d = keyDrag.current;
+      keyDrag.current = null;
+      if (d.moved) {
+        docState.endGesture();
+        player.peek(null);
+      }
     }
     if (boxing.current) {
       // Not dragged: a click on an empty lane, which selects nothing (with Ctrl or Shift, keeps
@@ -2552,14 +2631,23 @@ ${d.group.length} items`,
           e.currentTarget.setPointerCapture(e.pointerId);
           const hit = hitAt(docState.doc, docState.pendingIn, view, lanes(), x, y);
           hover.current = null;
-          // A keyframe: selected (Ctrl or Shift: added, or taken out). Not dragged yet (5d.8c).
-          if (hit?.kind === "key") {
-            e.currentTarget.releasePointerCapture(e.pointerId);
+          // A keyframe: selected (Ctrl or Shift: added, or taken out); dragged with the others
+          // selected (PLAN 5d.8c), but never the first.
+          if (onKey(hit)) {
             const sel = docState.selectedKeys;
             const id = hit.key.id;
             if (e.ctrlKey || e.shiftKey) {
               docState.selectKeys(sel.includes(id) ? sel.filter((k) => k !== id) : [...sel, id]);
             } else if (!sel.includes(id)) docState.selectKeys([id]);
+            if (hit.kind === "key" && !e.ctrlKey && !e.shiftKey) {
+              keyDrag.current = {
+                x0: x,
+                f0: hit.f,
+                ids: useDoc.getState().selectedKeys,
+                playhead: player.getState().frame,
+                moved: false,
+              };
+            } else e.currentTarget.releasePointerCapture(e.pointerId);
             draw.current();
             return;
           }
@@ -2641,6 +2729,10 @@ ${d.group.length} items`,
             boxTo(e, boxing.current);
             return;
           }
+          if (keyDrag.current) {
+            keyTo(e, keyDrag.current);
+            return;
+          }
           if (moving.current !== null) {
             // A click isn't a drag: nothing moves until the pointer has.
             const m = moving.current;
@@ -2694,7 +2786,7 @@ ${d.group.length} items`,
           const docState = useDoc.getState();
           const view = useTimeline.getState().view;
           const hit = hitAt(docState.doc, docState.pendingIn, view, lanes(), x, y);
-          if (hit?.kind === "key") {
+          if (onKey(hit)) {
             if (!docState.selectedKeys.includes(hit.key.id)) docState.selectKeys([hit.key.id]);
             setMenu({ x: e.clientX, y: e.clientY, items: keyItems(hit.key, hit.f) });
             return;
@@ -2877,7 +2969,7 @@ ${d.group.length} items`,
           const { doc, pendingIn } = useDoc.getState();
           const view = useTimeline.getState().view;
           const hit = hitAt(doc, pendingIn, view, lanes(), e.clientX - r.left, e.clientY - r.top);
-          if (hit?.kind === "key") player.seek(hit.f);
+          if (onKey(hit)) player.seek(hit.f);
         }}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}

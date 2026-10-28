@@ -14,7 +14,7 @@
 
 import type { CameraSize } from "../shared/ipc";
 import { CAMERA_SHARES, sizeOfPlace, sizedPlace, type CameraPlace } from "./cameraPlace";
-import { clipAt, clipLength, clipStarts, type ClipId, type Doc } from "./doc";
+import { clipAt, clipLength, clipStarts, total, type ClipId, type Doc } from "./doc";
 import type { Size } from "./fit";
 
 export type KeyId = number;
@@ -137,10 +137,73 @@ export function restyleKeys(
   return changed ? { ...doc, cameraKeys } : doc;
 }
 
-/** Keyframes `ids` deleted. The same document if there are none. */
+/**
+ * The first keyframe in view, which is pinned: it sets the camera from the start, so it's never
+ * moved or deleted (Richard, 2026-10-28). Its settings still change.
+ */
+export function firstKey(doc: Doc): ShownKey | null {
+  return shownKeys(doc)[0] ?? null;
+}
+
+/** Keyframes `ids` deleted, but never the first (`firstKey`). The same document if none are. */
 export function deleteKeys(doc: Doc, ids: readonly KeyId[]): Doc {
-  const cameraKeys = doc.cameraKeys.filter((k) => !ids.includes(k.id));
+  const pinned = firstKey(doc)?.key.id;
+  const cameraKeys = doc.cameraKeys.filter((k) => k.id === pinned || !ids.includes(k.id));
   return cameraKeys.length === doc.cameraKeys.length ? doc : { ...doc, cameraKeys };
+}
+
+/** Keyframes `ids` that can move: those in view, but not the first. */
+function movable(doc: Doc, ids: readonly KeyId[]): ShownKey[] {
+  const pinned = firstKey(doc)?.key.id;
+  return shownKeys(doc).filter((k) => k.key.id !== pinned && ids.includes(k.key.id));
+}
+
+/**
+ * How far keyframes `ids` can move of the `by` frames asked: as far as they go, after the first
+ * keyframe and before the timeline's end.
+ */
+export function keyShift(doc: Doc, ids: readonly KeyId[], by: number): number {
+  const moving = movable(doc, ids);
+  if (!moving.length) return 0;
+  const lo = (firstKey(doc)?.f ?? -1) + 1 - moving[0].f;
+  const hi = total(doc) - 1 - moving[moving.length - 1].f;
+  return Math.max(lo, Math.min(hi, by));
+}
+
+/**
+ * Keyframes `ids` moved `by` frames along the timeline, as far as they go (`keyShift`): each onto
+ * the clip there, at its frame. One already where one lands is replaced (PLAN 5d.8c). The same
+ * document if they don't move.
+ */
+export function moveKeys(doc: Doc, ids: readonly KeyId[], by: number): Doc {
+  const shift = keyShift(doc, ids, by);
+  if (!shift) return doc;
+  const moved = new Map<KeyId, CameraKey>();
+  for (const { key, f } of movable(doc, ids)) {
+    const under = clipAt(doc, f + shift);
+    if (under)
+      moved.set(key.id, {
+        ...key,
+        clip: under.clip.id,
+        at: under.clip.in + f + shift - under.start,
+      });
+  }
+  const landed = new Set([...moved.values()].map((k) => keyFrame(doc, k)));
+  const covered = new Set(
+    shownKeys(doc)
+      .filter((k) => !moved.has(k.key.id) && landed.has(k.f))
+      .map((k) => k.key.id),
+  );
+  const cameraKeys = doc.cameraKeys
+    .filter((k) => !covered.has(k.id))
+    .map((k) => moved.get(k.id) ?? k);
+  return { ...doc, cameraKeys };
+}
+
+/** Keyframe `key`'s frame on the timeline (it's on a clip that's there, on a frame it shows). */
+function keyFrame(doc: Doc, key: CameraKey): number {
+  const i = doc.clips.findIndex((c) => c.id === key.clip);
+  return clipStarts(doc)[i] + key.at - doc.clips[i].in;
 }
 
 /**

@@ -72,6 +72,7 @@ import type { RecordedInput } from "../shared/ipc";
 import {
   deleteKeys,
   keepCameraStarts,
+  moveKeys,
   restyleKeys,
   setCameraAt,
   startCamera,
@@ -169,8 +170,13 @@ export interface DocState {
   muteClips: (ids: readonly ClipId[], muted: boolean) => boolean;
   /** The camera at timeline frame `f` set (PLAN 5d.8): the keyframe there, or a new one. */
   setCamera: (f: number, state: CameraState) => boolean;
-  /** Camera keyframes `ids` deleted (and no longer selected). */
+  /** Camera keyframes `ids` deleted (and no longer selected), but never the first. */
   deleteKeys: (ids: readonly KeyId[]) => boolean;
+  /**
+   * Camera keyframes `ids` moved `by` frames along the timeline (PLAN 5d.8c): in a gesture, from
+   * where they were as it began.
+   */
+  moveKeys: (ids: readonly KeyId[], by: number) => boolean;
   /** Camera keyframes `ids` set as `to` says, from each. */
   restyleKeys: (ids: readonly KeyId[], to: (key: CameraKey) => CameraState) => boolean;
   /** Camera keyframes `ids` selected, and nothing else. */
@@ -453,9 +459,12 @@ export const useDoc = create<DocState>()((set, get) => {
     setCamera: (f, state) => apply((doc) => setCameraAt(doc, f, state), [], true),
     deleteKeys: (ids) => {
       const done = apply((doc) => deleteKeys(doc, ids), [], true);
-      set({ selectedKeys: get().selectedKeys.filter((k) => !ids.includes(k)) });
+      // Those left (the first stays) still selected.
+      const left = new Set(get().doc.cameraKeys.map((k) => k.id));
+      set({ selectedKeys: get().selectedKeys.filter((k) => left.has(k)) });
       return done;
     },
+    moveKeys: (ids, by) => apply((doc) => moveKeys(get().gestureStart ?? doc, ids, by), [], true),
     restyleKeys: (ids, to) => apply((doc) => restyleKeys(doc, ids, to), [], true),
     selectKeys: (ids) =>
       set({

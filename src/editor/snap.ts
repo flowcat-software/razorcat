@@ -2,6 +2,7 @@
 // measured from the raw pointer frame, never from where the drag last landed, so a snap is
 // stable: it holds within reach of a target and lets go beyond.
 
+import { shownKeys, type KeyId } from "./cameraKeys";
 import {
   clipLength,
   clipStarts,
@@ -93,6 +94,24 @@ export function markTargets(
   const t = [playhead, ...clipStarts(doc), total(doc)];
   for (const r of shownRanges(doc)) t.push(r.a, r.b);
   for (const m of shownMarks(doc)) if (m.id !== exclude) t.push(m.start, m.end);
+  if (pendingIn !== null) t.push(pendingIn);
+  return t;
+}
+
+/**
+ * What a camera keyframe dragged snaps to (PLAN 5d.8c): the playhead, the cuts, the ranges' and
+ * markup's edges, the other keyframes (not those `moving`), and the pending in-point.
+ */
+export function keyTargets(
+  doc: Doc,
+  playhead: number,
+  moving: readonly KeyId[],
+  pendingIn: number | null,
+): number[] {
+  const t = [playhead, ...clipStarts(doc)];
+  for (const r of shownRanges(doc)) t.push(r.a, r.b);
+  for (const m of shownMarks(doc)) t.push(m.start, m.end);
+  for (const k of shownKeys(doc)) if (!moving.includes(k.key.id)) t.push(k.f);
   if (pendingIn !== null) t.push(pendingIn);
   return t;
 }
