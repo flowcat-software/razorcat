@@ -5,7 +5,7 @@
 
 import { create } from "zustand";
 import type { CameraSize } from "../shared/ipc";
-import { cameraAt, resizedCamera, type CameraState } from "./cameraKeys";
+import { cameraAt, resizedCamera, type CameraKey, type CameraState } from "./cameraKeys";
 import { clipAt, type Clip, type Doc } from "./doc";
 import type { Size } from "./fit";
 
@@ -43,6 +43,14 @@ export function cameraHere(
   const rec = useRecordedCameras.getState().cameras[clip.source];
   if (!rec || clipAt(doc, f)?.clip.id !== clip.id) return null;
   return { state: cameraAt(doc, f) ?? rec.state, picture: rec.picture };
+}
+
+/** Keyframe `k`'s camera at `size`, its nearest corner kept (on its recording's picture). */
+export function keySized(doc: Doc, k: CameraKey, size: CameraSize): CameraState {
+  const state = { x: k.x, y: k.y, size: k.size, hidden: k.hidden };
+  const clip = doc.clips.find((c) => c.id === k.clip);
+  const picture = clip && useRecordedCameras.getState().cameras[clip.source]?.picture;
+  return picture ? resizedCamera(state, size, picture) : { ...state, size };
 }
 
 /** The camera at `f` (on `clip`) at `size`, its nearest corner kept: a keyframe there (5d.8). */

@@ -3,7 +3,7 @@
 // on the finished frame (cameraPlace.ts), at its clip's size (PLAN 5d.6a). Shown while the
 // playhead's clip is from a recording with a camera, placed as that clip says; faded with it.
 // Dragged, it moves in that clip (PLAN 5d.6b), snapping to the gap from the picture's edges; it's
-// picked as markup is (a press selects its clip). While its camera's still being fitted to it
+// picked as markup is (a press selects the camera, its controls in the timeline's options bar). While its camera's still being fitted to it
 // (camera.rs: seconds a minute), where it'll be, a ring filling as it's fitted (PLAN 5d.5c).
 //
 // The camera's file is fitted to its recording (camera.rs), so its time is the recording's: it
@@ -127,11 +127,10 @@ export function CameraLayer({ player, sources, cameras, fitting, cameraOf, fades
         placed.style.top = `${top}px`;
         placed.style.width = placed.style.height = `${size}px`;
         placed.style.fontSize = `${size * 0.075}px`;
-        // Its clip selected: outlined. Picked as markup is (MarkupLayer's `picksObjects`): always
+        // Selected: outlined. Picked as markup is (MarkupLayer's `picksObjects`): always
         // with Select; the pen and highlighter draw; the other tools per Settings › Markup's
         // "Drawing tools select", Ctrl flipping it, so they can draw under it.
-        const selected = useDoc.getState().selectedClips.includes(at.clip.id);
-        placed.classList.toggle(styles.cameraSelected, selected);
+        placed.classList.toggle(styles.cameraSelected, useDoc.getState().cameraSelected);
         const { tool } = useTool.getState();
         const picks =
           tool === "select" ||
@@ -238,7 +237,7 @@ export function CameraLayer({ player, sources, cameras, fitting, cameraOf, fades
   };
 
   // Dragging it (PLAN 5d.6b): the camera's keyframe at the playhead moved, or one added there
-  // (5d.8); its clip selected by the press if it wasn't. One undo step.
+  // (5d.8); the camera selected by the press. One undo step.
   const press = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const store = useDoc.getState();
@@ -248,7 +247,7 @@ export function CameraLayer({ player, sources, cameras, fitting, cameraOf, fades
     if (!at || !shown) return;
     e.preventDefault();
     e.stopPropagation();
-    if (!store.selectedClips.includes(at.clip.id)) store.select(at.clip.id);
+    if (!store.cameraSelected) store.selectCamera();
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY, f, shown, moved: false };
   };

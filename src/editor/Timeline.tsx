@@ -44,16 +44,9 @@ import {
   type ShownRange,
 } from "./doc";
 import { useDoc } from "./docStore";
-import {
-  firstKey,
-  keyShift,
-  resizedCamera,
-  shownKeys,
-  type CameraKey,
-  type KeyId,
-} from "./cameraKeys";
+import { firstKey, keyShift, shownKeys, type CameraKey, type KeyId } from "./cameraKeys";
 import { CAMERA_SIZE_NAMES, CAMERA_SIZES } from "./cameraPlace";
-import { hasCamera, useRecordedCameras } from "./cameraStore";
+import { hasCamera, keySized, useRecordedCameras } from "./cameraStore";
 import {
   copiedFades,
   copiedMarks,
@@ -2329,10 +2322,6 @@ ${d.group.length} items`,
     const pinned = firstKey(doc)?.key.id;
     const gone = ids.filter((id) => id !== pinned);
     const picked = doc.cameraKeys.filter((k) => ids.includes(k.id));
-    const pictureOf = (k: CameraKey) => {
-      const clip = doc.clips.find((c) => c.id === k.clip);
-      return clip && useRecordedCameras.getState().cameras[clip.source]?.picture;
-    };
     const stateOf = (k: CameraKey) => ({ x: k.x, y: k.y, size: k.size, hidden: k.hidden });
     const hide = !key.hidden;
     return [
@@ -2346,11 +2335,7 @@ ${d.group.length} items`,
         radio: true,
         checked: picked.every((k) => k.size === s),
         run: () =>
-          restyleKeys(ids, (k) => {
-            const shown = { ...stateOf(k), hidden: false };
-            const picture = pictureOf(k);
-            return picture ? resizedCamera(shown, s, picture) : { ...shown, size: s };
-          }),
+          restyleKeys(ids, (k) => ({ ...keySized(useDoc.getState().doc, k, s), hidden: false })),
       })),
       "-",
       { label: "Go to keyframe", hint: "Double-click", run: () => player.seek(f) },

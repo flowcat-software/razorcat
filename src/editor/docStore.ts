@@ -133,6 +133,8 @@ export interface DocState {
   selectedMarks: readonly MarkId[];
   /** The camera keyframes selected (PLAN 5d.8b): nothing else is, while they are. */
   selectedKeys: readonly KeyId[];
+  /** The camera itself selected (its bubble in the preview): nothing else is, while it is. */
+  cameraSelected: boolean;
   /** I pressed, O not yet: the in-point of the range to come, a timeline frame. */
   pendingIn: number | null;
   options: RangeOptions;
@@ -182,6 +184,8 @@ export interface DocState {
   restyleKeys: (ids: readonly KeyId[], to: (key: CameraKey) => CameraState) => boolean;
   /** Camera keyframes `ids` selected, and nothing else. */
   selectKeys: (ids: readonly KeyId[]) => void;
+  /** Selects the camera (its bubble), and nothing else. */
+  selectCamera: () => void;
   /** Clip `clip`'s recording's camera, on its first frame, as it was recorded. */
   startCamera: (clip: ClipId, state: CameraState, moves?: readonly CameraMove[]) => boolean;
   /** Moves clips `ids` together (gathered, in order) to place `at` among the others. */
@@ -395,6 +399,7 @@ export const useDoc = create<DocState>()((set, get) => {
     selectedRange: null,
     selectedMarks: [],
     selectedKeys: [],
+    cameraSelected: false,
     pendingIn: null,
     options: {
       follow: true,
@@ -470,6 +475,15 @@ export const useDoc = create<DocState>()((set, get) => {
     selectKeys: (ids) =>
       set({
         selectedKeys: [...new Set(ids)],
+        selected: null,
+        selectedClips: [],
+        selectedRange: null,
+        selectedMarks: [],
+      }),
+    selectCamera: () =>
+      set({
+        cameraSelected: true,
+        selectedKeys: [],
         selected: null,
         selectedClips: [],
         selectedRange: null,
@@ -625,16 +639,18 @@ function pushLimited(past: Doc[], doc: Doc): Doc[] {
   return next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
 }
 
-// Anything else selected (a clip, a range, markup) drops the keyframes' selection, as each of
-// those drops the others'.
+// Anything else selected (a clip, a range, markup; or nothing) drops the keyframes' selection
+// and the camera's, as each of those drops the others'.
 useDoc.subscribe((s, was) => {
-  if (!s.selectedKeys.length || s.selectedKeys !== was.selectedKeys) return;
-  if (
+  const other =
     s.selected !== was.selected ||
     s.selectedClips !== was.selectedClips ||
     s.selectedRange !== was.selectedRange ||
-    s.selectedMarks !== was.selectedMarks
-  ) {
+    s.selectedMarks !== was.selectedMarks;
+  if (s.selectedKeys.length && s.selectedKeys === was.selectedKeys && other) {
     useDoc.setState({ selectedKeys: [] });
+  }
+  if (s.cameraSelected && was.cameraSelected && (other || s.selectedKeys !== was.selectedKeys)) {
+    useDoc.setState({ cameraSelected: false });
   }
 });

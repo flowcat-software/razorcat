@@ -1,7 +1,8 @@
-import { useSyncExternalStore } from "react";
-import type { SourceInfo } from "../shared/ipc";
+import { useSyncExternalStore, type ComponentProps } from "react";
+import type { CameraSize, SourceInfo } from "../shared/ipc";
 import { ColorSwatch } from "../markup/ColorSwatch";
 import { hint } from "../markup/HintLine";
+import type { ControlHint } from "../markup/hints";
 import {
   canFade,
   clipAt,
@@ -22,8 +23,9 @@ import {
   type RangeId,
 } from "./doc";
 import { useDoc } from "./docStore";
+import { firstKey, shownKeys, type KeyId } from "./cameraKeys";
 import { CAMERA_SIZE_NAMES, CAMERA_SIZES } from "./cameraPlace";
-import { cameraHere, sizeCameraAt, useRecordedCameras } from "./cameraStore";
+import { cameraHere, keySized, sizeCameraAt, useRecordedCameras } from "./cameraStore";
 import { NumberField } from "./NumberField";
 import { clipFrame, sourceFrame, videoEnd } from "./speed";
 import { useSqueeze } from "./squeeze";
@@ -62,10 +64,57 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** Show, and Small, Medium or Large: the camera's controls, for the bubble or keyframes. */
+function CameraControls({
+  shown,
+  size,
+  hints,
+  onShow,
+  onSize,
+}: {
+  shown: boolean;
+  /** The size they all are (none: they differ). */
+  size: CameraSize | null;
+  hints: { shown: ControlHint; size: ControlHint };
+  onShow: () => void;
+  onSize: (size: CameraSize) => void;
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        className={styles.toggle}
+        aria-pressed={shown}
+        {...hint(hints.shown)}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onShow}
+      >
+        Show
+      </button>
+      <span className={styles.chips} role="radiogroup" aria-label="Camera size">
+        {CAMERA_SIZES.map((k) => (
+          <button
+            key={k}
+            type="button"
+            role="radio"
+            className={styles.toggle}
+            aria-checked={size === k}
+            {...hint(hints.size)}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onSize(k)}
+          >
+            {CAMERA_SIZE_NAMES[k]}
+          </button>
+        ))}
+      </span>
+    </>
+  );
+}
+
 /**
- * The camera at the playhead (PLAN 5d.8), whatever's selected: shown or not, and its size,
- * Small, Medium or Large, as the keyframe before it says; changed, a keyframe there. While the
- * playhead's on a clip with a camera.
+ * The camera selected (its bubble): at the playhead (PLAN 5d.8), shown or not and its size, as
+ * the keyframe before it says; changed, a keyframe there. While the playhead's on a clip with a
+ * camera.
  */
 function CameraOptions({ player }: { player: Player }) {
   const doc = useDoc((s) => s.doc);
@@ -74,42 +123,91 @@ function CameraOptions({ player }: { player: Player }) {
   const clip = clipAt(doc, f)?.clip;
   const here = clip && cameraHere(doc, f, clip);
   if (!clip || !here) return null;
-  const show = () => useDoc.getState().setCamera(f, { ...here.state, hidden: !here.state.hidden });
-  const pick = (k: (typeof CAMERA_SIZES)[number]) => {
-    const to = sizeCameraAt(useDoc.getState().doc, f, clip, k);
-    if (to) useDoc.getState().setCamera(f, to);
+  return (
+    <>
+      <b>Camera</b>
+      <CameraControls
+        shown={!here.state.hidden}
+        size={here.state.size}
+        hints={{ shown: "clip.cameraShown", size: "clip.cameraSize" }}
+        onShow={() => useDoc.getState().setCamera(f, { ...here.state, hidden: !here.state.hidden })}
+        onSize={(k) => {
+          const to = sizeCameraAt(useDoc.getState().doc, f, clip, k);
+          if (to) useDoc.getState().setCamera(f, to);
+        }}
+      />
+    </>
+  );
+}
+
+/**
+ * The keyframes selected (PLAN 5d.8b): one's frame, moved as dragging it on the timeline does
+ * (the first's pinned); and for them all, shown or not and their size, as their menu sets them.
+ */
+function KeyOptions({
+  ids,
+  time,
+  player,
+}: {
+  ids: readonly KeyId[];
+  time: Omit<ComponentProps<typeof NumberField>, "label" | "value" | "onChange">;
+  player: Player | null;
+}) {
+  const doc = useDoc((s) => s.doc);
+  const shown = shownKeys(doc).filter((k) => ids.includes(k.key.id));
+  if (!shown.length) return null;
+  const keys = shown.map((k) => k.key);
+  const one = shown.length === 1 ? shown[0] : null;
+  const pinned = one !== null && firstKey(doc)?.key.id === one.key.id;
+  const allShown = keys.every((k) => !k.hidden);
+  const size = keys.every((k) => k.size === keys[0].size) ? keys[0].size : null;
+  const frameOf = (d: typeof doc, id: KeyId) => shownKeys(d).find((k) => k.key.id === id)?.f;
+  // Typed, one undo step; dragged, the field's gesture is (and the move's from where it began).
+  const moveTo = (id: KeyId, v: number, dragging: boolean) => {
+    const store = useDoc.getState();
+    if (!dragging) store.beginGesture();
+    const was = frameOf(store.gestureStart ?? store.doc, id);
+    if (was !== undefined) store.moveKeys([id], v - was);
+    if (!dragging) store.endGesture();
+    const now = frameOf(useDoc.getState().doc, id) ?? v;
+    if (dragging) player?.peekAt(now);
+    return now;
   };
   return (
     <>
+      <b>{one ? "Keyframe" : `${shown.length} keyframes`}</b>
+      {one &&
+        (pinned ? (
+          <Field label="At" value={time.format?.(one.f) ?? String(one.f)} />
+        ) : (
+          <NumberField
+            label="At"
+            value={one.f}
+            onChange={(v, dragging) => moveTo(one.key.id, v, dragging)}
+            onDragEnd={() => player?.peek(null)}
+            {...time}
+            hint="key.at"
+          />
+        ))}
       <span className={styles.optionsSep} />
       <span className={styles.field}>
         <span className={styles.optionsWord}>Camera</span>
-        <button
-          type="button"
-          className={styles.toggle}
-          aria-pressed={!here.state.hidden}
-          {...hint("clip.cameraShown")}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={show}
-        >
-          Show
-        </button>
-        <span className={styles.chips} role="radiogroup" aria-label="Camera size">
-          {CAMERA_SIZES.map((k) => (
-            <button
-              key={k}
-              type="button"
-              role="radio"
-              className={styles.toggle}
-              aria-checked={here.state.size === k}
-              {...hint("clip.cameraSize")}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pick(k)}
-            >
-              {CAMERA_SIZE_NAMES[k]}
-            </button>
-          ))}
-        </span>
+        <CameraControls
+          shown={allShown}
+          size={size}
+          hints={{ shown: "key.shown", size: "key.size" }}
+          onShow={() =>
+            useDoc.getState().restyleKeys(ids, (k) => ({
+              x: k.x,
+              y: k.y,
+              size: k.size,
+              hidden: allShown,
+            }))
+          }
+          onSize={(s) =>
+            useDoc.getState().restyleKeys(ids, (k) => keySized(useDoc.getState().doc, k, s))
+          }
+        />
       </span>
     </>
   );
@@ -127,6 +225,8 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
   const selectedMarks = useDoc((s) => s.selectedMarks);
   const selectedClips = useDoc((s) => s.selectedClips);
   const pendingIn = useDoc((s) => s.pendingIn);
+  const selectedKeys = useDoc((s) => s.selectedKeys);
+  const cameraSelected = useDoc((s) => s.cameraSelected);
   /** Narrow windows: the summary gives way, then the text, then the spacing. */
   const bar = useSqueeze(2);
   if (!source) {
@@ -454,13 +554,16 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
             }
           />
         </>
+      ) : selectedKeys.length ? (
+        <KeyOptions ids={selectedKeys} time={time} player={player} />
+      ) : cameraSelected && player ? (
+        <CameraOptions player={player} />
       ) : (
         <span className={styles.optionsText}>
           Drag a clip&apos;s edge to trim it · its title bar to move it · <b>S</b> splits · <b>R</b>{" "}
           or <b>I</b>/<b>O</b> add a range
         </span>
       )}
-      {player && <CameraOptions player={player} />}
       <span className={styles.spacer} />
       <span className={styles.summary}>
         {clips} {clips === 1 ? "clip" : "clips"} · {fmt(length)}
