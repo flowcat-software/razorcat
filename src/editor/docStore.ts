@@ -24,6 +24,7 @@ import {
   muteClips,
   setCameraSize,
   setCameraPlace,
+  setCameraHidden,
   packLanes,
   moveClips,
   fadeEnds,
@@ -161,6 +162,8 @@ export interface DocState {
   setCameraSize: (ids: readonly ClipId[], size: CameraSize) => boolean;
   /** Clips `ids`'s cameras moved to `place` (PLAN 5d.6b; a drag's a gesture). */
   setCameraPlace: (ids: readonly ClipId[], place: CameraPlace) => boolean;
+  /** Clips `ids`'s cameras hidden, or shown (PLAN 5d.6c). */
+  setCameraHidden: (ids: readonly ClipId[], hidden: boolean) => boolean;
   /** Moves clips `ids` together (gathered, in order) to place `at` among the others. */
   moveClips: (ids: readonly ClipId[], at: number) => boolean;
   /** Mutes all the sound, or unmutes it. */
@@ -425,6 +428,7 @@ export const useDoc = create<DocState>()((set, get) => {
     muteClips: (ids, muted) => apply((doc) => muteClips(doc, ids, muted)),
     setCameraSize: (ids, size) => apply((doc) => setCameraSize(doc, ids, size)),
     setCameraPlace: (ids, place) => apply((doc) => setCameraPlace(doc, ids, place)),
+    setCameraHidden: (ids, hidden) => apply((doc) => setCameraHidden(doc, ids, hidden)),
     moveClips: (ids, at) => applyClips((doc) => moveClips(doc, ids, at)),
     muteTrack: (muted) => apply((doc) => muteTrack(doc, muted)),
     setClipFades: (id, set) => apply((doc) => setClipFades(doc, id, set)),

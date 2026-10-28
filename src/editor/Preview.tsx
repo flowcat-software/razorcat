@@ -125,7 +125,7 @@ export function Preview({
   const cameraOf = (clip: Clip): ShownCamera | null => {
     const s = sources.find((x) => x.id === clip.source);
     const recorded = cameras[clip.source]?.place ?? fitting[clip.source]?.place;
-    if (!s || !recorded) return null;
+    if (!s || !recorded || clip.cameraHidden) return null;
     const place = sizedPlace(
       clip.cameraPlace ?? { x: recorded.x ?? 0, y: recorded.y ?? 0, size: recorded.size ?? 0 },
       clip.cameraSize,

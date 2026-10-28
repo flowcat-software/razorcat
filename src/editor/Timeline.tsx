@@ -2586,6 +2586,13 @@ ${d.group.length} items`,
           docState.select(clip.id);
           const full = sourceLength(docState.doc, clip);
           const whole = clip.in === 0 && clip.out === full;
+          const withCamera = () => {
+            const ids = useDoc.getState().selectedClips;
+            const on = ids.includes(clip.id) ? ids : [clip.id];
+            return docState.doc.clips
+              .filter((c) => on.includes(c.id) && cameraSizes[c.source])
+              .map((c) => c.id);
+          };
           setMenu({
             x: e.clientX,
             y: e.clientY,
@@ -2627,24 +2634,21 @@ ${d.group.length} items`,
                 disabled: whole,
                 run: () => useDoc.getState().trim(clip.id, 0, full),
               },
-              // Its camera's size (PLAN 5d.6a), as the options bar's.
+              // Its camera shown or hidden (PLAN 5d.6c), and its size (5d.6a), as the options
+              // bar's: on the selected clips with cameras, or this one.
               ...(cameraSizes[clip.source]
                 ? [
                     "-" as const,
+                    {
+                      label: clip.cameraHidden ? "Show camera" : "Hide camera",
+                      run: () =>
+                        useDoc.getState().setCameraHidden(withCamera(), !clip.cameraHidden),
+                    },
                     ...CAMERA_SIZES.map((k) => ({
                       label: `Camera: ${CAMERA_SIZE_NAMES[k]}`,
                       radio: true,
                       checked: (clip.cameraSize ?? cameraSizes[clip.source]) === k,
-                      run: () => {
-                        const ids = useDoc.getState().selectedClips;
-                        const on = ids.includes(clip.id) ? ids : [clip.id];
-                        useDoc.getState().setCameraSize(
-                          docState.doc.clips
-                            .filter((c) => on.includes(c.id) && cameraSizes[c.source])
-                            .map((c) => c.id),
-                          k,
-                        );
-                      },
+                      run: () => useDoc.getState().setCameraSize(withCamera(), k),
                     })),
                   ]
                 : []),

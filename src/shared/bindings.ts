@@ -489,6 +489,8 @@ export type ExportClip = {
 	cameraSize?: CameraSize | null,
 	/**  Where its camera was moved to (PLAN 5d.6b), on its file's picture: else as recorded. */
 	cameraPlace?: Place | null,
+	/**  Its camera's hidden (PLAN 5d.6c): left out. */
+	cameraHidden?: boolean,
 };
 
 /**

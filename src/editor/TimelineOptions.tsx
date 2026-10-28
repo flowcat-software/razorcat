@@ -61,13 +61,33 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** A clip's camera size (PLAN 5d.6a): Small, Medium or Large. */
-function CameraSizes({ size, onPick }: { size: CameraSize; onPick: (size: CameraSize) => void }) {
+/** A clip's camera: shown or not (PLAN 5d.6c), and its size (5d.6a), Small, Medium or Large. */
+function CameraOptions({
+  size,
+  shown,
+  onPick,
+  onShow,
+}: {
+  size: CameraSize;
+  shown: boolean;
+  onPick: (size: CameraSize) => void;
+  onShow: (shown: boolean) => void;
+}) {
   return (
     <>
       <span className={styles.optionsSep} />
       <span className={styles.field}>
         <span className={styles.optionsWord}>Camera</span>
+        <button
+          type="button"
+          className={styles.toggle}
+          aria-pressed={shown}
+          {...hint("clip.cameraShown")}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onShow(!shown)}
+        >
+          Show
+        </button>
         <span className={styles.chips} role="radiogroup" aria-label="Camera size">
           {CAMERA_SIZES.map((k) => (
             <button
@@ -271,6 +291,13 @@ export function TimelineOptions({ source, inFrames, player, cameraSizes }: Props
     return now ? now.b - now.a : v;
   };
   const clips = doc.clips.length;
+  /** The clips selected whose recordings have cameras. */
+  const withCamera = () =>
+    doc.clips
+      .filter(
+        (c) => (c.id === selected?.id || selectedClips.includes(c.id)) && cameraSizes[c.source],
+      )
+      .map((c) => c.id);
   const ranges = shownRanges(doc);
   const range = ranges.find((r) => r.id === selectedRange);
   const marks = shownMarks(doc).filter((m) => selectedMarks.includes(m.id));
@@ -428,21 +455,12 @@ export function TimelineOptions({ source, inFrames, player, cameraSizes }: Props
             }
           />
           {cameraSizes[selected.source] && (
-            <CameraSizes
+            <CameraOptions
               size={selected.cameraSize ?? cameraSizes[selected.source]}
+              shown={!selected.cameraHidden}
               // With several selected, the ones with cameras (as their fades).
-              onPick={(size) =>
-                useDoc.getState().setCameraSize(
-                  doc.clips
-                    .filter(
-                      (c) =>
-                        (c.id === selected.id || selectedClips.includes(c.id)) &&
-                        cameraSizes[c.source],
-                    )
-                    .map((c) => c.id),
-                  size,
-                )
-              }
+              onPick={(size) => useDoc.getState().setCameraSize(withCamera(), size)}
+              onShow={(shown) => useDoc.getState().setCameraHidden(withCamera(), !shown)}
             />
           )}
         </>

@@ -88,6 +88,9 @@ pub struct ExportClip {
     /// Where its camera was moved to (PLAN 5d.6b), on its file's picture: else as recorded.
     #[serde(default, rename = "cameraPlace")]
     pub camera_place: Option<Place>,
+    /// Its camera's hidden (PLAN 5d.6c): left out.
+    #[serde(default, rename = "cameraHidden")]
+    pub camera_hidden: bool,
 }
 
 impl ExportClip {
@@ -1513,7 +1516,8 @@ fn prepare(
             return Err("The edit doesn't fit the video.".into());
         }
         let mut made = cut(input, first, c, keep_pitch);
-        made.camera = input.camera.as_ref().map(|(path, place)| {
+        let camera = input.camera.as_ref().filter(|_| !c.camera_hidden);
+        made.camera = camera.map(|(path, place)| {
             let place = c.camera_place.unwrap_or(*place);
             let place = place.sized(c.camera_size, input.width, input.height);
             let (x, y, size) =
@@ -2750,6 +2754,7 @@ mod tests {
             speed: None,
             camera_size: None,
             camera_place: None,
+            camera_hidden: false,
         }
     }
 

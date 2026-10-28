@@ -94,6 +94,8 @@ export interface Clip {
    * recorded. Its size then is what a size chosen since is made from (its nearest corner kept).
    */
   cameraPlace?: CameraPlace;
+  /** Its camera's hidden (PLAN 5d.6c), in the preview and the export. */
+  cameraHidden?: boolean;
 }
 
 export type RangeId = number;
@@ -738,6 +740,7 @@ export interface ClipCopy {
   fadeOutColour?: string;
   cameraSize?: CameraSize;
   cameraPlace?: CameraPlace;
+  cameraHidden?: boolean;
   /** The markup anchored to it. */
   marks: readonly Mark[];
 }
@@ -761,6 +764,7 @@ export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
     ...(clip.fadeOutColour && { fadeOutColour: clip.fadeOutColour }),
     ...(clip.cameraSize && { cameraSize: clip.cameraSize }),
     ...(clip.cameraPlace && { cameraPlace: clip.cameraPlace }),
+    ...(clip.cameraHidden && { cameraHidden: true }),
     marks,
   };
 }
@@ -786,6 +790,7 @@ export function insertClip(doc: Doc, copy: ClipCopy, at: number, keepFades = tru
     ...(keepFades && copy.fadeOutColour && { fadeOutColour: copy.fadeOutColour }),
     ...(copy.cameraSize && { cameraSize: copy.cameraSize }),
     ...(copy.cameraPlace && { cameraPlace: copy.cameraPlace }),
+    ...(copy.cameraHidden && { cameraHidden: true }),
   };
   clips.splice(Math.max(0, Math.min(clips.length, at)), 0, clip);
   let nextMarkId = doc.nextMarkId;
@@ -836,6 +841,19 @@ export function setCameraPlace(doc: Doc, ids: readonly ClipId[], place: CameraPl
     !!p && p.x === place.x && p.y === place.y && p.size === place.size;
   if (!doc.clips.some((c) => ids.includes(c.id) && !same(c.cameraPlace))) return doc;
   const clips = doc.clips.map((c) => (ids.includes(c.id) ? { ...c, cameraPlace: place } : c));
+  return { ...doc, clips };
+}
+
+/** Clips `ids`'s cameras hidden, or shown (PLAN 5d.6c). The same document if nothing changes. */
+export function setCameraHidden(doc: Doc, ids: readonly ClipId[], hidden: boolean): Doc {
+  if (!doc.clips.some((c) => ids.includes(c.id) && !!c.cameraHidden !== hidden)) return doc;
+  const clips = doc.clips.map((c) => {
+    if (!ids.includes(c.id)) return c;
+    const next: Clip = { ...c };
+    if (hidden) next.cameraHidden = true;
+    else delete next.cameraHidden;
+    return next;
+  });
   return { ...doc, clips };
 }
 

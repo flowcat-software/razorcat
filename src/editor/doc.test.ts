@@ -12,6 +12,7 @@ import {
   muteClip,
   muteTrack,
   pasteSlot,
+  setCameraHidden,
   setCameraPlace,
   setCameraSize,
   split,
@@ -238,6 +239,14 @@ describe("camera size", () => {
     expect(setCameraPlace(moved, [2], { ...place })).toBe(moved);
     expect(split(moved, 70).clips[2].cameraPlace).toEqual(place);
     expect(duplicateClip(moved, 2).clips[2].cameraPlace).toEqual(place);
+  });
+
+  it("hides the clips' camera, and shows it back to the same clip", () => {
+    const hidden = setCameraHidden(doc, [2], true);
+    expect(hidden.clips.map((c) => c.cameraHidden)).toEqual([undefined, true]);
+    expect(setCameraHidden(hidden, [2], true)).toBe(hidden);
+    expect(split(hidden, 70).clips.map((c) => c.cameraHidden)).toEqual([undefined, true, true]);
+    expect(setCameraHidden(hidden, [2], false).clips[1]).toStrictEqual(doc.clips[1]);
   });
 });
 
