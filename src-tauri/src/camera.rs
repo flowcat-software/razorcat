@@ -11,7 +11,6 @@
 
 use std::ffi::OsString;
 use std::io::{Read, Write};
-use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,6 +37,10 @@ const PREVIEW_FPS: u32 = 15;
 /// The tallest picture a camera is opened at, and the rate wanted.
 const MAX_HEIGHT: u32 = 1080;
 const FPS: f64 = 30.0;
+/// The camera's recorded as a square from its middle (all that's shown of it), at most this
+/// many pixels across: the largest bubble's 33% of a 4K recording (713 px) shows it whole, and
+/// fitting 6.5 min takes 4.5 s, not 10.7 (PLAN 5d.5c).
+const RECORDED_SIDE: u32 = 720;
 /// How far the camera's frames trail what they show (spike 5d.1: 70 to 90 ms behind the
 /// screen's), taken off its stamps to line it up.
 const DELAY: f64 = 0.08;
@@ -336,13 +339,20 @@ fn preview_filter() -> String {
     format!("fps={PREVIEW_FPS},crop='min(iw,ih)':'min(iw,ih)',scale={side}:{side}")
 }
 
-/// What the feed also records: to `path` (Matroska), its stamps counted from `origin_us`, with
-/// `encoder` at `bitrate`.
+/// What the feed also records: to `path` (Matroska), its stamps counted from `origin_us`, a
+/// square from the middle `side` px across, with `encoder` at `bitrate`.
 struct Recorded<'a> {
     path: &'a Path,
     origin_us: i64,
+    side: u32,
     encoder: Encoder,
     bitrate: u64,
+}
+
+/// How many pixels across the camera's recorded, from a `width` × `height` picture: its short
+/// side, no more than `RECORDED_SIDE`, even (as the encoders want).
+fn recorded_side(width: u32, height: u32) -> u32 {
+    width.min(height).min(RECORDED_SIDE) & !1
 }
 
 /// ffmpeg's arguments for the feed of `input`: the preview on stdout, JPEG after JPEG; and if it
@@ -364,10 +374,13 @@ fn feed_args(input: &[String], record: Option<&Recorded>) -> Vec<OsString> {
     a.extend(input.iter().map(OsString::from));
     let origin = r.origin_us as f64 / 1e6;
     let pixels = r.encoder.pixels();
+    let side = r.side;
     a.extend(["-copyts".into(), "-filter_complex".into()]);
     a.push(
         format!(
-            "[0:v]setpts=PTS-{origin:.6}/TB,split=2[rec][pv];[rec]format={pixels}[out];[pv]{preview}[pvo]"
+            "[0:v]setpts=PTS-{origin:.6}/TB,split=2[rec][pv];\
+             [rec]crop='min(iw,ih)':'min(iw,ih)',scale={side}:{side},format={pixels}[out];\
+             [pv]{preview}[pvo]"
         )
         .into(),
     );
@@ -414,19 +427,21 @@ fn start_feed(
     let (width, height) = mode
         .as_ref()
         .map_or((1920, 1080), |(m, _)| (m.width, m.height));
+    let side = recorded_side(width, height);
     let take = record.as_ref().map(|(path, _)| Take {
         path: path.clone(),
         origin_us: crate::audio::Clock::now().unix_us,
-        width,
-        height,
+        width: side,
+        height: side,
     });
     let recorded = match (&record, &take) {
         (Some((_, encoder)), Some(t)) => Some(Recorded {
             path: &t.path,
             origin_us: t.origin_us,
+            side,
             encoder: *encoder,
             // Twice the usual: it's encoded again when fitted to the recording.
-            bitrate: 2 * bitrate(width, height, FPS),
+            bitrate: 2 * bitrate(side, side, FPS),
         }),
         _ => None,
     };
@@ -816,7 +831,9 @@ pub fn fit(
     let mut writing = out.as_os_str().to_owned();
     writing.push(".part");
     let writing = PathBuf::from(writing);
-    let mut cmd = sidecar::background(Tool::Ffmpeg)?;
+    // At normal priority, not below as background work is: over in half the time, and the
+    // editor doesn't feel it (Richard, 2026-10-27; 12.5 min in 10 to 16 s).
+    let mut cmd = sidecar::command(Tool::Ffmpeg)?;
     cmd.args(["-hide_banner", "-loglevel", "error", "-y", "-copyts", "-i"])
         .arg(&take.path)
         .args(["-vf", &filter, "-an"])
@@ -835,8 +852,6 @@ pub fn fit(
         .stderr(Stdio::piped());
     // Not in Razorcat's job: closed while fitting, the camera's still fitted.
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-    // Known while it runs, so an export waiting for it can hurry it.
-    running(out, Some(child.as_raw_handle() as isize));
     let stderr = child.stderr.take();
     let said = std::thread::spawn(move || {
         let mut text = String::new();
@@ -856,9 +871,7 @@ pub fn fit(
             }
         }
     }
-    let status = child.wait();
-    running(out, None);
-    let status = status.map_err(|e| e.to_string())?;
+    let status = child.wait().map_err(|e| e.to_string())?;
     let said = said.join().unwrap_or_default();
     if !status.success() {
         let _ = std::fs::remove_file(&writing);
@@ -1000,10 +1013,6 @@ struct Fitting {
     place: Option<Place>,
     /// How far along (0 to 1).
     progress: f64,
-    /// Its ffmpeg (a process handle) while it runs.
-    process: Option<isize>,
-    /// An export's waiting for it: it runs at normal priority, not below.
-    rushed: bool,
 }
 
 static FITTING: Mutex<Vec<Fitting>> = Mutex::new(Vec::new());
@@ -1019,8 +1028,6 @@ pub fn fitting(app: &AppHandle, file: &Path, place: Option<Place>, progress: f64
                 file: file.to_path_buf(),
                 place,
                 progress,
-                process: None,
-                rushed: false,
             }),
         }
     }
@@ -1043,29 +1050,6 @@ pub fn fitting_over(file: &Path) {
     FITTING.lock().unwrap().retain(|f| f.file != file);
 }
 
-/// The ffmpeg fitting the camera file `out` is `process` (a handle), or None once it's done: if
-/// an export's waiting, it's hurried.
-fn running(out: &Path, process: Option<isize>) {
-    let mut all = FITTING.lock().unwrap();
-    if let Some(f) = all.iter_mut().find(|f| beside(&f.file) == out) {
-        f.process = process;
-        if f.rushed {
-            hurry(f.process);
-        }
-    }
-}
-
-/// `process` (a handle) at normal priority, not below: someone's waiting for it.
-fn hurry(process: Option<isize>) {
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::System::Threading::{SetPriorityClass, NORMAL_PRIORITY_CLASS};
-    if let Some(p) = process {
-        // SAFETY: the handle's open while it's kept (`running` drops it before it's closed),
-        // and this is called with FITTING locked.
-        let _ = unsafe { SetPriorityClass(HANDLE(p as *mut _), NORMAL_PRIORITY_CLASS) };
-    }
-}
-
 /// Whether any of recordings `files` has its camera being fitted.
 pub fn being_fitted(files: &[PathBuf]) -> bool {
     FITTING
@@ -1075,18 +1059,14 @@ pub fn being_fitted(files: &[PathBuf]) -> bool {
         .any(|f| files.contains(&f.file))
 }
 
-/// Waits till the cameras of recordings `files` are fitted, hurried (normal priority, not
-/// below), `progress` told how far the furthest behind has got; false if `stop`ped first.
+/// Waits till the cameras of recordings `files` are fitted, `progress` told how far the
+/// furthest behind has got; false if `stop`ped first.
 pub fn wait_fitted(files: &[PathBuf], stop: &AtomicBool, mut progress: impl FnMut(f64)) -> bool {
     loop {
         let behind = {
-            let mut all = FITTING.lock().unwrap();
+            let all = FITTING.lock().unwrap();
             let mut behind: Option<f64> = None;
-            for f in all.iter_mut().filter(|f| files.contains(&f.file)) {
-                if !f.rushed {
-                    f.rushed = true;
-                    hurry(f.process);
-                }
+            for f in all.iter().filter(|f| files.contains(&f.file)) {
                 behind = Some(behind.map_or(f.progress, |b| b.min(f.progress)));
             }
             behind
@@ -1420,6 +1400,15 @@ Error opening input file dummy."#;
     }
 
     #[test]
+    fn records_a_square_no_larger_than_needed() {
+        assert_eq!(recorded_side(1920, 1080), 720);
+        assert_eq!(recorded_side(3840, 2160), 720);
+        // A small camera's kept as it is, not enlarged; even.
+        assert_eq!(recorded_side(640, 480), 480);
+        assert_eq!(recorded_side(1023, 575), 574);
+    }
+
+    #[test]
     fn says_why_the_camera_stopped() {
         assert_eq!(
             why_stopped("Could not run graph (sometimes caused by a device already in use by other application)"),
@@ -1449,15 +1438,16 @@ Error opening input file dummy."#;
         let r = Recorded {
             path: &path,
             origin_us: 1_700_000_000_250_000,
+            side: 720,
             encoder: Encoder::Nvenc,
             bitrate: 12_000_000,
         };
         let both = joined(&feed_args(&input, Some(&r)));
-        // Stamped as they come, kept as they are, from the origin.
+        // Stamped as they come, kept as they are, from the origin; a square from the middle.
         assert!(both.starts_with(
             "-hide_banner -loglevel error -use_wallclock_as_timestamps 1 -f dshow -i video=Cam \
              -copyts -filter_complex [0:v]setpts=PTS-1700000000.250000/TB,split=2[rec][pv];\
-             [rec]format=yuv420p[out];[pv]fps=15,"
+             [rec]crop='min(iw,ih)':'min(iw,ih)',scale=720:720,format=yuv420p[out];[pv]fps=15,"
         ));
         assert!(both.contains(
             "-map [out] -fps_mode passthrough -c:v h264_nvenc -preset p2 -tune hq -rc vbr \
