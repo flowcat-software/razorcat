@@ -1449,6 +1449,24 @@
   color: var(--error-text);
 }
 
+/* A job's progress after its message (an export's, a conversion's). */
+.progress {
+  width: 140px;
+  height: 4px;
+  margin: 0 6px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+
 .divider {
   width: 1px;
   height: 14px;

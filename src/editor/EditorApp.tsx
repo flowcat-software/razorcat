@@ -840,6 +840,7 @@ export function EditorApp() {
       .filter((s) => !proxyUrls[s.id] && proxies[s.id])
       .map((s) => ({
         text: `Preparing fast stepping${sources.length > 1 ? ` for ${s.name}` : ""}… ${Math.floor((proxies[s.id].done ?? 0) * 100)}%`,
+        progress: proxies[s.id].done ?? 0,
       }))[0] ?? null;
   // A conversion's progress, with Cancel, comes first; then the proxy's until it's ready, unless
   // there's something to say.
@@ -848,10 +849,12 @@ export function EditorApp() {
       exporting.camera != null
         ? `Processing camera footage for ${exporting.name}… ${Math.floor(exporting.camera * 100)}%`
         : `Exporting ${exporting.name}… ${Math.floor(exporting.done * 100)}%`,
+    progress: exporting.camera ?? exporting.done,
     action: { label: "Cancel", run: () => void commands.cancelExport() },
   };
   const conversion: Notice | null = converting && {
     text: `Converting ${converting.name} to play here… ${Math.floor(converting.done * 100)}%`,
+    progress: converting.done,
     action: {
       label: "Cancel",
       run: () => {

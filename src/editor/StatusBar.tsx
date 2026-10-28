@@ -12,6 +12,8 @@ export interface Notice {
   error?: boolean;
   /** A button after the message (a conversion's Cancel). */
   action?: { label: string; run: () => void };
+  /** A job's progress (0 to 1), shown as a bar after the message too. */
+  progress?: number;
 }
 
 interface Props {
@@ -41,6 +43,16 @@ export function StatusBar({ notice, empty, scrollHints }: Props) {
         </span>
       ) : (
         <HintLine scroll={scrollHints} />
+      )}
+      {message?.progress != null && (
+        <span
+          className={styles.progress}
+          role="progressbar"
+          aria-label={message.text}
+          aria-valuenow={Math.floor(message.progress * 100)}
+        >
+          <span style={{ width: `${Math.min(1, Math.max(0, message.progress)) * 100}%` }} />
+        </span>
       )}
       {message?.action && (
         <button type="button" className={styles.textButton} onClick={message.action.run}>
