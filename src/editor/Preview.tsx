@@ -4,7 +4,9 @@ import { MarkupLayer } from "../markup/MarkupLayer";
 import { connectMarkup } from "../markup/model/store";
 import type { CameraFitting, SourceCamera, SourceInfo } from "../shared/ipc";
 import { CameraLayer } from "./CameraLayer";
-import { cameraOnStage, sizedPlace, type ShownCamera } from "./cameraPlace";
+import { cameraAt, placeOf } from "./cameraKeys";
+import { cameraOnStage, type ShownCamera } from "./cameraPlace";
+import { useRecordedCameras } from "./cameraStore";
 import { CropOverlay } from "./CropOverlay";
 import {
   clipFadeColourAt,
@@ -88,6 +90,7 @@ export function Preview({
   useEffect(() => connectMarkup(player), [player]);
 
   const frame = useDoc((s) => s.doc.frame);
+  const recorded = useRecordedCameras((s) => s.cameras);
   const tool = useTool((s) => s.tool);
   const held = useTool((s) => s.held);
   const cropping = tool === "crop";
@@ -120,23 +123,22 @@ export function Preview({
     width: source.width * scale,
     height: source.height * scale,
   };
-  // A clip's camera on the finished frame (being fitted, where it'll be): where it was moved to
-  // or recorded, at its size.
-  const cameraOf = (clip: Clip): ShownCamera | null => {
+  // A clip's camera on the finished frame at timeline frame `f` (being fitted, where it'll
+  // be): as the keyframes say (PLAN 5d.8), or before any, as it was recorded; hidden, none.
+  const cameraOf = (clip: Clip, f: number): ShownCamera | null => {
     const s = sources.find((x) => x.id === clip.source);
-    const recorded = cameras[clip.source]?.place ?? fitting[clip.source]?.place;
-    if (!s || !recorded || clip.cameraHidden) return null;
-    const place = sizedPlace(
-      clip.cameraPlace ?? { x: recorded.x ?? 0, y: recorded.y ?? 0, size: recorded.size ?? 0 },
-      clip.cameraSize,
-      s,
-    );
+    const rec = recorded[clip.source];
+    if (!s || !rec) return null;
+    const state = cameraAt(useDoc.getState().doc, f) ?? rec.state;
+    if (state.hidden) return null;
+    const place = placeOf(state, s);
     const shownAt = { ...picture, left: inner.x + picture.left, top: inner.y + picture.top };
     return {
       square: cameraOnStage(place, s, source, shownAt, {
         width: stage.width,
         height: stage.height,
       }),
+      state,
       place,
       picture: s,
       scale: s.width > 0 ? fitIn(s, source, shownAt).width / s.width : 0,

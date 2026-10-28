@@ -20,11 +20,12 @@ import {
   type SourceInfo,
   type ThumbsInfo,
 } from "../shared/ipc";
-import { sizeOfPlace } from "./cameraPlace";
+import { recordedCamera } from "./cameraKeys";
+import { useRecordedCameras, type RecordedCamera } from "./cameraStore";
 import { CommandBar } from "./CommandBar";
 import { useToolKeys } from "./cropTool";
 import { EmptyEditor } from "./EmptyEditor";
-import { playedClips, total, type Doc } from "./doc";
+import { playedClips, total, type ClipId, type Doc } from "./doc";
 import { useDoc } from "./docStore";
 import {
   addRangeAtPlayhead,
@@ -343,20 +344,32 @@ export function EditorApp() {
   /** Each file's thumbnails as they're made, by its id. */
   const [thumbs, setThumbs] = useState<Record<string, ThumbsInfo>>({});
   /**
-   * Each recording with a camera (fitted or being fitted), by file id: the size it was recorded
-   * at, which its clips show at till one's chosen (PLAN 5d.6a). The same object while those
-   * stay the same (being fitted, it's told how far along a few times a second).
+   * The files just opened, and their clips: each gets its camera's keyframe on its first frame
+   * once where it was recorded is known (PLAN 5d.8).
    */
-  const recordedSizes = Object.fromEntries(
-    sources.flatMap((s) => {
+  const unstarted = useRef(new Map<string, ClipId>());
+  // Each recording's camera as recorded (fitted or being fitted), for everything that shows it;
+  // the same while it stays the same (being fitted, it's told how far along a few times a
+  // second). A recording just opened starts there.
+  useEffect(() => {
+    const recorded: Record<string, RecordedCamera> = {};
+    for (const s of sources) {
       const place = cameras[s.id]?.place ?? fitting[s.id]?.place;
-      if (!place) return [];
-      return [[s.id, sizeOfPlace({ x: 0, y: 0, size: place.size ?? 0 }, s)] as const];
-    }),
-  );
-  const recordedKey = JSON.stringify(recordedSizes);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const cameraSizes = useMemo(() => recordedSizes, [recordedKey]);
+      if (!place) continue;
+      const picture = { width: s.width, height: s.height };
+      const at = { x: place.x ?? 0, y: place.y ?? 0, size: place.size ?? 0 };
+      recorded[s.id] = { state: recordedCamera(at, picture), picture };
+    }
+    const was = useRecordedCameras.getState().cameras;
+    if (JSON.stringify(was) !== JSON.stringify(recorded)) {
+      useRecordedCameras.setState({ cameras: recorded });
+    }
+    for (const [id, clip] of unstarted.current) {
+      if (!recorded[id]) continue;
+      unstarted.current.delete(id);
+      useDoc.getState().startCamera(clip, recorded[id].state);
+    }
+  }, [sources, cameras, fitting]);
   // The player plays at the first file's rate; a new first file is a new player.
   const sourceId = source?.id;
   const fps = source ? source.rateNum / source.rateDen : 0;
@@ -430,9 +443,10 @@ export function EditorApp() {
     doc.load(sourceFrames, { width: sourceWidth, height: sourceHeight }, sourceId);
     for (const s of latest.current.slice(1)) doc.addSource(s.id, s.frames);
     useDoc.setState({ past: [], future: [] });
-    // A recording's clicks, on its one clip.
+    // A recording's clicks, on its one clip, and its camera's start.
     const first = latest.current[0];
     if (first) addRecordedInput(first, 1, first);
+    unstarted.current = new Map(first ? [[first.id, 1]] : []);
     useTool.getState().setTool("select");
     // A portrait video's crop ratios start turned (9:16).
     useTool.getState().setPortrait(sourceHeight > sourceWidth);
@@ -514,9 +528,10 @@ export function EditorApp() {
         // Dropped onto a cut, it goes in there, and lights up to show where.
         const id = useDoc.getState().doc.nextId;
         useDoc.getState().addSource(added.id, added.frames, payload.at);
-        // A recording's clicks, on its clip, at the timeline's rate.
+        // A recording's clicks, on its clip, at the timeline's rate, and its camera's start.
         const first = latest.current[0];
         if (first) addRecordedInput(added, id, first);
+        unstarted.current.set(added.id, id);
         if (payload.at !== null) useTimeline.getState().flashClip(id);
         setNotice({
           text:
@@ -910,12 +925,7 @@ export function EditorApp() {
         inFrames={inFrames}
         onToggleFrames={() => setInFrames((f) => !f)}
       />
-      <TimelineOptions
-        source={source}
-        inFrames={inFrames}
-        player={player}
-        cameraSizes={cameraSizes}
-      />
+      <TimelineOptions source={source} inFrames={inFrames} player={player} />
       <SpeedPopover source={source} inFrames={inFrames} />
       <div className={styles.timeline} style={{ height: timelineH }}>
         {source && player && (
@@ -926,7 +936,6 @@ export function EditorApp() {
             inFrames={inFrames}
             thumbs={fileThumbs}
             waves={fileWaves}
-            cameraSizes={cameraSizes}
           />
         )}
       </div>

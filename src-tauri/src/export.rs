@@ -82,15 +82,19 @@ pub struct ExportClip {
     /// Its speed, if not 100%.
     #[serde(default)]
     pub speed: Option<ClipSpeed>,
-    /// Its camera's size (PLAN 5d.6a), if one was chosen for it: else as recorded.
-    #[serde(default, rename = "cameraSize")]
-    pub camera_size: Option<crate::settings::CameraSize>,
-    /// Where its camera was moved to (PLAN 5d.6b), on its file's picture: else as recorded.
-    #[serde(default, rename = "cameraPlace")]
-    pub camera_place: Option<Place>,
-    /// Its camera's hidden (PLAN 5d.6c): left out.
-    #[serde(default, rename = "cameraHidden")]
-    pub camera_hidden: bool,
+    /// Its camera, stretch by stretch, as its keyframes set it (PLAN 5d.8; the editor works
+    /// them out, as the preview shows them): none where it's hidden, or it hasn't one.
+    #[serde(default, rename = "cameraSpans")]
+    pub camera_spans: Vec<CameraSpan>,
+}
+
+/// A stretch of a clip's camera: from its `from`th frame (on the timeline, from its first) for
+/// `length`, at `place` on its file's picture.
+#[derive(Debug, Clone, Copy, Deserialize, Type)]
+pub struct CameraSpan {
+    pub from: u32,
+    pub length: u32,
+    pub place: Place,
 }
 
 impl ExportClip {
@@ -390,11 +394,21 @@ struct Cut {
 #[derive(Debug, Clone, PartialEq, Default)]
 struct CutCamera {
     path: PathBuf,
+    /// Where it shows, stretch by stretch (none where it's hidden).
+    spans: Vec<CameraOn>,
+    fade_in: u32,
+    fade_out: u32,
+}
+
+/// A stretch of a clip's camera on the export's frame: from its clip's `from`th frame for
+/// `length`, its top-left and across (px).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+struct CameraOn {
+    from: u32,
+    length: u32,
     x: u32,
     y: u32,
     size: u32,
-    fade_in: u32,
-    fade_out: u32,
 }
 
 impl Cut {
@@ -779,18 +793,38 @@ fn cameras(
     }
     for &(i, input) in inputs {
         let c = &cuts[i];
-        let Some(cam) = c.camera.as_ref().filter(|cam| cam.size > 0) else {
+        let Some(cam) = c.camera.as_ref() else {
             continue;
         };
-        let (d, from, length) = (cam.size, starts[i], c.length());
-        let r = f64::from(d) / 2.0;
-        f.push(format!(
-            "color=c=black:s={d}x{d}:r=1:d=1,format=gray,geq=lum='255*clip({r}+0.5-hypot(X+0.5-{r},Y+0.5-{r}),0,1)'[cm{i}]"
-        ));
-        f.push(format!(
-            "[{input}:v:0]{},crop='min(iw,ih)':'min(iw,ih)',scale={d}:{d},format=yuva444p[cv{i}]",
+        let (from, length) = (starts[i], c.length());
+        // Its sizes (keyframes can change it, PLAN 5d.8): a stream each, scaled once, its place
+        // following the stretches at that size (a few overlays, however many keyframes).
+        let mut sizes: Vec<u32> = Vec::new();
+        for s in &cam.spans {
+            if s.size > 0 && s.length > 0 && !sizes.contains(&s.size) {
+                sizes.push(s.size);
+            }
+        }
+        if sizes.is_empty() {
+            continue;
+        }
+        let tag = |j: usize| {
+            if sizes.len() == 1 {
+                i.to_string()
+            } else {
+                format!("{i}_{j}")
+            }
+        };
+        let square = format!(
+            "[{input}:v:0]{},crop='min(iw,ih)':'min(iw,ih)'",
             on_grid(c, rate)
-        ));
+        );
+        if sizes.len() > 1 {
+            let outs: String = (0..sizes.len())
+                .map(|j| format!("[cs{}]", tag(j)))
+                .collect();
+            f.push(format!("{square},split={}{outs}", sizes.len()));
+        }
         let mut fades = String::new();
         if cam.fade_in > 0 {
             fades += &format!(",fade=t=in:s=0:n={}:alpha=1", cam.fade_in);
@@ -802,17 +836,54 @@ fn cameras(
                 cam.fade_out
             );
         }
-        f.push(format!(
-            "[cv{i}][cm{i}]alphamerge{fades},settb={}/{},setpts=N+{from}[cc{i}]",
-            rate.den, rate.num
-        ));
-        f.push(format!(
-            "[{at}][cc{i}]overlay=x={}:y={}:format=yuv444:eof_action=pass:enable='between(n,{from},{})'[co{i}]",
-            cam.x,
-            cam.y,
-            from + length - 1
-        ));
-        at = format!("co{i}");
+        for (j, &d) in sizes.iter().enumerate() {
+            let t = tag(j);
+            let r = f64::from(d) / 2.0;
+            f.push(format!(
+                "color=c=black:s={d}x{d}:r=1:d=1,format=gray,geq=lum='255*clip({r}+0.5-hypot(X+0.5-{r},Y+0.5-{r}),0,1)'[cm{t}]"
+            ));
+            let scaled = format!("scale={d}:{d},format=yuva444p[cv{t}]");
+            if sizes.len() > 1 {
+                f.push(format!("[cs{t}]{scaled}"));
+            } else {
+                f.push(format!("{square},{scaled}"));
+            }
+            f.push(format!(
+                "[cv{t}][cm{t}]alphamerge{fades},settb={}/{},setpts=N+{from}[cc{t}]",
+                rate.den, rate.num
+            ));
+            // Its stretches at this size, on the export's frames (kept to the clip's).
+            let on: Vec<(u32, u32, u32, u32)> = cam
+                .spans
+                .iter()
+                .filter(|s| s.size == d && s.length > 0 && s.from < length)
+                .map(|s| {
+                    let a = from + s.from;
+                    (a, a + s.length.min(length - s.from) - 1, s.x, s.y)
+                })
+                .collect();
+            let (x, y) = if let [(_, _, x, y)] = on[..] {
+                (x.to_string(), y.to_string())
+            } else {
+                let pick = |v: fn(&(u32, u32, u32, u32)) -> u32| {
+                    let mut e = "0".to_string();
+                    for s in on.iter().rev() {
+                        e = format!("if(between(n,{},{}),{},{e})", s.0, s.1, v(s));
+                    }
+                    format!("'{e}'")
+                };
+                (pick(|s| s.2), pick(|s| s.3))
+            };
+            let enable: Vec<String> = on
+                .iter()
+                .map(|s| format!("between(n,{},{})", s.0, s.1))
+                .collect();
+            f.push(format!(
+                "[{at}][cc{t}]overlay=x={x}:y={y}:format=yuv444:eof_action=pass:enable='{}'[co{t}]",
+                enable.join("+")
+            ));
+            at = format!("co{t}");
+        }
     }
     at
 }
@@ -1516,22 +1587,34 @@ fn prepare(
             return Err("The edit doesn't fit the video.".into());
         }
         let mut made = cut(input, first, c, keep_pitch);
-        let camera = input.camera.as_ref().filter(|_| !c.camera_hidden);
-        made.camera = camera.map(|(path, place)| {
-            let place = c.camera_place.unwrap_or(*place);
-            let place = place.sized(c.camera_size, input.width, input.height);
-            let (x, y, size) =
-                camera_on_frame(place, (input.width, input.height), first_size, frame, out);
+        made.camera = input.camera.as_ref().and_then(|(path, _)| {
+            let spans: Vec<CameraOn> = c
+                .camera_spans
+                .iter()
+                .map(|s| {
+                    let size = (input.width, input.height);
+                    let (x, y, across) = camera_on_frame(s.place, size, first_size, frame, out);
+                    CameraOn {
+                        from: s.from,
+                        length: s.length,
+                        x,
+                        y,
+                        size: across,
+                    }
+                })
+                .filter(|s| s.size > 0 && s.length > 0)
+                .collect();
+            if spans.is_empty() {
+                return None;
+            }
             let fades = camera_fades.then_some((made.fade_in, made.fade_out));
             let (fade_in, fade_out) = fades.unwrap_or_default();
-            CutCamera {
+            Some(CutCamera {
                 path: path.clone(),
-                x,
-                y,
-                size,
+                spans,
                 fade_in,
                 fade_out,
-            }
+            })
         });
         cuts.push(made);
     }
@@ -2752,9 +2835,7 @@ mod tests {
             fade_out_colour: String::new(),
             crossfade: 0,
             speed: None,
-            camera_size: None,
-            camera_place: None,
-            camera_hidden: false,
+            camera_spans: Vec::new(),
         }
     }
 
@@ -2909,11 +2990,16 @@ mod tests {
     #[test]
     fn the_camera_is_laid_over_everything_on_its_clips_frames_faded_with_them() {
         let rate = Rate { num: 30, den: 1 };
-        let camera = |fade_in, fade_out| CutCamera {
-            path: PathBuf::from("in (camera).mp4"),
+        let whole = CameraOn {
+            from: 0,
+            length: 30,
             x: 1500,
             y: 700,
             size: 300,
+        };
+        let camera = |fade_in, fade_out| CutCamera {
+            path: PathBuf::from("in (camera).mp4"),
+            spans: vec![whole],
             fade_in,
             fade_out,
         };
@@ -2967,6 +3053,59 @@ mod tests {
         assert!(a.contains("[cv0][cm0]alphamerge,settb=1/30,setpts=N+0[cc0]"));
         assert!(a.contains(
             "[co0][cc1]overlay=x=1500:y=700:format=yuv444:eof_action=pass:enable='between(n,30,59)'[co1];[co1]scale="
+        ));
+    }
+
+    #[test]
+    fn the_cameras_keyframes_move_and_resize_it_partway() {
+        let rate = Rate { num: 30, den: 1 };
+        // One clip of 60 frames: 300 px at (1500, 700) for 20, at (100, 100) for 20, then 200
+        // px for the rest.
+        let span = |from, x, y, size| CameraOn {
+            from,
+            length: 20,
+            x,
+            y,
+            size,
+        };
+        let c = [Cut {
+            out: 60,
+            camera: Some(CutCamera {
+                path: PathBuf::from("in (camera).mp4"),
+                spans: vec![
+                    span(0, 1500, 700, 300),
+                    span(20, 100, 100, 300),
+                    span(40, 50, 60, 200),
+                ],
+                fade_in: 0,
+                fade_out: 0,
+            }),
+            ..Default::default()
+        }];
+        let a = joined(&one_file(
+            Path::new("in.mp4"),
+            &c,
+            rate,
+            0.0,
+            1,
+            None,
+            &[],
+            Encoder::X264,
+            6_000_000,
+        ));
+        // A stream a size, from one square.
+        assert!(a.contains("crop='min(iw,ih)':'min(iw,ih)',split=2[cs0_0][cs0_1]"));
+        assert!(a.contains("[cs0_0]scale=300:300,format=yuva444p[cv0_0]"));
+        assert!(a.contains("[cs0_1]scale=200:200,format=yuva444p[cv0_1]"));
+        // The 300 px one moves at frame 20, and shows till 39; the 200 px one from 40.
+        assert!(a.contains(
+            "[cc0_0]overlay=x='if(between(n,0,19),1500,if(between(n,20,39),100,0))':\
+             y='if(between(n,0,19),700,if(between(n,20,39),100,0))':format=yuv444:\
+             eof_action=pass:enable='between(n,0,19)+between(n,20,39)'[co0_0]"
+        ));
+        assert!(a.contains(
+            "[co0_0][cc0_1]overlay=x=50:y=60:format=yuv444:eof_action=pass:\
+             enable='between(n,40,59)'[co0_1]"
         ));
     }
 

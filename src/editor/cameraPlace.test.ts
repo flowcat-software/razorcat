@@ -3,7 +3,6 @@ import { cameraOnStage, movedPlace, sizedPlace, sizeOfPlace } from "./cameraPlac
 
 const hd = { width: 1920, height: 1080 };
 
-// The same cases as camera.rs's `a_resized_camera_keeps_its_nearest_corner`.
 describe("sizedPlace", () => {
   const bottomRight = { x: 1629, y: 789, size: 248 };
 

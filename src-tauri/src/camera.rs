@@ -993,29 +993,6 @@ impl Place {
         Some(Self { x, y, size })
     }
 
-    /// The place at `size` on a `width` × `height` picture (None: as it is): the corner it's
-    /// nearest kept where it is, so one tucked into a corner stays there (Richard). As the
-    /// preview's (cameraPlace.ts).
-    pub fn sized(self, size: Option<CameraSize>, width: u32, height: u32) -> Self {
-        let Some(size) = size else {
-            return self;
-        };
-        let (w, h) = (f64::from(width), f64::from(height));
-        let across = (w.min(h) * size.share()).round();
-        let keep = |at: f64, room: f64| {
-            if at + self.size / 2.0 < room / 2.0 {
-                at
-            } else {
-                at + self.size - across
-            }
-        };
-        Self {
-            x: keep(self.x, w),
-            y: keep(self.y, h),
-            size: across,
-        }
-    }
-
     /// Where a camera with no place said goes on a picture `width` × `height`: its bottom-right
     /// corner, a little in, Medium.
     fn default_for(width: u32, height: u32) -> Self {
@@ -1601,29 +1578,6 @@ Error opening input file dummy."#;
                 size: 248.0
             }
         );
-    }
-
-    #[test]
-    fn a_resized_camera_keeps_its_nearest_corner() {
-        let place = |x, y, size| Place { x, y, size };
-        let bottom_right = place(1629.0, 789.0, 248.0);
-        // Large (33% of 1080 is 356): its bottom-right corner stays where it was.
-        assert_eq!(
-            bottom_right.sized(Some(CameraSize::Large), 1920, 1080),
-            place(1521.0, 681.0, 356.0)
-        );
-        // Top-left: its top-left stays. Small: 15% is 162.
-        assert_eq!(
-            place(43.0, 43.0, 248.0).sized(Some(CameraSize::Small), 1920, 1080),
-            place(43.0, 43.0, 162.0)
-        );
-        // Top-right.
-        assert_eq!(
-            place(1629.0, 43.0, 248.0).sized(Some(CameraSize::Small), 1920, 1080),
-            place(1715.0, 43.0, 162.0)
-        );
-        // None: as it is.
-        assert_eq!(bottom_right.sized(None, 1920, 1080), bottom_right);
     }
 
     #[test]

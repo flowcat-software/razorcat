@@ -23,9 +23,23 @@ import { darkLayer } from "./spotlights";
 import { redactBox, redactStrength } from "./redactions";
 import { growColour, outputSize, type Side } from "./frame";
 import { checkMarkup } from "./markupCheck";
+import { clipCamera, placeOf } from "./cameraKeys";
+import { useRecordedCameras } from "./cameraStore";
 import type { MenuItems } from "./Menu";
 
 export type ExportFormat = "mp4" | "gif";
+
+/**
+ * Clip `index`'s camera (its file `source`'s) stretch by stretch, as the preview shows it (PLAN
+ * 5d.8): where it's shown, on its file's picture.
+ */
+function cameraSpans(doc: Doc, index: number, source: string) {
+  const rec = useRecordedCameras.getState().cameras[source];
+  if (!rec) return [];
+  return clipCamera(doc, index, rec.state)
+    .filter((s) => !s.state.hidden)
+    .map((s) => ({ from: s.from, length: s.length, place: placeOf(s.state, rec.picture) }));
+}
 
 /**
  * The clips as export reads them (`ids` of them, or all), in timeline order: their numbers, files
@@ -55,9 +69,7 @@ export function exportClips(doc: Doc, ids?: readonly ClipId[]) {
             fadeInColour: fadeColours(c).fadeIn,
             fadeOutColour: fadeColours(c).fadeOut,
             crossfade: i > 0 && picked(i - 1) ? xf[i] : 0,
-            cameraSize: c.cameraSize ?? null,
-            cameraPlace: c.cameraPlace ?? null,
-            cameraHidden: !!c.cameraHidden,
+            cameraSpans: cameraSpans(doc, i, c.source),
           },
         ]
       : [],

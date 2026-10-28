@@ -327,6 +327,16 @@ export type CameraReady = {
  */
 export type CameraSize = "small" | "medium" | "large";
 
+/**
+ *  A stretch of a clip's camera: from its `from`th frame (on the timeline, from its first) for
+ *  `length`, at `place` on its file's picture.
+ */
+export type CameraSpan = {
+	from: number,
+	length: number,
+	place: Place,
+};
+
 /**  Rust → editor: check the source just opened. */
 export type CheckFrames = {
 	/**  The source (its `SourceInfo::id`). */
@@ -485,12 +495,11 @@ export type ExportClip = {
 	crossfade: number,
 	/**  Its speed, if not 100%. */
 	speed?: ClipSpeed | null,
-	/**  Its camera's size (PLAN 5d.6a), if one was chosen for it: else as recorded. */
-	cameraSize?: CameraSize | null,
-	/**  Where its camera was moved to (PLAN 5d.6b), on its file's picture: else as recorded. */
-	cameraPlace?: Place | null,
-	/**  Its camera's hidden (PLAN 5d.6c): left out. */
-	cameraHidden?: boolean,
+	/**
+	 *  Its camera, stretch by stretch, as its keyframes set it (PLAN 5d.8; the editor works
+	 *  them out, as the preview shows them): none where it's hidden, or it hasn't one.
+	 */
+	cameraSpans?: CameraSpan[],
 };
 
 /**

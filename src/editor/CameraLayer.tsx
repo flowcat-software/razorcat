@@ -15,12 +15,16 @@
 // stepping, it's sought to the picture's time.
 // Development builds log how far apart they played, and the frames dropped.
 
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CameraFitting, SourceCamera, SourceInfo } from "../shared/ipc";
 import { logLine } from "../shared/log";
 import { useStyleConfig } from "../markup/styles";
-import { movedPlace, type ShownCamera } from "./cameraPlace";
-import { clipAt, clipOpacityAt, type Clip, type ClipId } from "./doc";
+import { stateOfPlace } from "./cameraKeys";
+import { CAMERA_SIZE_NAMES, CAMERA_SIZES, movedPlace, type ShownCamera } from "./cameraPlace";
+import { sizeCameraAt } from "./cameraStore";
+import { Menu, type MenuItems } from "./Menu";
+import { clipAt, clipOpacityAt, type Clip } from "./doc";
 import { useDoc } from "./docStore";
 import { useTool } from "./toolStore";
 import type { Player } from "./player";
@@ -48,12 +52,12 @@ const PULL = 10;
 /** The tools that never pick it: the pen and highlighter draw (as over markup); crop and grow. */
 const DRAWS_ALWAYS = new Set(["pen", "highlighter", "crop", "grow"]);
 
-/** A drag of the camera: where it started, and the clips it moves. */
+/** A drag of the camera: where it started, on which frame (its keyframe's). */
 interface Drag {
   pointer: number;
   x: number;
   y: number;
-  ids: readonly ClipId[];
+  f: number;
   shown: ShownCamera;
   moved: boolean;
 }
@@ -65,8 +69,8 @@ interface Props {
   cameras: Readonly<Record<string, SourceCamera>>;
   /** The cameras still being fitted (where they'll be, how far along), by file id. */
   fitting: Readonly<Record<string, CameraFitting>>;
-  /** A clip's camera as the preview shows it (none: it has none). */
-  cameraOf: (clip: Clip) => ShownCamera | null;
+  /** A clip's camera as the preview shows it on a frame (none: it has none, or it's hidden). */
+  cameraOf: (clip: Clip, f: number) => ShownCamera | null;
   /** It fades with its clip (Settings › Recording); else it stays as the clip fades. */
   fades: boolean;
 }
@@ -83,6 +87,7 @@ export function CameraLayer({ player, sources, cameras, fitting, cameraOf, fades
     updated.current();
   });
   const drag = useRef<Drag | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItems } | null>(null);
   useEffect(() => {
     /** Ctrl's held. */
     let ctrl = false;
@@ -108,7 +113,8 @@ export function CameraLayer({ player, sources, cameras, fitting, cameraOf, fades
       const { doc } = useDoc.getState();
       const { frame, speed } = player.getState();
       const at = clipAt(doc, frame);
-      const camera = at && circles.current.has(at.clip.source) ? shownOf.current(at.clip) : null;
+      const camera =
+        at && circles.current.has(at.clip.source) ? shownOf.current(at.clip, frame) : null;
       const on = at && camera ? at.clip.source : null;
       for (const [id, circle] of circles.current) {
         circle.style.visibility = id === on ? "visible" : "hidden";
@@ -227,32 +233,20 @@ export function CameraLayer({ player, sources, cameras, fitting, cameraOf, fades
     else circles.current.delete(id);
   };
 
-  // Dragging it (PLAN 5d.6b): the clip under the playhead, selected by the press if it wasn't
-  // (and with it any other selected clips of the same recording); one undo step.
+  // Dragging it (PLAN 5d.6b): the camera's keyframe at the playhead moved, or one added there
+  // (5d.8); its clip selected by the press if it wasn't. One undo step.
   const press = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const store = useDoc.getState();
-    const at = clipAt(store.doc, player.getState().frame);
-    const shown = at && shownOf.current(at.clip);
+    const f = player.getState().frame;
+    const at = clipAt(store.doc, f);
+    const shown = at && shownOf.current(at.clip, f);
     if (!at || !shown) return;
     e.preventDefault();
     e.stopPropagation();
-    let ids = store.selectedClips;
-    if (!ids.includes(at.clip.id)) {
-      store.select(at.clip.id);
-      ids = [at.clip.id];
-    }
+    if (!store.selectedClips.includes(at.clip.id)) store.select(at.clip.id);
     e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = {
-      pointer: e.pointerId,
-      x: e.clientX,
-      y: e.clientY,
-      ids: store.doc.clips
-        .filter((c) => ids.includes(c.id) && c.source === at.clip.source)
-        .map((c) => c.id),
-      shown,
-      moved: false,
-    };
+    drag.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY, f, shown, moved: false };
   };
   const move = (e: React.PointerEvent<HTMLDivElement>) => {
     const d = drag.current;
@@ -264,11 +258,10 @@ export function CameraLayer({ player, sources, cameras, fitting, cameraOf, fades
       d.moved = true;
       useDoc.getState().beginGesture();
     }
-    const { place, picture, scale } = d.shown;
+    const { place, picture, scale, state } = d.shown;
     if (scale <= 0) return;
-    useDoc
-      .getState()
-      .setCameraPlace(d.ids, movedPlace(place, dx / scale, dy / scale, picture, PULL / scale));
+    const to = movedPlace(place, dx / scale, dy / scale, picture, PULL / scale);
+    useDoc.getState().setCamera(d.f, stateOfPlace(to, picture, state.size, false));
   };
   const letGo = (e: React.PointerEvent<HTMLDivElement>, keep: boolean) => {
     const d = drag.current;
@@ -278,7 +271,31 @@ export function CameraLayer({ player, sources, cameras, fitting, cameraOf, fades
     if (keep) useDoc.getState().endGesture();
     else useDoc.getState().cancelGesture();
   };
+  // Right-clicked: its size at the playhead (a keyframe there). Shown or hidden is the options
+  // bar's: hidden, there'd be nothing to right-click to show it again (Richard).
+  const sizes = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const f = player.getState().frame;
+    const at = clipAt(useDoc.getState().doc, f);
+    const shown = at && shownOf.current(at.clip, f);
+    if (!at || !shown) return;
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: CAMERA_SIZES.map((k) => ({
+        label: CAMERA_SIZE_NAMES[k],
+        radio: true,
+        checked: shown.state.size === k,
+        run: () => {
+          const to = sizeCameraAt(useDoc.getState().doc, f, at.clip, k);
+          if (to) useDoc.getState().setCamera(f, to);
+        },
+      })),
+    });
+  };
   const grab = {
+    onContextMenu: sizes,
     onPointerDown: press,
     onPointerMove: move,
     onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => letGo(e, true),
@@ -348,6 +365,11 @@ export function CameraLayer({ player, sources, cameras, fitting, cameraOf, fades
           </div>
         );
       })}
+      {menu &&
+        createPortal(
+          <Menu items={menu.items} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />,
+          document.body,
+        )}
     </>
   );
 }

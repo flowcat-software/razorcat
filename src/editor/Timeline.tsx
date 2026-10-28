@@ -5,8 +5,7 @@ import { annotationId, docStore as markupDoc } from "../markup/model/store";
 import type { Reorder } from "../markup/model/commands";
 import { duplicateSelection } from "../markup/objectActions";
 import { onAccent } from "../shared/accent";
-import { events, type CameraSize, type SourceInfo, type ThumbsInfo } from "../shared/ipc";
-import { CAMERA_SIZE_NAMES, CAMERA_SIZES } from "./cameraPlace";
+import { events, type SourceInfo, type ThumbsInfo } from "../shared/ipc";
 import type { Player } from "./player";
 import { ThumbStrip } from "./thumbs";
 import { Peaks, waveHeight } from "./wave";
@@ -88,8 +87,6 @@ interface Props {
   thumbs: Readonly<Record<string, ThumbsInfo>>;
   /** Where each file's waveform is, once it's made, by its id. */
   waves: Readonly<Record<string, string>>;
-  /** Each recording with a camera, by file id: the size it was recorded at. */
-  cameraSizes: Readonly<Record<string, CameraSize>>;
 }
 
 // The mockup's geometry (mockup/main.html): the ruler, the markup lanes, the clip track.
@@ -732,7 +729,7 @@ function drawWave(
  * waveform, frame ticks once there's room, and the playhead. Click or drag to move the playhead
  * (on a clip, it's selected too); the wheel scrolls, Ctrl+wheel zooms at the pointer.
  */
-export function Timeline({ source, sources, player, inFrames, thumbs, waves, cameraSizes }: Props) {
+export function Timeline({ source, sources, player, inFrames, thumbs, waves }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /** A button is held down on the timeline (a scrub, a drag). */
   const pressed = useRef(false);
@@ -2586,13 +2583,6 @@ ${d.group.length} items`,
           docState.select(clip.id);
           const full = sourceLength(docState.doc, clip);
           const whole = clip.in === 0 && clip.out === full;
-          const withCamera = () => {
-            const ids = useDoc.getState().selectedClips;
-            const on = ids.includes(clip.id) ? ids : [clip.id];
-            return docState.doc.clips
-              .filter((c) => on.includes(c.id) && cameraSizes[c.source])
-              .map((c) => c.id);
-          };
           setMenu({
             x: e.clientX,
             y: e.clientY,
@@ -2634,24 +2624,6 @@ ${d.group.length} items`,
                 disabled: whole,
                 run: () => useDoc.getState().trim(clip.id, 0, full),
               },
-              // Its camera shown or hidden (PLAN 5d.6c), and its size (5d.6a), as the options
-              // bar's: on the selected clips with cameras, or this one.
-              ...(cameraSizes[clip.source]
-                ? [
-                    "-" as const,
-                    {
-                      label: clip.cameraHidden ? "Show camera" : "Hide camera",
-                      run: () =>
-                        useDoc.getState().setCameraHidden(withCamera(), !clip.cameraHidden),
-                    },
-                    ...CAMERA_SIZES.map((k) => ({
-                      label: `Camera: ${CAMERA_SIZE_NAMES[k]}`,
-                      radio: true,
-                      checked: (clip.cameraSize ?? cameraSizes[clip.source]) === k,
-                      run: () => useDoc.getState().setCameraSize(withCamera(), k),
-                    })),
-                  ]
-                : []),
             ],
           });
         }}

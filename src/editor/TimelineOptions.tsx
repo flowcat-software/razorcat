@@ -1,8 +1,10 @@
-import type { CameraSize, SourceInfo } from "../shared/ipc";
+import { useSyncExternalStore } from "react";
+import type { SourceInfo } from "../shared/ipc";
 import { ColorSwatch } from "../markup/ColorSwatch";
 import { hint } from "../markup/HintLine";
 import {
   canFade,
+  clipAt,
   clipFades,
   clipLength,
   clipStarts,
@@ -21,6 +23,7 @@ import {
 } from "./doc";
 import { useDoc } from "./docStore";
 import { CAMERA_SIZE_NAMES, CAMERA_SIZES } from "./cameraPlace";
+import { cameraHere, sizeCameraAt, useRecordedCameras } from "./cameraStore";
 import { NumberField } from "./NumberField";
 import { clipFrame, sourceFrame, videoEnd } from "./speed";
 import { useSqueeze } from "./squeeze";
@@ -34,8 +37,6 @@ interface Props {
   inFrames: boolean;
   /** Editing where something starts or ends shows that frame. */
   player: Player | null;
-  /** Each recording with a camera, by file id: the size it was recorded at. */
-  cameraSizes: Readonly<Record<string, CameraSize>>;
 }
 
 /** How fast the fade fields drag, against the others: fades are short (Richard). */
@@ -61,18 +62,23 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** A clip's camera: shown or not (PLAN 5d.6c), and its size (5d.6a), Small, Medium or Large. */
-function CameraOptions({
-  size,
-  shown,
-  onPick,
-  onShow,
-}: {
-  size: CameraSize;
-  shown: boolean;
-  onPick: (size: CameraSize) => void;
-  onShow: (shown: boolean) => void;
-}) {
+/**
+ * The camera at the playhead (PLAN 5d.8), whatever's selected: shown or not, and its size,
+ * Small, Medium or Large, as the keyframe before it says; changed, a keyframe there. While the
+ * playhead's on a clip with a camera.
+ */
+function CameraOptions({ player }: { player: Player }) {
+  const doc = useDoc((s) => s.doc);
+  useRecordedCameras((s) => s.cameras);
+  const f = useSyncExternalStore(player.subscribe, () => player.getState().frame);
+  const clip = clipAt(doc, f)?.clip;
+  const here = clip && cameraHere(doc, f, clip);
+  if (!clip || !here) return null;
+  const show = () => useDoc.getState().setCamera(f, { ...here.state, hidden: !here.state.hidden });
+  const pick = (k: (typeof CAMERA_SIZES)[number]) => {
+    const to = sizeCameraAt(useDoc.getState().doc, f, clip, k);
+    if (to) useDoc.getState().setCamera(f, to);
+  };
   return (
     <>
       <span className={styles.optionsSep} />
@@ -81,10 +87,10 @@ function CameraOptions({
         <button
           type="button"
           className={styles.toggle}
-          aria-pressed={shown}
+          aria-pressed={!here.state.hidden}
           {...hint("clip.cameraShown")}
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => onShow(!shown)}
+          onClick={show}
         >
           Show
         </button>
@@ -95,10 +101,10 @@ function CameraOptions({
               type="button"
               role="radio"
               className={styles.toggle}
-              aria-checked={size === k}
+              aria-checked={here.state.size === k}
               {...hint("clip.cameraSize")}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onPick(k)}
+              onClick={() => pick(k)}
             >
               {CAMERA_SIZE_NAMES[k]}
             </button>
@@ -114,7 +120,7 @@ function CameraOptions({
  * clip's In, Out and Length, in the source's time), or what can be done; the edit's summary on
  * the right.
  */
-export function TimelineOptions({ source, inFrames, player, cameraSizes }: Props) {
+export function TimelineOptions({ source, inFrames, player }: Props) {
   const doc = useDoc((s) => s.doc);
   const selected = useDoc((s) => s.doc.clips.find((c) => c.id === s.selected) ?? null);
   const selectedRange = useDoc((s) => s.selectedRange);
@@ -291,13 +297,6 @@ export function TimelineOptions({ source, inFrames, player, cameraSizes }: Props
     return now ? now.b - now.a : v;
   };
   const clips = doc.clips.length;
-  /** The clips selected whose recordings have cameras. */
-  const withCamera = () =>
-    doc.clips
-      .filter(
-        (c) => (c.id === selected?.id || selectedClips.includes(c.id)) && cameraSizes[c.source],
-      )
-      .map((c) => c.id);
   const ranges = shownRanges(doc);
   const range = ranges.find((r) => r.id === selectedRange);
   const marks = shownMarks(doc).filter((m) => selectedMarks.includes(m.id));
@@ -454,15 +453,6 @@ export function TimelineOptions({ source, inFrames, player, cameraSizes }: Props
               )
             }
           />
-          {cameraSizes[selected.source] && (
-            <CameraOptions
-              size={selected.cameraSize ?? cameraSizes[selected.source]}
-              shown={!selected.cameraHidden}
-              // With several selected, the ones with cameras (as their fades).
-              onPick={(size) => useDoc.getState().setCameraSize(withCamera(), size)}
-              onShow={(shown) => useDoc.getState().setCameraHidden(withCamera(), !shown)}
-            />
-          )}
         </>
       ) : (
         <span className={styles.optionsText}>
@@ -470,6 +460,7 @@ export function TimelineOptions({ source, inFrames, player, cameraSizes }: Props
           or <b>I</b>/<b>O</b> add a range
         </span>
       )}
+      {player && <CameraOptions player={player} />}
       <span className={styles.spacer} />
       <span className={styles.summary}>
         {clips} {clips === 1 ? "clip" : "clips"} · {fmt(length)}

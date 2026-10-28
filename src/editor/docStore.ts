@@ -22,9 +22,6 @@ import {
   duplicateClips,
   insertClips,
   muteClips,
-  setCameraSize,
-  setCameraPlace,
-  setCameraHidden,
   packLanes,
   moveClips,
   fadeEnds,
@@ -71,8 +68,16 @@ import {
   type SourceId,
 } from "./doc";
 import type { Rect, Size } from "./fit";
-import type { CameraPlace } from "./cameraPlace";
-import type { CameraSize, RecordedInput } from "../shared/ipc";
+import type { RecordedInput } from "../shared/ipc";
+import {
+  deleteKeys,
+  keepCameraStarts,
+  setCameraAt,
+  startCamera,
+  type CameraState,
+  type KeyId,
+} from "./cameraKeys";
+import { hasCamera } from "./cameraStore";
 import { withRecordedClicks, type RecordedClickStyle } from "./recordedInput";
 import { restyleClicks, type ClickFrames, type ClickStyle } from "./clickStyles";
 import type { Grow } from "./frame";
@@ -158,12 +163,12 @@ export interface DocState {
   /** Inserts `copies` from position `at` on, selected; their ids. */
   pasteClips: (copies: readonly ClipCopy[], at: number) => ClipId[];
   muteClips: (ids: readonly ClipId[], muted: boolean) => boolean;
-  /** Clips `ids`'s cameras at `size` (PLAN 5d.6a): one undo step. */
-  setCameraSize: (ids: readonly ClipId[], size: CameraSize) => boolean;
-  /** Clips `ids`'s cameras moved to `place` (PLAN 5d.6b; a drag's a gesture). */
-  setCameraPlace: (ids: readonly ClipId[], place: CameraPlace) => boolean;
-  /** Clips `ids`'s cameras hidden, or shown (PLAN 5d.6c). */
-  setCameraHidden: (ids: readonly ClipId[], hidden: boolean) => boolean;
+  /** The camera at timeline frame `f` set (PLAN 5d.8): the keyframe there, or a new one. */
+  setCamera: (f: number, state: CameraState) => boolean;
+  /** Camera keyframes `ids` deleted. */
+  deleteKeys: (ids: readonly KeyId[]) => boolean;
+  /** Clip `clip`'s recording's camera, on its first frame, as it was recorded. */
+  startCamera: (clip: ClipId, state: CameraState) => boolean;
   /** Moves clips `ids` together (gathered, in order) to place `at` among the others. */
   moveClips: (ids: readonly ClipId[], at: number) => boolean;
   /** Mutes all the sound, or unmutes it. */
@@ -280,15 +285,24 @@ export function canRedo(s: DocState): boolean {
 export const useDoc = create<DocState>()((set, get) => {
   /** How many gestures are open: they nest, and the outermost makes the step (or cancels). */
   let gestures = 0;
+  /** The open gesture edited camera keyframes (it keeps no clip's start, PLAN 5d.8). */
+  let keysEdited = false;
 
   /**
    * Applies a pure edit as one history step (or as part of the current gesture), with the
    * markup's lanes settled after it (`settleLanes`): `yielding`, what it moved or added, gives
-   * way to the rest.
+   * way to the rest. Unless it edits camera `keys`, each clip's camera start is kept as it was
+   * (`keepCameraStarts`; in a gesture, once it ends).
    */
-  const apply = (edit: (doc: Doc) => Doc, yielding: readonly MarkId[] = []): boolean => {
+  const apply = (
+    edit: (doc: Doc) => Doc,
+    yielding: readonly MarkId[] = [],
+    keys = false,
+  ): boolean => {
     const s = get();
-    const doc = settleLanes(keepCrossfades(s.gestureStart ?? s.doc, s.doc, edit(s.doc)), yielding);
+    let doc = settleLanes(keepCrossfades(s.gestureStart ?? s.doc, s.doc, edit(s.doc)), yielding);
+    if (keys && s.gestureStart) keysEdited = true;
+    if (!keys && !s.gestureStart) doc = keepCameraStarts(s.doc, doc, hasCamera);
     if (doc === s.doc) return false;
     if (s.gestureStart) set({ doc });
     else set({ doc, past: pushLimited(s.past, s.doc), future: [] });
@@ -380,6 +394,7 @@ export const useDoc = create<DocState>()((set, get) => {
 
     load: (frames, size, id) => {
       gestures = 0;
+      keysEdited = false;
       set({
         doc: wholeSource(frames, size, id),
         past: [],
@@ -426,9 +441,9 @@ export const useDoc = create<DocState>()((set, get) => {
         copies.length,
       ),
     muteClips: (ids, muted) => apply((doc) => muteClips(doc, ids, muted)),
-    setCameraSize: (ids, size) => apply((doc) => setCameraSize(doc, ids, size)),
-    setCameraPlace: (ids, place) => apply((doc) => setCameraPlace(doc, ids, place)),
-    setCameraHidden: (ids, hidden) => apply((doc) => setCameraHidden(doc, ids, hidden)),
+    setCamera: (f, state) => apply((doc) => setCameraAt(doc, f, state), [], true),
+    deleteKeys: (ids) => apply((doc) => deleteKeys(doc, ids), [], true),
+    startCamera: (clip, state) => apply((doc) => startCamera(doc, clip, state), [], true),
     moveClips: (ids, at) => applyClips((doc) => moveClips(doc, ids, at)),
     muteTrack: (muted) => apply((doc) => muteTrack(doc, muted)),
     setClipFades: (id, set) => apply((doc) => setClipFades(doc, id, set)),
@@ -507,13 +522,18 @@ export const useDoc = create<DocState>()((set, get) => {
       // Inside another (a field dragged in the speed popover): the outer one ends it.
       gestures = Math.max(0, gestures - 1);
       if (gestures > 0) return;
-      const { gestureStart: start, doc, past } = get();
+      const { gestureStart: start, past } = get();
+      let { doc } = get();
       if (!start) return;
-      if (doc === start) set({ gestureStart: null });
-      else set({ gestureStart: null, past: pushLimited(past, start), future: [] });
+      // The clips' camera starts kept through the whole of it.
+      if (!keysEdited) doc = keepCameraStarts(start, doc, hasCamera);
+      keysEdited = false;
+      if (doc === start) set({ doc, gestureStart: null });
+      else set({ doc, gestureStart: null, past: pushLimited(past, start), future: [] });
     },
     cancelGesture: () => {
       gestures = 0;
+      keysEdited = false;
       const start = get().gestureStart;
       if (!start) return;
       set({ doc: start, gestureStart: null });

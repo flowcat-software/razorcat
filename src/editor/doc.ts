@@ -44,8 +44,7 @@
 
 import { translateAnnotation } from "../markup/geometry";
 import type { Annotation, NewAnnotation } from "../markup/model/types";
-import type { CameraSize } from "../shared/ipc";
-import type { CameraPlace } from "./cameraPlace";
+import type { CameraKey, KeyId } from "./cameraKeys";
 import type { Rect, Size } from "./fit";
 import { fullFrame, keepCrop, sameGrow, type Frame, type Grow } from "./frame";
 import { retimedLength, type Speed } from "./speed";
@@ -87,15 +86,6 @@ export interface Clip {
   fadeOutColour?: string;
   /** How many frames it crossfades with the clip before it over (none if not set). */
   crossfade?: number;
-  /** Its camera's size (PLAN 5d.6a), if one was chosen for it; else as it was recorded. */
-  cameraSize?: CameraSize;
-  /**
-   * Where its camera was moved to (PLAN 5d.6b), on its file's picture (px); else where it was
-   * recorded. Its size then is what a size chosen since is made from (its nearest corner kept).
-   */
-  cameraPlace?: CameraPlace;
-  /** Its camera's hidden (PLAN 5d.6c), in the preview and the export. */
-  cameraHidden?: boolean;
 }
 
 export type RangeId = number;
@@ -408,6 +398,9 @@ export interface Doc {
   nextRangeId: RangeId;
   marks: readonly Mark[];
   nextMarkId: MarkId;
+  /** The camera keyframes (PLAN 5d.8; cameraKeys.ts). */
+  cameraKeys: readonly CameraKey[];
+  nextKeyId: KeyId;
   frame: Frame;
   /** All the sound off, in the preview and the export (which then has no audio). */
   muted: boolean;
@@ -427,6 +420,8 @@ export function wholeSource(
     nextRangeId: 1,
     marks: [],
     nextMarkId: 1,
+    cameraKeys: [],
+    nextKeyId: 1,
     frame: fullFrame(size),
     muted: false,
   };
@@ -602,7 +597,8 @@ export function split(
   clips.splice(at.index, 1, ...cutClip(at.clip, cut, doc.nextId, fadeClipCuts));
   const ranges = handOver(doc.ranges, at.clip.id, doc.nextId, cut);
   const marks = handMarksOver(doc.marks, at.clip.id, doc.nextId, cut);
-  return { ...doc, clips, ranges, marks, nextId: doc.nextId + 1 };
+  const cameraKeys = handKeysOver(doc.cameraKeys, at.clip.id, doc.nextId, cut);
+  return { ...doc, clips, ranges, marks, cameraKeys, nextId: doc.nextId + 1 };
 }
 
 /**
@@ -648,6 +644,7 @@ export function deleteClip(doc: Doc, id: ClipId, withRanges = true): Doc {
   const clips = doc.clips.filter((c) => c.id !== id);
   if (!withRanges) return { ...doc, clips };
   const marks = doc.marks.filter((m) => m.clip !== id);
+  const cameraKeys = doc.cameraKeys.filter((k) => k.clip !== id);
   const ranges = doc.ranges
     .map((r) =>
       r.pieces.some((p) => p.clip === id)
@@ -655,7 +652,7 @@ export function deleteClip(doc: Doc, id: ClipId, withRanges = true): Doc {
         : r,
     )
     .filter((r) => r.pieces.length > 0);
-  return { ...doc, clips, ranges, marks };
+  return { ...doc, clips, ranges, marks, cameraKeys };
 }
 
 /**
@@ -738,11 +735,10 @@ export interface ClipCopy {
   fadeOut?: number;
   fadeInColour?: string;
   fadeOutColour?: string;
-  cameraSize?: CameraSize;
-  cameraPlace?: CameraPlace;
-  cameraHidden?: boolean;
   /** The markup anchored to it. */
   marks: readonly Mark[];
+  /** Its camera keyframes (PLAN 5d.8), those trimmed out of view too. */
+  keys: readonly CameraKey[];
 }
 
 /** Clip `id` as a copy, its markup with it (not its ranges); null if there's no such clip. */
@@ -762,10 +758,8 @@ export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
     ...fades(clip.fadeIn ?? 0, clip.fadeOut ?? 0),
     ...(clip.fadeInColour && { fadeInColour: clip.fadeInColour }),
     ...(clip.fadeOutColour && { fadeOutColour: clip.fadeOutColour }),
-    ...(clip.cameraSize && { cameraSize: clip.cameraSize }),
-    ...(clip.cameraPlace && { cameraPlace: clip.cameraPlace }),
-    ...(clip.cameraHidden && { cameraHidden: true }),
     marks,
+    keys: doc.cameraKeys.filter((k) => k.clip === id),
   };
 }
 
@@ -788,14 +782,16 @@ export function insertClip(doc: Doc, copy: ClipCopy, at: number, keepFades = tru
     ...(keepFades && fades(copy.fadeIn ?? 0, copy.fadeOut ?? 0)),
     ...(keepFades && copy.fadeInColour && { fadeInColour: copy.fadeInColour }),
     ...(keepFades && copy.fadeOutColour && { fadeOutColour: copy.fadeOutColour }),
-    ...(copy.cameraSize && { cameraSize: copy.cameraSize }),
-    ...(copy.cameraPlace && { cameraPlace: copy.cameraPlace }),
-    ...(copy.cameraHidden && { cameraHidden: true }),
   };
   clips.splice(Math.max(0, Math.min(clips.length, at)), 0, clip);
   let nextMarkId = doc.nextMarkId;
   const marks = [...doc.marks, ...copy.marks.map((m) => ({ ...m, id: nextMarkId++, clip: id }))];
-  return { ...doc, clips, nextId: id + 1, marks, nextMarkId };
+  let nextKeyId = doc.nextKeyId;
+  const cameraKeys = [
+    ...doc.cameraKeys,
+    ...copy.keys.map((k) => ({ ...k, id: nextKeyId++, clip: id })),
+  ];
+  return { ...doc, clips, nextId: id + 1, marks, nextMarkId, cameraKeys, nextKeyId };
 }
 
 /** Inserts `copies` as new clips from position `at` on, in order (`insertClip` each). */
@@ -822,39 +818,6 @@ export function duplicateClips(doc: Doc, ids: readonly ClipId[], keepFades = tru
   if (!copies.length) return doc;
   const last = Math.max(...doc.clips.flatMap((c, i) => (ids.includes(c.id) ? [i] : [])));
   return insertClips(doc, copies, last + 1, keepFades);
-}
-
-/** Clips `ids`'s cameras at `size` (PLAN 5d.6a). The same document if nothing changes. */
-export function setCameraSize(doc: Doc, ids: readonly ClipId[], size: CameraSize): Doc {
-  if (!doc.clips.some((c) => ids.includes(c.id) && c.cameraSize !== size)) return doc;
-  const clips = doc.clips.map((c) => (ids.includes(c.id) ? { ...c, cameraSize: size } : c));
-  return { ...doc, clips };
-}
-
-/**
- * Clips `ids`'s cameras moved to `place` (PLAN 5d.6b), on their file's picture: its size is the
- * one they show at, so a size chosen since resizes from there. The same document if nothing
- * changes.
- */
-export function setCameraPlace(doc: Doc, ids: readonly ClipId[], place: CameraPlace): Doc {
-  const same = (p: CameraPlace | undefined) =>
-    !!p && p.x === place.x && p.y === place.y && p.size === place.size;
-  if (!doc.clips.some((c) => ids.includes(c.id) && !same(c.cameraPlace))) return doc;
-  const clips = doc.clips.map((c) => (ids.includes(c.id) ? { ...c, cameraPlace: place } : c));
-  return { ...doc, clips };
-}
-
-/** Clips `ids`'s cameras hidden, or shown (PLAN 5d.6c). The same document if nothing changes. */
-export function setCameraHidden(doc: Doc, ids: readonly ClipId[], hidden: boolean): Doc {
-  if (!doc.clips.some((c) => ids.includes(c.id) && !!c.cameraHidden !== hidden)) return doc;
-  const clips = doc.clips.map((c) => {
-    if (!ids.includes(c.id)) return c;
-    const next: Clip = { ...c };
-    if (hidden) next.cameraHidden = true;
-    else delete next.cameraHidden;
-    return next;
-  });
-  return { ...doc, clips };
 }
 
 /** Mutes clips `ids`, or unmutes them. */
@@ -1192,6 +1155,7 @@ function cutOut(
   let clips: readonly Clip[] = doc.clips;
   let marks = doc.marks;
   let nextMarkId = doc.nextMarkId;
+  let cameraKeys = doc.cameraKeys;
   // From the end, so the earlier places stay where they are.
   for (const place of [...places].sort((x, y) => y.a - x.a)) {
     const { a } = place;
@@ -1220,6 +1184,7 @@ function cutOut(
         // the second.
         const cut = c.in + (b - s);
         const [left, right] = cutClip(c, cut, nextId, fadeClipCuts);
+        cameraKeys = handKeysOver(cameraKeys, c.id, nextId, cut);
         marks = handMarksOver(marks, c.id, nextId++, cut);
         out.push({ ...left, out: c.in + (a - s) }, right);
       } else if (a > s) out.push({ ...c, out: c.in + (a - s) });
@@ -1228,7 +1193,7 @@ function cutOut(
     clips = out;
   }
   if (clips.length === 0) return doc;
-  return { ...doc, clips, nextId, ranges: [], marks, nextMarkId };
+  return { ...doc, clips, nextId, ranges: [], marks, nextMarkId, cameraKeys };
 }
 
 /**
@@ -1412,6 +1377,16 @@ export function setFades(doc: Doc, ids: readonly MarkId[], fadeIn: number, fadeO
 /** Clip `from` was cut at its frame `at`: markup starting past it now belongs to clip `to`. */
 function handMarksOver(marks: readonly Mark[], from: ClipId, to: ClipId, at: number): Mark[] {
   return marks.map((m) => (m.clip === from && m.at >= at ? { ...m, clip: to } : m));
+}
+
+/** As `handMarksOver`, the camera keyframes (PLAN 5d.8). */
+function handKeysOver(
+  keys: readonly CameraKey[],
+  from: ClipId,
+  to: ClipId,
+  at: number,
+): CameraKey[] {
+  return keys.map((k) => (k.clip === from && k.at >= at ? { ...k, clip: to } : k));
 }
 
 /**

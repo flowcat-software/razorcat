@@ -3,6 +3,7 @@
 // 2026-10-27): kept inside the frame, as large as it at most.
 
 import type { CameraSize } from "../shared/ipc";
+import type { CameraState } from "./cameraKeys";
 import type { Size } from "./fit";
 import { fitIn } from "./fit";
 
@@ -30,7 +31,7 @@ export const CAMERA_SIZE_NAMES: Readonly<Record<CameraSize, string>> = {
 
 /**
  * `place` at `size` on picture `s` (none: as it is), the corner it's nearest kept where it is,
- * so one tucked into a corner stays there (Richard). As the export's (camera.rs `sized`).
+ * so one tucked into a corner stays there (Richard).
  */
 export function sizedPlace(place: CameraPlace, size: CameraSize | undefined, s: Size): CameraPlace {
   if (!size) return place;
@@ -82,11 +83,13 @@ export interface Square {
 }
 
 /**
- * A clip's camera as the preview shows it: on the stage, and its place on its file's picture
- * (`picture`, px) with the stage's CSS px to one of the picture's (to move it by).
+ * A clip's camera as the preview shows it on a frame: on the stage, the camera in effect there
+ * (`state`), and its place on its file's picture (`picture`, px) with the stage's CSS px to one
+ * of the picture's (to move it by).
  */
 export interface ShownCamera {
   square: Square;
+  state: CameraState;
   place: CameraPlace;
   picture: Size;
   scale: number;
