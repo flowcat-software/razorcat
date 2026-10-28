@@ -152,12 +152,12 @@ mod tests {
     }
 
     #[test]
-    fn the_default_parses() {
+    fn the_defaults_parse() {
         use tauri_plugin_global_shortcut::Shortcut;
-        let record = Hotkeys::default().record.unwrap();
-        assert!(
-            to_accelerator(&record).parse::<Shortcut>().is_ok(),
-            "{record}"
-        );
+        let d = Hotkeys::default();
+        for key in [d.record, d.pause, d.stop, d.mute, d.system, d.clicks] {
+            let key = key.unwrap();
+            assert!(to_accelerator(&key).parse::<Shortcut>().is_ok(), "{key}");
+        }
     }
 }

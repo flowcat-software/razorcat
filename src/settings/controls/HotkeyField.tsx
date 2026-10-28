@@ -15,6 +15,11 @@ export const useRecording = create<{ path: string | null }>(() => ({ path: null 
 /** The keys, by settings key, as the clash message names them. */
 const ACTIONS: Record<string, string> = {
   record: "Record",
+  pause: "Pause or resume",
+  stop: "Stop",
+  mute: "Mute the microphone",
+  system: "Mute the system sound",
+  clicks: "Highlight clicks",
 };
 
 /**

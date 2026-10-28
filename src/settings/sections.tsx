@@ -973,7 +973,7 @@ export const sections: Section[] = [
             path: "recording.clicks",
             label: "Highlight clicks in video",
             description:
-              "Where you click, to show on the timeline as markup you can move, restyle or delete. Also turned on or off as you record: the control's button, or Ctrl+Alt+C.",
+              "Where you click, to show on the timeline as markup you can move, restyle or delete. Also turned on or off as you record: the control's button, or its key (Settings › Keyboard shortcuts).",
             keywords: ["clicks", "mouse", "pointer", "show clicks", "highlight", "tutorial"],
           },
           {
@@ -1200,7 +1200,8 @@ export const sections: Section[] = [
     groups: [
       {
         title: "Recording",
-        description: "They work anywhere in Windows. Click Change, then press the new shortcut.",
+        description:
+          "They work anywhere in Windows: Record at any time, the rest while recording. Click Change, then press the new shortcut.",
         items: [
           {
             id: "hotkeyRecord",
@@ -1209,6 +1210,54 @@ export const sections: Section[] = [
             label: "Record",
             description: "Starts a recording, as Record in the editor or the tray.",
             keywords: ["hotkey", "shortcut", "keyboard", "key", "record", "global", "start"],
+          },
+          {
+            id: "hotkeyPause",
+            kind: "hotkey",
+            path: "hotkeys.pause",
+            label: "Pause or resume",
+            keywords: ["hotkey", "shortcut", "keyboard", "key", "pause", "resume", "recording"],
+          },
+          {
+            id: "hotkeyStop",
+            kind: "hotkey",
+            path: "hotkeys.stop",
+            label: "Stop",
+            description: "Stops the recording and opens it.",
+            keywords: ["hotkey", "shortcut", "keyboard", "key", "stop", "end", "recording"],
+          },
+          {
+            id: "hotkeyMute",
+            kind: "hotkey",
+            path: "hotkeys.mute",
+            label: "Mute the microphone",
+            description: "Mutes or unmutes it, when it's recorded.",
+            keywords: ["hotkey", "shortcut", "keyboard", "key", "mute", "microphone", "mic"],
+          },
+          {
+            id: "hotkeySystem",
+            kind: "hotkey",
+            path: "hotkeys.system",
+            label: "Mute the system sound",
+            description: "Mutes or unmutes it, when it's recorded.",
+            keywords: [
+              "hotkey",
+              "shortcut",
+              "keyboard",
+              "key",
+              "mute",
+              "system",
+              "sound",
+              "desktop",
+            ],
+          },
+          {
+            id: "hotkeyClicks",
+            kind: "hotkey",
+            path: "hotkeys.clicks",
+            label: "Highlight clicks",
+            description: "Turns noting your clicks on or off.",
+            keywords: ["hotkey", "shortcut", "keyboard", "key", "clicks", "highlight", "mouse"],
           },
         ],
       },

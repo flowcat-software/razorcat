@@ -237,6 +237,28 @@ pub const DIM_RANGE: std::ops::RangeInclusive<f64> = 0.05..=0.9;
 pub struct Hotkeys {
     /// Record, from anywhere (5b.8b1): as the tray's Record.
     pub record: Option<String>,
+    /// While recording only, wherever the keys are (5b.8b2; recording.rs): pause and resume,
+    /// stop (5b.5c), mute and unmute the microphone (5b.4d) and the system's sound, and clicks
+    /// noted or not (5b.6).
+    pub pause: Option<String>,
+    pub stop: Option<String>,
+    pub mute: Option<String>,
+    pub system: Option<String>,
+    pub clicks: Option<String>,
+}
+
+impl Hotkeys {
+    /// Each with what it does, as a clash names it.
+    fn named(&self) -> [(&Option<String>, &'static str); 6] {
+        [
+            (&self.record, "record"),
+            (&self.pause, "pause"),
+            (&self.stop, "stop"),
+            (&self.mute, "mute the microphone"),
+            (&self.system, "mute the system sound"),
+            (&self.clicks, "highlight clicks"),
+        ]
+    }
 }
 
 impl Default for Hotkeys {
@@ -250,8 +272,16 @@ impl Default for Hotkeys {
                 k.to_string()
             })
         };
+        // Held only while recording: an installed copy and a dev one never hold them at once.
+        let held = |k: &str| Some(k.to_string());
         Self {
             record: key("Win+F11"),
+            pause: held("Ctrl+Alt+P"),
+            stop: held("Ctrl+Alt+S"),
+            mute: held("Ctrl+Alt+M"),
+            // D, desktop (Richard, 2026-10-26).
+            system: held("Ctrl+Alt+D"),
+            clicks: held("Ctrl+Alt+C"),
         }
     }
 }
@@ -779,6 +809,19 @@ pub fn styles_reset(s: &Settings) -> Settings {
 /// stored.
 pub fn validate(mut s: Settings) -> Result<Settings, String> {
     s.version = CURRENT_VERSION;
+    // Two keys can't share a shortcut (Vandal's): one would never be heard.
+    let keys = s.hotkeys.named();
+    for (i, (a, what_a)) in keys.iter().enumerate() {
+        for (b, what_b) in &keys[i + 1..] {
+            if let (Some(a), Some(b)) = (a, b) {
+                if a.eq_ignore_ascii_case(b) {
+                    return Err(format!(
+                        "{a} can't both {what_a} and {what_b}: pick another shortcut."
+                    ));
+                }
+            }
+        }
+    }
     s.appearance.accent =
         normalize_color(&s.appearance.accent).unwrap_or_else(|| WINDOWS_ACCENT.into());
     s.proxies.limit_gb = s
@@ -1064,6 +1107,21 @@ mod tests {
     #[test]
     fn missing_store_gives_defaults_and_saves() {
         assert_eq!(migrate(None), (Settings::default(), true));
+    }
+
+    #[test]
+    fn two_keys_cant_share_a_shortcut() {
+        let mut s = Settings::default();
+        assert!(validate(s.clone()).is_ok());
+        s.hotkeys.stop = Some("ctrl+alt+p".into());
+        assert_eq!(
+            validate(s.clone()).unwrap_err(),
+            "Ctrl+Alt+P can't both pause and stop: pick another shortcut."
+        );
+        // Unset, they never clash.
+        s.hotkeys.stop = None;
+        s.hotkeys.pause = None;
+        assert!(validate(s).is_ok());
     }
 
     #[test]

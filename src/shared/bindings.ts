@@ -666,6 +666,16 @@ export type GrowUnit = "px" | "percent";
 export type Hotkeys = {
 	/**  Record, from anywhere (5b.8b1): as the tray's Record. */
 	record?: string | null,
+	/**
+	 *  While recording only, wherever the keys are (5b.8b2; recording.rs): pause and resume,
+	 *  stop (5b.5c), mute and unmute the microphone (5b.4d) and the system's sound, and clicks
+	 *  noted or not (5b.6).
+	 */
+	pause?: string | null,
+	stop?: string | null,
+	mute?: string | null,
+	system?: string | null,
+	clicks?: string | null,
 };
 
 /**  What an item of markup is to the export, as the page names it. */

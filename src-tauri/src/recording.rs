@@ -46,15 +46,6 @@ const CONTROL: (f64, f64) = (288.0, 44.0);
 /// What a sound's mute button adds to it (a button and a gap): the microphone's, the system
 /// sound's.
 const CONTROL_MIC: f64 = 40.0;
-/// While recording, wherever the keys are: mute and unmute the microphone (PLAN 5b.4d), pause
-/// and resume, stop (5b.5c). Settable with 5b.8's shortcuts.
-const MUTE_KEY: &str = "Ctrl+Alt+M";
-const PAUSE_KEY: &str = "Ctrl+Alt+P";
-const STOP_KEY: &str = "Ctrl+Alt+S";
-/// Clicks noted or not, while recording (PLAN 5b.6).
-const CLICKS_KEY: &str = "Ctrl+Alt+C";
-/// Mute and unmute the system's sound, while it's recorded (Richard, 2026-10-26: D, desktop).
-const SYSTEM_KEY: &str = "Ctrl+Alt+D";
 const CONTROL_TOP: f64 = 8.0;
 /// How long ffmpeg must keep running for an encoder to count as working.
 const STARTED: Duration = Duration::from_millis(1500);
@@ -451,36 +442,49 @@ pub fn mute(app: &AppHandle, sound: Sound, muted: Option<bool>) {
 /// What a key held while recording does.
 type KeyAction = fn(&AppHandle);
 
-/// The keys held while recording ([`MUTE_KEY`] only with the microphone, [`SYSTEM_KEY`] with the
-/// system's sound); let go when it's done.
+/// The keys held while recording, as registered: let go of when it's done.
+static HELD: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// The keys held while recording (Settings › Keyboard shortcuts, PLAN 5b.8b2; mute only with
+/// the microphone, the system's with its sound); let go when it's done.
 fn hold_keys(app: &AppHandle, on: bool, mic: bool, system: bool) {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
     let keys = app.global_shortcut();
+    let mut held_now = HELD.lock().unwrap();
+    for key in held_now.drain(..) {
+        let _ = keys.unregister(key.as_str());
+    }
     if !on {
-        for key in [MUTE_KEY, PAUSE_KEY, STOP_KEY, CLICKS_KEY, SYSTEM_KEY] {
-            let _ = keys.unregister(key);
-        }
         return;
     }
-    let held: [(&str, KeyAction); 5] = [
-        (MUTE_KEY, |app| mute(app, Sound::Microphone, None)),
-        (PAUSE_KEY, pause),
-        (STOP_KEY, stop),
-        (CLICKS_KEY, |app| note(app, None)),
-        (SYSTEM_KEY, |app| mute(app, Sound::System, None)),
+    let set = app
+        .state::<crate::state::AppState>()
+        .settings
+        .read()
+        .unwrap()
+        .hotkeys
+        .clone();
+    let held: [(Option<String>, bool, KeyAction); 5] = [
+        (set.mute, mic, |app| mute(app, Sound::Microphone, None)),
+        (set.pause, true, pause),
+        (set.stop, true, stop),
+        (set.clicks, true, |app| note(app, None)),
+        (set.system, system, |app| mute(app, Sound::System, None)),
     ];
-    for (key, action) in held {
-        if (key == MUTE_KEY && !mic) || (key == SYSTEM_KEY && !system) {
+    for (key, wanted, action) in held {
+        let Some(key) = key.filter(|k| wanted && !k.trim().is_empty()) else {
             continue;
-        }
-        let registered = keys.on_shortcut(key, move |app, _, event| {
+        };
+        let accelerator = crate::hotkeys::to_accelerator(&key);
+        let registered = keys.on_shortcut(accelerator.as_str(), move |app, _, event| {
             if event.state == ShortcutState::Pressed {
                 action(app);
             }
         });
-        if let Err(e) = registered {
+        match registered {
+            Ok(()) => held_now.push(accelerator),
             // Another app has it: the control's buttons still work.
-            logln!("[recording] {key} not available: {e}");
+            Err(e) => logln!("[recording] {key} not available: {e}"),
         }
     }
 }
@@ -1510,12 +1514,19 @@ fn open_control(
         screen.height,
         screen.scale,
     );
+    // Its buttons' keys, for their tips (Settings › Keyboard shortcuts).
+    let keys = {
+        let state = app.state::<crate::state::AppState>();
+        let hotkeys = state.settings.read().unwrap().hotkeys.clone();
+        serde_json::to_string(&hotkeys).unwrap_or_else(|_| "{}".into())
+    };
     let builder = WebviewWindowBuilder::new(app, RECORDER, WebviewUrl::App("recorder.html".into()))
         // The microphone's and the system sound's mute buttons, when they're recorded; the
-        // countdown it shows first; the clicks noted at the start.
+        // countdown it shows first; the clicks noted at the start; the keys.
         .initialization_script(format!(
             "window.recordingMic = {mic}; window.recordingSystem = {system}; \
-             window.recordingCountdown = {countdown}; window.recordingClicks = {clicks};"
+             window.recordingCountdown = {countdown}; window.recordingClicks = {clicks}; \
+             window.recordingKeys = {keys};"
         ));
     let built = crate::appearance::themed(app, builder)
         .title("Recording")

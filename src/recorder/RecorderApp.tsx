@@ -1,8 +1,7 @@
 // The recording's floating control (PLAN 5b.2; recording.rs): a red dot, the time recorded, the
-// microphone's mute button when it's recorded (5b.4d; Ctrl+Alt+M too), the system sound's when
-// it's recorded (Ctrl+Alt+D), clicks noted or not
-// (5b.6a; Ctrl+Alt+C), Pause (5b.5c; Ctrl+Alt+P)
-// and Stop (Ctrl+Alt+S), at the top of the monitor being recorded and left out of the
+// microphone's mute button when it's recorded (5b.4d), the system sound's when it's recorded,
+// clicks noted or not (5b.6a), Pause (5b.5c) and Stop, each with its key too (Settings ›
+// Keyboard shortcuts, 5b.8b2), at the top of the monitor being recorded and left out of the
 // recording. In the countdown (5b.5b) it says when recording starts, and Stop is Cancel. Dragged
 // by anything but its buttons.
 
@@ -20,9 +19,17 @@ declare global {
     recordingCountdown?: number;
     /** Clicks noted at the start. */
     recordingClicks?: boolean;
+    /** The buttons' keys (Settings › Keyboard shortcuts), for their tips: null if unset. */
+    recordingKeys?: Partial<Record<"pause" | "stop" | "mute" | "system" | "clicks", string | null>>;
   }
 }
 import styles from "./RecorderApp.module.css";
+
+/** A button's tip, with its key after it if it has one. */
+function tip(text: string, key: "pause" | "stop" | "mute" | "system" | "clicks"): string {
+  const k = window.recordingKeys?.[key];
+  return k ? `${text} (${k})` : text;
+}
 
 /** `ms` as m:ss, or h:mm:ss past an hour. */
 export function elapsed(ms: number): string {
@@ -95,7 +102,7 @@ export function RecorderApp() {
           className={styles.mic}
           aria-pressed={muted}
           data-off={muted || undefined}
-          title={muted ? "Unmute the microphone (Ctrl+Alt+M)" : "Mute the microphone (Ctrl+Alt+M)"}
+          title={tip(muted ? "Unmute the microphone" : "Mute the microphone", "mute")}
           aria-label="Mute the microphone"
           onClick={() => {
             setMuted(!muted);
@@ -114,11 +121,7 @@ export function RecorderApp() {
           className={styles.mic}
           aria-pressed={systemMuted}
           data-off={systemMuted || undefined}
-          title={
-            systemMuted
-              ? "Unmute the system sound (Ctrl+Alt+D)"
-              : "Mute the system sound (Ctrl+Alt+D)"
-          }
+          title={tip(systemMuted ? "Unmute the system sound" : "Mute the system sound", "system")}
           aria-label="Mute the system sound"
           onClick={() => {
             setSystemMuted(!systemMuted);
@@ -137,11 +140,10 @@ export function RecorderApp() {
         className={styles.mic}
         aria-pressed={clicks}
         data-off={!clicks || undefined}
-        title={
-          clicks
-            ? "Highlighting clicks in the video (Ctrl+Alt+C)"
-            : "Not highlighting clicks (Ctrl+Alt+C)"
-        }
+        title={tip(
+          clicks ? "Highlighting clicks in the video" : "Not highlighting clicks",
+          "clicks",
+        )}
         aria-label="Highlight clicks in video"
         onClick={() => void commands.noteRecordingClicks(!clicks)}
       >
@@ -155,7 +157,7 @@ export function RecorderApp() {
         type="button"
         className={styles.mic}
         aria-pressed={paused}
-        title={paused ? "Resume recording (Ctrl+Alt+P)" : "Pause recording (Ctrl+Alt+P)"}
+        title={tip(paused ? "Resume recording" : "Pause recording", "pause")}
         aria-label={paused ? "Resume recording" : "Pause recording"}
         disabled={counting || switching || stopping}
         onClick={() => {
@@ -177,7 +179,7 @@ export function RecorderApp() {
       <button
         type="button"
         className={styles.stop}
-        title={counting ? "Don't record" : "Stop recording and open it (Ctrl+Alt+S)"}
+        title={counting ? "Don't record" : tip("Stop recording and open it", "stop")}
         disabled={stopping}
         onClick={stop}
       >
