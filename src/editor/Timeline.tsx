@@ -44,6 +44,9 @@ import {
   type ShownRange,
 } from "./doc";
 import { useDoc } from "./docStore";
+import { resizedCamera, shownKeys, type CameraKey, type KeyId } from "./cameraKeys";
+import { CAMERA_SIZE_NAMES, CAMERA_SIZES } from "./cameraPlace";
+import { hasCamera, useRecordedCameras } from "./cameraStore";
 import {
   copiedFades,
   copiedMarks,
@@ -116,18 +119,64 @@ const THUMB_H = CLIP_H - LABEL_H - WAVE_H;
 // dragged taller, EditorApp.tsx) by `fitHeight` at each paint: there's one timeline, and every
 // press, drag and wheel lands after a paint.
 let LANES_H = LANES_MIN;
+/**
+ * The camera keyframes' lane (PLAN 5d.8b): under the markup lanes, never scrolled with them,
+ * while a clip has a camera (the clips move down into the room below them for it).
+ */
+const KEY_H = 24;
+let KEY_TOP = 0;
+let KEYS_ON = false;
 let CLIP_TOP = 0;
 let THUMB_TOP = 0;
 let WAVE_MID = 0;
-/** The geometry for a timeline `h` px tall. */
-function fitHeight(h: number): void {
+/** The geometry for a timeline `h` px tall, with the keyframes' lane if there are `keys`. */
+function fitHeight(h: number, keys = KEYS_ON): void {
+  KEYS_ON = keys;
   LANES_H = Math.max(LANES_MIN, LANES_MIN + Math.round(h) - TIMELINE_H);
-  CLIP_TOP = LANE_TOP + LANES_H + 4;
+  KEY_TOP = LANE_TOP + LANES_H + 4;
+  CLIP_TOP = KEY_TOP + (keys ? KEY_H + 4 : 0);
   THUMB_TOP = CLIP_TOP + LABEL_H;
   WAVE_MID = CLIP_TOP + CLIP_H - WAVE_H / 2;
 }
 fitHeight(TIMELINE_H);
 const CLIP_GAP = 0.5;
+/** How near (px) a keyframe's mark a press picks it. */
+const KEY_HIT = 7;
+
+/** The keyframes' lane's sign, in its header: a camera, `colour`, at (x, y) its middle. */
+function cameraSign(g: CanvasRenderingContext2D, x: number, y: number, colour: string) {
+  g.strokeStyle = colour;
+  g.lineWidth = 1.25;
+  g.beginPath();
+  g.roundRect(x - 6.5, y - 4, 9, 8, 1.5);
+  g.moveTo(x + 2.5, y - 1);
+  g.lineTo(x + 6.5, y - 3.5);
+  g.lineTo(x + 6.5, y + 3.5);
+  g.lineTo(x + 2.5, y + 1);
+  g.stroke();
+  g.lineWidth = 1;
+}
+
+/** The clip track's picture sign, in its header: a film frame, `colour`, at (x, y) its middle. */
+function filmSign(g: CanvasRenderingContext2D, x: number, y: number, colour: string) {
+  g.strokeStyle = colour;
+  g.lineWidth = 1.25;
+  g.beginPath();
+  g.roundRect(x - 5.5, y - 5, 11, 10, 1.5);
+  // The picture between the sprocket strips, and the strips' holes.
+  g.moveTo(x - 2.5, y - 5);
+  g.lineTo(x - 2.5, y + 5);
+  g.moveTo(x + 2.5, y - 5);
+  g.lineTo(x + 2.5, y + 5);
+  for (const dy of [-1.75, 1.75]) {
+    g.moveTo(x - 5.5, y + dy);
+    g.lineTo(x - 2.5, y + dy);
+    g.moveTo(x + 2.5, y + dy);
+    g.lineTo(x + 5.5, y + dy);
+  }
+  g.stroke();
+  g.lineWidth = 1;
+}
 const CLIP_RADIUS = 8;
 /** How long a new clip's light takes to fade (Richard: briefly). */
 const FLASH_MS = 800;
@@ -158,6 +207,8 @@ const TOKENS = [
   "range-edge",
   "range-strip",
   "mark",
+  "tl-keys",
+  "text",
 ];
 
 type Edge = "in" | "out";
@@ -172,6 +223,7 @@ type Hit =
   | { kind: Edge | "move" | "clipFadeIn" | "clipFadeOut" | "crossfade"; clip: Clip }
   | { kind: "rangeA" | "rangeB" | "rangeMove"; range: ShownRange }
   | { kind: "markStart" | "markEnd" | "markMove" | "fadeIn" | "fadeOut"; mark: ShownMark }
+  | { kind: "key"; key: CameraKey; f: number }
   | { kind: "rangeNew" | "pendingIn" };
 
 /** What a handle does (the mockup's tooltips). */
@@ -195,6 +247,7 @@ const TIPS: Record<Hit["kind"], [string, string]> = {
   ],
   fadeIn: ["Fade in", "drag right for a longer fade"],
   fadeOut: ["Fade out", "drag left for a longer fade"],
+  key: ["Camera keyframe", "double-click: the playhead there · right-click: more"],
 };
 
 const CURSORS: Record<Hit["kind"], string> = {
@@ -214,6 +267,7 @@ const CURSORS: Record<Hit["kind"], string> = {
   markMove: "grab",
   fadeIn: "col-resize",
   fadeOut: "col-resize",
+  key: "pointer",
 };
 
 /** How far down a markup bar its fade handles reach (px): below them, its edges trim it. */
@@ -453,6 +507,19 @@ function hitAt(
     const range = ranges.find((r) => x > xOf(view, r.a) && x < xOf(view, r.b));
     return range ? { kind: "rangeMove", range } : { kind: "rangeNew" };
   }
+  // The keyframes' lane: the nearest keyframe's mark.
+  if (KEYS_ON && y >= KEY_TOP - 2 && y <= KEY_TOP + KEY_H + 2) {
+    let near: { key: CameraKey; f: number } | null = null;
+    let d = KEY_HIT + 1;
+    for (const k of shownKeys(doc)) {
+      const dx = Math.abs(xOf(view, k.f) - x);
+      if (dx < d) {
+        d = dx;
+        near = k;
+      }
+    }
+    return near && { kind: "key", key: near.key, f: near.f };
+  }
   if (y < CLIP_TOP - 4) {
     if (y < LANE_TOP || y >= LANE_TOP + LANES_H) return null;
     // Last drawn on top: found first.
@@ -540,7 +607,15 @@ function hitAt(
 
 /** What a hit is on: its clip, range or markup, for telling hits apart. */
 const hitId = (h: Hit) =>
-  "clip" in h ? h.clip.id : "range" in h ? -h.range.id : "mark" in h ? 1e6 + h.mark.id : 0;
+  "clip" in h
+    ? h.clip.id
+    : "range" in h
+      ? -h.range.id
+      : "mark" in h
+        ? 1e6 + h.mark.id
+        : "key" in h
+          ? 2e6 + h.key.id
+          : 0;
 
 const sameHit = (a: Hit | null, b: Hit | null) =>
   a === b || (!!a && !!b && a.kind === b.kind && hitId(a) === hitId(b));
@@ -836,7 +911,8 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
   }, []);
   /**
    * A box being dragged from an empty spot, selecting what it touches (with Ctrl or Shift, added
-   * to what was selected): the clips if it reaches the clip row, else the markup (PLAN 4.5f).
+   * to what was selected): the clips if it reaches the clip row, else the camera keyframes if it
+   * reaches their lane (PLAN 5d.8b), else the markup (PLAN 4.5f).
    * Until the pointer moves, a click, which moves the playhead there.
    */
   const boxing = useRef<{
@@ -846,6 +922,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
     y: number;
     kept: readonly MarkId[];
     keptClips: readonly ClipId[];
+    keptKeys: readonly KeyId[];
     moved: boolean;
   } | null>(null);
   /** How far the markup lanes are scrolled (px), and the selection last kept in view. */
@@ -965,7 +1042,10 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
       const dpr = devicePixelRatio;
       const W = canvas.clientWidth;
       const H = canvas.clientHeight;
-      fitHeight(H);
+      fitHeight(
+        H,
+        useDoc.getState().doc.clips.some((cl) => hasCamera(cl.source)),
+      );
       // The store must know the size it fits to (in development a reload of its module
       // empties it).
       const store = useTimeline.getState();
@@ -1410,19 +1490,101 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
           y0 + L.h / 2 + 1,
         );
       }
-      // The selection box being dragged.
+      g.restore();
+
+      // The camera keyframes' lane (PLAN 5d.8b; mockup/keyframe-track.html): a diamond each,
+      // its size's letter above it (where its neighbours leave room), a line from each to the
+      // next, dashed while it hides the camera.
+      if (KEYS_ON) {
+        const y = KEY_TOP;
+        const mid = y + 16;
+        g.fillStyle = c["tl-keys"];
+        g.fillRect(HEADER, y, W - HEADER, KEY_H);
+        g.save();
+        g.beginPath();
+        g.rect(HEADER, y, W - HEADER, KEY_H);
+        g.clip();
+        const ks = shownKeys(doc);
+        const end = xOf(view, total(doc));
+        g.strokeStyle = c["text-3"];
+        ks.forEach((k, i) => {
+          const x0 = xOf(view, k.f);
+          const x1 = i + 1 < ks.length ? xOf(view, ks[i + 1].f) : end;
+          if (x1 < HEADER || x0 > W) return;
+          g.globalAlpha = k.key.hidden ? 0.7 : 0.9;
+          g.setLineDash(k.key.hidden ? [3, 3] : []);
+          g.beginPath();
+          g.moveTo(x0, mid + 0.5);
+          g.lineTo(x1, mid + 0.5);
+          g.stroke();
+        });
+        g.setLineDash([]);
+        g.globalAlpha = 1;
+        const picked = useDoc.getState().selectedKeys;
+        const h = hover.current;
+        g.font = "600 9px 'Segoe UI Variable Text', 'Segoe UI', system-ui";
+        g.textAlign = "center";
+        ks.forEach((k, i) => {
+          const x = xOf(view, k.f);
+          if (x < HEADER - KEY_HIT || x > W + KEY_HIT) return;
+          const sel = picked.includes(k.key.id);
+          const grown = sel || (h?.kind === "key" && h.key.id === k.key.id);
+          const r = grown ? 7 : 6;
+          const gap = (j: number) =>
+            j >= 0 && j < ks.length ? Math.abs(xOf(view, ks[j].f) - x) : Infinity;
+          // Its letter, unless it'd touch a neighbour's; the mark kept 2 px clear of it.
+          const room = !k.key.hidden && Math.min(gap(i - 1), gap(i + 1)) > 8;
+          g.save();
+          if (room) {
+            g.beginPath();
+            g.rect(x - 20, y + 10, 40, KEY_H);
+            g.clip();
+          }
+          g.beginPath();
+          g.moveTo(x, mid - r);
+          g.lineTo(x + r, mid);
+          g.lineTo(x, mid + r);
+          g.lineTo(x - r, mid);
+          g.closePath();
+          g.fillStyle = k.key.hidden ? c["tl-keys"] : sel ? c["accent"] : c["text"];
+          g.fill();
+          g.lineWidth = sel ? 2 : 1.5;
+          g.strokeStyle = sel ? c["accent"] : k.key.hidden ? c["text"] : "rgb(0 0 0 / 0.6)";
+          g.stroke();
+          if (k.key.hidden) {
+            g.beginPath();
+            g.moveTo(x - r / 2, mid + r / 2);
+            g.lineTo(x + r / 2, mid - r / 2);
+            g.stroke();
+          }
+          g.restore();
+          if (room) {
+            g.fillStyle = c["text-2"];
+            g.fillText(k.key.size[0].toUpperCase(), x, y + 4.5);
+          }
+        });
+        g.textAlign = "left";
+        g.lineWidth = 1;
+        g.restore();
+      }
+
+      // The selection box being dragged, over whichever rows it reaches.
       const box = boxing.current;
       if (box?.moved) {
         const bx = Math.min(box.x0, box.x);
         const by = Math.min(box.y0, box.y);
+        g.save();
+        g.beginPath();
+        g.rect(HEADER, LANE_TOP, W - HEADER, H - LANE_TOP);
+        g.clip();
         g.fillStyle = c["accent"];
         g.globalAlpha = 0.15;
         g.fillRect(bx, by, Math.abs(box.x - box.x0), Math.abs(box.y - box.y0));
         g.globalAlpha = 1;
         g.strokeStyle = c["accent"];
         g.strokeRect(bx + 0.5, by + 0.5, Math.abs(box.x - box.x0), Math.abs(box.y - box.y0));
+        g.restore();
       }
-      g.restore();
 
       // The hovered or dragged clip edge: white with a dark outline, so it reads on any
       // picture. A line along the edge and a grip on the clip's side of it.
@@ -1515,8 +1677,9 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
         g.fillRect(HEADER - 4, LANE_TOP + (L.scroll / all) * LANES_H, 2, (LANES_H * LANES_H) / all);
         g.fillStyle = c["text-2"];
       }
-      g.fillText("▶", HEADER / 2, THUMB_TOP + THUMB_H / 2);
       g.textAlign = "left";
+      filmSign(g, HEADER / 2, THUMB_TOP + THUMB_H / 2, c["text-2"]);
+      if (KEYS_ON) cameraSign(g, HEADER / 2, KEY_TOP + KEY_H / 2, c["text-2"]);
       // The sound's speaker: a click mutes it all (crossed out, in red).
       if (audio) {
         g.fillStyle = g.strokeStyle = doc.muted ? c["error-text"] : c["text-2"];
@@ -1558,6 +1721,8 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
     const stopDoc = useDoc.subscribe(draw.current);
     // Clicks' labels say "×2" as the click settings show double-clicks (PLAN 5b.6d).
     const stopClicks = useClickSettings.subscribe(draw.current);
+    // The keyframes' lane comes and goes with the cameras.
+    const stopCameras = useRecordedCameras.subscribe(draw.current);
     let last = player.getState().frame;
     const stopPlayer = player.subscribe(() => {
       // Playing: the view follows the playhead, a page at a time. Paused, a jump out of view
@@ -1574,6 +1739,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
       stopView();
       stopDoc();
       stopClicks();
+      stopCameras();
       stopPlayer();
     };
   }, [colours, source, sources, audio, player, frames, inFrames]);
@@ -2031,7 +2197,7 @@ ${d.group.length} items`,
 
   /**
    * The selection box follows the pointer: the clips it touches are selected if it reaches the
-   * clip row, else the markup it touches.
+   * clip row, else the keyframes it reaches if it reaches their lane, else the markup it touches.
    */
   const boxTo = (
     e: React.PointerEvent<HTMLCanvasElement>,
@@ -2057,6 +2223,18 @@ ${d.group.length} items`,
       draw.current();
       return;
     }
+    if (KEYS_ON && y1 >= KEY_TOP && y0 <= KEY_TOP + KEY_H) {
+      const touched = shownKeys(doc)
+        .filter((k) => xOf(view, k.f) >= x0 && xOf(view, k.f) <= x1)
+        .map((k) => k.key.id);
+      const ids = [...new Set([...box.keptKeys, ...touched])];
+      const now = useDoc.getState().selectedKeys;
+      if (ids.length !== now.length || ids.some((id, i) => id !== now[i])) {
+        useDoc.getState().selectKeys(ids);
+      }
+      draw.current();
+      return;
+    }
     const touched = shownMarks(doc)
       .filter((m) => {
         const top = laneY(L, m.lane);
@@ -2071,6 +2249,48 @@ ${d.group.length} items`,
       shownSelection.current = useDoc.getState().selectedMarks;
     }
     draw.current();
+  };
+
+  /**
+   * A keyframe's menu (PLAN 5d.8b), for the keyframes selected: the camera shown or hidden from
+   * there, its size (its nearest corner kept; shown, picked), the playhead there, and deleting
+   * them. Hidden, it's still on the lane, so it can show the camera again (Richard).
+   */
+  const keyItems = (key: CameraKey, f: number): MenuItems => {
+    const { doc, selectedKeys, restyleKeys, deleteKeys } = useDoc.getState();
+    const ids = selectedKeys.length ? selectedKeys : [key.id];
+    const picked = doc.cameraKeys.filter((k) => ids.includes(k.id));
+    const pictureOf = (k: CameraKey) => {
+      const clip = doc.clips.find((c) => c.id === k.clip);
+      return clip && useRecordedCameras.getState().cameras[clip.source]?.picture;
+    };
+    const stateOf = (k: CameraKey) => ({ x: k.x, y: k.y, size: k.size, hidden: k.hidden });
+    const hide = !key.hidden;
+    return [
+      {
+        label: hide ? "Hide camera" : "Show camera",
+        run: () => restyleKeys(ids, (k) => ({ ...stateOf(k), hidden: hide })),
+      },
+      "-",
+      ...CAMERA_SIZES.map((s) => ({
+        label: CAMERA_SIZE_NAMES[s],
+        radio: true,
+        checked: picked.every((k) => k.size === s),
+        run: () =>
+          restyleKeys(ids, (k) => {
+            const shown = { ...stateOf(k), hidden: false };
+            const picture = pictureOf(k);
+            return picture ? resizedCamera(shown, s, picture) : { ...shown, size: s };
+          }),
+      })),
+      "-",
+      { label: "Go to keyframe", hint: "Double-click", run: () => player.seek(f) },
+      {
+        label: ids.length > 1 ? `Delete ${ids.length} keyframes` : "Delete keyframe",
+        hint: "Delete",
+        run: () => deleteKeys(ids),
+      },
+    ];
   };
 
   /** What's being dragged, for the hint line's modifiers (`scrubbing`: the playhead). */
@@ -2129,7 +2349,10 @@ ${d.group.length} items`,
       const box = boxing.current;
       boxing.current = null;
       if (!box.moved && e.type === "pointerup") {
-        if (!box.kept.length && !box.keptClips.length) docState.select(null);
+        if (!box.kept.length && !box.keptClips.length && !box.keptKeys.length) {
+          docState.select(null);
+          if (docState.selectedKeys.length) docState.selectKeys([]);
+        }
         scrubTo(e);
       }
     }
@@ -2329,6 +2552,17 @@ ${d.group.length} items`,
           e.currentTarget.setPointerCapture(e.pointerId);
           const hit = hitAt(docState.doc, docState.pendingIn, view, lanes(), x, y);
           hover.current = null;
+          // A keyframe: selected (Ctrl or Shift: added, or taken out). Not dragged yet (5d.8c).
+          if (hit?.kind === "key") {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+            const sel = docState.selectedKeys;
+            const id = hit.key.id;
+            if (e.ctrlKey || e.shiftKey) {
+              docState.selectKeys(sel.includes(id) ? sel.filter((k) => k !== id) : [...sel, id]);
+            } else if (!sel.includes(id)) docState.selectKeys([id]);
+            draw.current();
+            return;
+          }
           if (hit) {
             startDrag(e, hit, x);
             draw.current();
@@ -2339,8 +2573,11 @@ ${d.group.length} items`,
             y >= CLIP_TOP && y <= CLIP_TOP + CLIP_H
               ? clipAt(docState.doc, Math.floor(fOf(view, x)))
               : null;
-          // An empty spot (the lanes', or the clip row's past the clips or below them): a box.
-          const lanesSpot = y >= LANE_TOP && y < LANE_TOP + LANES_H;
+          // An empty spot (the lanes', the keyframes', or the clip row's past the clips or below
+          // them): a box.
+          const lanesSpot =
+            (y >= LANE_TOP && y < LANE_TOP + LANES_H) ||
+            (KEYS_ON && y >= KEY_TOP && y <= KEY_TOP + KEY_H);
           if (x >= HEADER && (lanesSpot || (y >= CLIP_TOP && !under))) {
             boxing.current = {
               x0: x,
@@ -2349,6 +2586,7 @@ ${d.group.length} items`,
               y,
               kept: adding ? docState.selectedMarks : [],
               keptClips: adding ? docState.selectedClips : [],
+              keptKeys: adding ? docState.selectedKeys : [],
               moved: false,
             };
             return;
@@ -2439,9 +2677,11 @@ ${d.group.length} items`,
               ? "timeline.speaker"
               : hit
                 ? (`timeline.${hit.kind}` as ControlHint)
-                : y >= LANE_TOP && y < CLIP_TOP
-                  ? "timeline.lanes"
-                  : "timeline.ruler",
+                : KEYS_ON && y >= KEY_TOP && y <= KEY_TOP + KEY_H
+                  ? "timeline.keys"
+                  : y >= LANE_TOP && y < CLIP_TOP
+                    ? "timeline.lanes"
+                    : "timeline.ruler",
           );
         }}
         onContextMenu={(e) => {
@@ -2454,6 +2694,11 @@ ${d.group.length} items`,
           const docState = useDoc.getState();
           const view = useTimeline.getState().view;
           const hit = hitAt(docState.doc, docState.pendingIn, view, lanes(), x, y);
+          if (hit?.kind === "key") {
+            if (!docState.selectedKeys.includes(hit.key.id)) docState.selectKeys([hit.key.id]);
+            setMenu({ x: e.clientX, y: e.clientY, items: keyItems(hit.key, hit.f) });
+            return;
+          }
           if (hit && "mark" in hit) {
             if (!docState.selectedMarks.includes(hit.mark.id)) docState.selectMarks([hit.mark.id]);
             setMenu({
@@ -2626,6 +2871,13 @@ ${d.group.length} items`,
               },
             ],
           });
+        }}
+        onDoubleClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          const { doc, pendingIn } = useDoc.getState();
+          const view = useTimeline.getState().view;
+          const hit = hitAt(doc, pendingIn, view, lanes(), e.clientX - r.left, e.clientY - r.top);
+          if (hit?.kind === "key") player.seek(hit.f);
         }}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}

@@ -120,6 +120,23 @@ export function startCamera(doc: Doc, clip: ClipId, state: CameraState): Doc {
   return withKey(doc, clip, c.in, state);
 }
 
+/** Keyframes `ids` set as `to` says, from each. The same document if none changes. */
+export function restyleKeys(
+  doc: Doc,
+  ids: readonly KeyId[],
+  to: (key: CameraKey) => CameraState,
+): Doc {
+  let changed = false;
+  const cameraKeys = doc.cameraKeys.map((k) => {
+    if (!ids.includes(k.id)) return k;
+    const state = to(k);
+    if (sameCamera(stateOf(k), state)) return k;
+    changed = true;
+    return { ...k, ...state };
+  });
+  return changed ? { ...doc, cameraKeys } : doc;
+}
+
 /** Keyframes `ids` deleted. The same document if there are none. */
 export function deleteKeys(doc: Doc, ids: readonly KeyId[]): Doc {
   const cameraKeys = doc.cameraKeys.filter((k) => !ids.includes(k.id));

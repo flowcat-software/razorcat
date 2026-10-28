@@ -8,6 +8,7 @@ import {
   placeOf,
   recordedCamera,
   resizedCamera,
+  restyleKeys,
   setCameraAt,
   startCamera,
   type CameraState,
@@ -69,6 +70,14 @@ describe("setting the camera at a frame", () => {
     const fewer = deleteKeys(doc, [id]);
     expect(cameraAt(fewer, 150)).toEqual(small);
     expect(deleteKeys(fewer, [id])).toBe(fewer);
+  });
+
+  it("restyles keyframes from each, changing only what changes", () => {
+    const doc = abc();
+    const ids = doc.cameraKeys.map((k) => k.id);
+    const hidden = restyleKeys(doc, ids, (k) => ({ ...k, hidden: true }));
+    expect(hidden.cameraKeys.every((k) => k.hidden)).toBe(true);
+    expect(restyleKeys(hidden, ids, (k) => ({ ...k }))).toBe(hidden);
   });
 
   it("starts a recording's clip as it was recorded, once", () => {
@@ -168,5 +177,19 @@ describe("the store, through edits", () => {
     // The keyframe kept deleted: the one before carries on.
     s().deleteKeys([keyAt(s().doc, 200)!.id]);
     expect(cameraAt(s().doc, 200)).toEqual(large);
+  });
+
+  it("selects keyframes alone, and drops them when something else is selected", () => {
+    s().setCamera(10, small);
+    const id = keyAt(s().doc, 10)!.id;
+    s().select(1);
+    s().selectKeys([id]);
+    expect(s().selectedKeys).toEqual([id]);
+    expect(s().selectedClips).toEqual([]);
+    s().select(1);
+    expect(s().selectedKeys).toEqual([]);
+    s().selectKeys([id]);
+    s().deleteKeys([id]);
+    expect(s().selectedKeys).toEqual([]);
   });
 });

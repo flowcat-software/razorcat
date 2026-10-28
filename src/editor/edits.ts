@@ -45,7 +45,9 @@ export function splitAtPlayhead(player: Player) {
 export function deleteSelected() {
   const { selectedClips, selectedRange, selectedMarks, removeClips, removeRange, removeMarks } =
     useDoc.getState();
-  if (selectedMarks.length) removeMarks(selectedMarks);
+  const { selectedKeys, deleteKeys } = useDoc.getState();
+  if (selectedKeys.length) deleteKeys(selectedKeys);
+  else if (selectedMarks.length) removeMarks(selectedMarks);
   else if (selectedRange !== null) removeRange(selectedRange);
   else if (!selectedClips.length) sayWhy("delete.none");
   else if (!removeClips(selectedClips)) sayWhy("delete.last");

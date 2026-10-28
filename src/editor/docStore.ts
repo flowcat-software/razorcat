@@ -72,8 +72,10 @@ import type { RecordedInput } from "../shared/ipc";
 import {
   deleteKeys,
   keepCameraStarts,
+  restyleKeys,
   setCameraAt,
   startCamera,
+  type CameraKey,
   type CameraState,
   type KeyId,
 } from "./cameraKeys";
@@ -127,6 +129,8 @@ export interface DocState {
   selectedRange: RangeId | null;
   /** The selected markup (several at once, as Vandal's selection). */
   selectedMarks: readonly MarkId[];
+  /** The camera keyframes selected (PLAN 5d.8b): nothing else is, while they are. */
+  selectedKeys: readonly KeyId[];
   /** I pressed, O not yet: the in-point of the range to come, a timeline frame. */
   pendingIn: number | null;
   options: RangeOptions;
@@ -165,8 +169,12 @@ export interface DocState {
   muteClips: (ids: readonly ClipId[], muted: boolean) => boolean;
   /** The camera at timeline frame `f` set (PLAN 5d.8): the keyframe there, or a new one. */
   setCamera: (f: number, state: CameraState) => boolean;
-  /** Camera keyframes `ids` deleted. */
+  /** Camera keyframes `ids` deleted (and no longer selected). */
   deleteKeys: (ids: readonly KeyId[]) => boolean;
+  /** Camera keyframes `ids` set as `to` says, from each. */
+  restyleKeys: (ids: readonly KeyId[], to: (key: CameraKey) => CameraState) => boolean;
+  /** Camera keyframes `ids` selected, and nothing else. */
+  selectKeys: (ids: readonly KeyId[]) => void;
   /** Clip `clip`'s recording's camera, on its first frame, as it was recorded. */
   startCamera: (clip: ClipId, state: CameraState) => boolean;
   /** Moves clips `ids` together (gathered, in order) to place `at` among the others. */
@@ -379,6 +387,7 @@ export const useDoc = create<DocState>()((set, get) => {
     selectedClips: [],
     selectedRange: null,
     selectedMarks: [],
+    selectedKeys: [],
     pendingIn: null,
     options: {
       follow: true,
@@ -442,7 +451,20 @@ export const useDoc = create<DocState>()((set, get) => {
       ),
     muteClips: (ids, muted) => apply((doc) => muteClips(doc, ids, muted)),
     setCamera: (f, state) => apply((doc) => setCameraAt(doc, f, state), [], true),
-    deleteKeys: (ids) => apply((doc) => deleteKeys(doc, ids), [], true),
+    deleteKeys: (ids) => {
+      const done = apply((doc) => deleteKeys(doc, ids), [], true);
+      set({ selectedKeys: get().selectedKeys.filter((k) => !ids.includes(k)) });
+      return done;
+    },
+    restyleKeys: (ids, to) => apply((doc) => restyleKeys(doc, ids, to), [], true),
+    selectKeys: (ids) =>
+      set({
+        selectedKeys: [...new Set(ids)],
+        selected: null,
+        selectedClips: [],
+        selectedRange: null,
+        selectedMarks: [],
+      }),
     startCamera: (clip, state) => apply((doc) => startCamera(doc, clip, state), [], true),
     moveClips: (ids, at) => applyClips((doc) => moveClips(doc, ids, at)),
     muteTrack: (muted) => apply((doc) => muteTrack(doc, muted)),
@@ -591,3 +613,17 @@ function pushLimited(past: Doc[], doc: Doc): Doc[] {
   const next = [...past, doc];
   return next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
 }
+
+// Anything else selected (a clip, a range, markup) drops the keyframes' selection, as each of
+// those drops the others'.
+useDoc.subscribe((s, was) => {
+  if (!s.selectedKeys.length || s.selectedKeys !== was.selectedKeys) return;
+  if (
+    s.selected !== was.selected ||
+    s.selectedClips !== was.selectedClips ||
+    s.selectedRange !== was.selectedRange ||
+    s.selectedMarks !== was.selectedMarks
+  ) {
+    useDoc.setState({ selectedKeys: [] });
+  }
+});

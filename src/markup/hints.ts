@@ -184,6 +184,10 @@ export const CONTROL_HINTS = {
   "timeline.crossfade":
     "Drag left to crossfade: this clip blends in over the end of the one before, the timeline that much shorter · Right-click to add or remove one",
   "timeline.speaker": "[Shift+M] Mute or unmute all the sound · [M] the selected clips",
+  "timeline.key":
+    "A camera keyframe: the camera's place, size and shown from here · [Ctrl] or [Shift]+click select more · Double-click: the playhead there · Right-click: show, hide, size · [Delete] removes it",
+  "timeline.keys":
+    "Drag to select camera keyframes · [Ctrl] or [Shift] keeps the selection · Move or size the camera in the preview to add one at the playhead",
   "timeline.lanes":
     "Drag to select markup, or clips from their row · [Ctrl] or [Shift] keeps the selection · Right-click to clean up the lanes",
   "timeline.ruler":

@@ -58,6 +58,8 @@
   /* The timeline (mockup/main.html). */
   --tl-bg: light-dark(#ececec, #1c1c1c);
   --tl-lane: light-dark(#e2e2e2, #232323);
+  /* The camera keyframes' lane (PLAN 5d.8b): a little bluer than the markup's. */
+  --tl-keys: light-dark(#dcdfe6, #262a31);
   --clip: light-dark(#3d6fb8, #34598f);
   --clip-sel: light-dark(#2a5aa3, #4570b0);
   /* The clips of each file added after the first, in turn (PLAN 4.5e): clear of the markup's
