@@ -23,6 +23,7 @@ mod names;
 mod paths;
 mod picker;
 mod placement;
+mod project;
 mod protocol;
 mod proxy;
 mod recording;
@@ -54,6 +55,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::editor_ready,
             commands::open_dialog,
             commands::answer_offer,
+            commands::save_project,
             commands::windows_accent,
             commands::log_page,
             commands::crash_notice,
@@ -121,6 +123,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .events(collect_events![
             editor::SourceOpened,
             editor::SourceAdded,
+            editor::ProjectOpened,
             editor::OpenOffered,
             editor::DropHover,
             editor::OpenFailed,

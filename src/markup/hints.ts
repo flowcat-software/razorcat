@@ -103,7 +103,7 @@ export const CONTROL_HINTS = {
   "ends.both": "Heads on both ends",
   // Razorcat's own controls (PLAN 4.6b).
   open: "[Ctrl+O] Open a video in place of the timeline · or drop one on the window",
-  file: "[Ctrl+O] Open a video · [Ctrl+Shift+O] add one to the end of the timeline",
+  file: "[Ctrl+O] Open a video or project · [Ctrl+Shift+O] add a video · [Ctrl+S] save the project",
   record:
     "Record the screen this window is on · Razorcat steps aside, and the recording opens when you stop",
   recordStop: "Stop recording: the recording opens",

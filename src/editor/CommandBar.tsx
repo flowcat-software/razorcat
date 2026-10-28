@@ -22,6 +22,8 @@ interface Props {
   onOpen: () => void;
   /** Add Video: a file on the end of the timeline (PLAN 4.5e). */
   onAdd: () => void;
+  /** Save the project (PLAN PR2); `as`, as another. */
+  onSave: (as: boolean) => void;
   /** A screen recording is under way (PLAN 5b): Record stops it. */
   recording: boolean;
   /** Record the screen, or stop recording. */
@@ -158,6 +160,7 @@ export function CommandBar({
   settings,
   onOpen,
   onAdd,
+  onSave,
   recording,
   onRecord,
 }: Props) {
@@ -183,6 +186,9 @@ export function CommandBar({
       disabled: empty,
       run: onAdd,
     },
+    "-",
+    { label: "Save project", hint: "Ctrl+S", disabled: empty, run: () => onSave(false) },
+    { label: "Save project as…", hint: "Ctrl+Shift+S", disabled: empty, run: () => onSave(true) },
   ];
   const noExport = empty || exporting;
   const saveToFolder = settings?.export.saveToFolder ?? false;
@@ -326,7 +332,7 @@ export function CommandBar({
         type="button"
         className={`${styles.button} ${styles.squeeze2}`}
         aria-label="File"
-        title="Open, add a video"
+        title="Open, add a video, save the project"
         {...hint("file")}
         aria-haspopup="menu"
         aria-expanded={fileMenu !== null}

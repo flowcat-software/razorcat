@@ -51,6 +51,7 @@ import { checkFrames } from "./frameCheck";
 import { checkLayout } from "./layoutCheck";
 import { FrameOptions } from "./FrameOptions";
 import { playbackGain, usePlayback } from "./playback";
+import { openedDoc } from "./project";
 import { Player } from "./player";
 import { Preview } from "./Preview";
 import { StatusBar, type Notice } from "./StatusBar";
@@ -280,6 +281,31 @@ export function EditorApp() {
   };
   /** Open (the button, Ctrl+O): with edits, asks first. */
   const replace = () => (edited() ? setAsking({ open: true }) : openVideo());
+  /** The timeline's files, as they are now (for what's run later: a save, a load). */
+  const latest = useRef(sources);
+  /** A project's document, opened: it's loaded once its first file is (the load below). */
+  const projectDoc = useRef<Doc | null>(null);
+  /**
+   * Saves the timeline as a project (PLAN PR2): to the one open, or (`as`, or none yet) where
+   * the Save dialog says.
+   */
+  const saveProject = (as: boolean) => {
+    const { doc } = useDoc.getState();
+    if (!doc.clips.length) return;
+    const paths = doc.sources.map((r) => latest.current.find((s) => s.id === r.id)?.path);
+    if (paths.some((p) => p === undefined)) {
+      setNotice({ text: "The project couldn't be saved: a file is missing.", error: true });
+      return;
+    }
+    void commands.saveProject(JSON.stringify(doc), paths as string[], as).then((r) => {
+      if (r.status === "error") setNotice({ text: r.error, error: true });
+      else if (r.data) setNotice({ text: `Saved ${r.data}.` });
+    });
+  };
+  const saveNow = useRef(saveProject);
+  useEffect(() => {
+    saveNow.current = saveProject;
+  });
   /** Time as frame numbers, not timecode: the readout and the ruler (a click on the readout). */
   const [inFrames, setInFrames] = useState(false);
   /** The timeline's height, the resizer above it dragged (its own, to start). */
@@ -409,7 +435,6 @@ export function EditorApp() {
 
   // A new first file starts a new edit: the whole of it, one clip (and, the page reloaded, the
   // others after it). The same file converted to play here keeps its edit.
-  const latest = useRef(sources);
   useEffect(() => {
     latest.current = sources;
   }, [sources]);
@@ -419,6 +444,17 @@ export function EditorApp() {
   useEffect(() => {
     if (!sourceId) return;
     const doc = useDoc.getState();
+    useTool.getState().setTool("select");
+    // A portrait video's crop ratios start turned (9:16).
+    useTool.getState().setPortrait(sourceHeight > sourceWidth);
+    // A project's document as it was saved: its clicks and cameras are in it already.
+    const project = projectDoc.current;
+    projectDoc.current = null;
+    if (project?.sources[0]?.id === sourceId) {
+      doc.loadDoc(project);
+      unstarted.current = new Map();
+      return;
+    }
     doc.load(sourceFrames, { width: sourceWidth, height: sourceHeight }, sourceId);
     for (const s of latest.current.slice(1)) doc.addSource(s.id, s.frames);
     useDoc.setState({ past: [], future: [] });
@@ -426,9 +462,6 @@ export function EditorApp() {
     const first = latest.current[0];
     if (first) addRecordedInput(first, 1, first);
     unstarted.current = new Map(first ? [[first.id, 1]] : []);
-    useTool.getState().setTool("select");
-    // A portrait video's crop ratios start turned (9:16).
-    useTool.getState().setPortrait(sourceHeight > sourceWidth);
   }, [sourceId, sourceFrames, sourceWidth, sourceHeight]);
 
   // The player plays the edit (after the load above, so never another source's).
@@ -491,6 +524,28 @@ export function EditorApp() {
         useTimeline.getState().setDropAt(null);
         setNotice(null);
         setConverting(null);
+      }),
+      // A project (PLAN PR2): its files, and its document with their ids now.
+      events.projectOpened.listen(({ payload }) => {
+        const files = payload.sources as SourceInfo[];
+        const opened = openedDoc(payload.doc, files);
+        projectDoc.current = opened?.doc ?? null;
+        setSources(files);
+        useTimeline.getState().setDropAt(null);
+        setConverting(null);
+        setNotice(
+          !opened
+            ? {
+                text: `${payload.name} couldn't be read: its videos are open on their own.`,
+                error: true,
+              }
+            : opened.changed.length
+              ? {
+                  text: `${opened.changed.join(", ")} changed since ${payload.name} was saved: its clips may be off.`,
+                  error: true,
+                }
+              : { text: `Opened ${payload.name}.` },
+        );
       }),
       // Files dropped while the timeline has files: onto a cut, they go in there (PLAN
       // 4.5e5); elsewhere, add them or replace the timeline's?
@@ -729,6 +784,12 @@ export function EditorApp() {
         addVideo();
         return;
       }
+      // Ctrl+S saves the project, Ctrl+Shift+S as another (PLAN PR2).
+      if (e.code === "KeyS") {
+        e.preventDefault();
+        saveNow.current(e.shiftKey);
+        return;
+      }
       if (e.shiftKey) return;
       // Ctrl+D duplicates the selected clip, Ctrl+C / Ctrl+V copy it and paste it at the cut
       // nearest the playhead, or copy the selected markup and paste it at the playhead (the
@@ -873,6 +934,7 @@ export function EditorApp() {
         exporting={exporting !== null}
         settings={settings}
         onOpen={replace}
+        onSave={saveProject}
         onAdd={addVideo}
         recording={recording}
         onRecord={recordClicked}

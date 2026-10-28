@@ -144,6 +144,8 @@ export interface DocState {
    * history.
    */
   load: (frames: number, size?: Size, id?: SourceId) => void;
+  /** A project's document in place of the timeline's (PLAN PR2): nothing to undo yet. */
+  loadDoc: (doc: Doc) => void;
   /** Source `id`, `frames` long, on the end of the timeline (PLAN 4.5e): one undo step. */
   addSource: (id: SourceId, frames: number, at?: number | null) => boolean;
   /** Splits the clip under timeline frame `f`. False if there was nothing to split. */
@@ -413,11 +415,12 @@ export const useDoc = create<DocState>()((set, get) => {
       stretchMarks: true,
     },
 
-    load: (frames, size, id) => {
+    load: (frames, size, id) => get().loadDoc(wholeSource(frames, size, id)),
+    loadDoc: (doc) => {
       gestures = 0;
       keysEdited = false;
       set({
-        doc: wholeSource(frames, size, id),
+        doc,
         past: [],
         future: [],
         gestureStart: null,

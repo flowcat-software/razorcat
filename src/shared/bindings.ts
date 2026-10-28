@@ -25,6 +25,12 @@ export const commands = {
 	 */
 	answerOffer: (add: boolean | null, at: number | null) => __TAURI_INVOKE<void>("answer_offer", { add, at }),
 	/**
+	 *  Save the timeline as a project (PLAN PR2): `doc`, the page's document, its files' `paths` in
+	 *  its order; to the project open, or (`save_as`, or none open) where the Save dialog says.
+	 *  The file's name once saved; none if the dialog was cancelled.
+	 */
+	saveProject: (doc: string, paths: string[], saveAs: boolean) => typedError<string | null, string>(__TAURI_INVOKE("save_project", { doc, paths, saveAs })),
+	/**
 	 *  The Windows accent color, if Windows has one, read on a worker thread (WinRT and a COM init,
 	 *  kept off the main thread amid the window's start-up). The rare start-up crash here was
 	 *  WinRT's DLL unloaded under it: see `appearance::keep_com_alive`.
@@ -275,6 +281,7 @@ export const events = {
 	openOffered: makeEvent<OpenOffered>("open-offered"),
 	pickClear: makeEvent<PickClear>("pick-clear"),
 	pickWindow: makeEvent<PickWindow>("pick-window"),
+	projectOpened: makeEvent<ProjectOpened>("project-opened"),
 	proxyFailed: makeEvent<ProxyFailed>("proxy-failed"),
 	proxyProgress: makeEvent<ProxyProgress>("proxy-progress"),
 	proxyReady: makeEvent<ProxyReady>("proxy-ready"),
@@ -855,6 +862,17 @@ export type Playback = {
 export type Probe = {
 	x: number,
 	y: number,
+};
+
+/**
+ *  Rust → editor: a project was opened (PLAN PR2): its videos, in its document's order, opened
+ *  in place of the timeline's files, and its document (the page's JSON, as saved).
+ */
+export type ProjectOpened = {
+	/**  Its name, without `.rct`. */
+	name: string,
+	sources: SourceInfo[],
+	doc: string,
 };
 
 export type Proxies = {

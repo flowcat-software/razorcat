@@ -28,6 +28,22 @@ pub async fn open_dialog(app: AppHandle, add: bool) {
     let _ = tauri::async_runtime::spawn_blocking(move || editor::ask_open(&app, add)).await;
 }
 
+/// Save the timeline as a project (PLAN PR2): `doc`, the page's document, its files' `paths` in
+/// its order; to the project open, or (`save_as`, or none open) where the Save dialog says.
+/// The file's name once saved; none if the dialog was cancelled.
+#[tauri::command]
+#[specta::specta]
+pub async fn save_project(
+    app: AppHandle,
+    doc: String,
+    paths: Vec<String>,
+    save_as: bool,
+) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || editor::save_project(&app, &doc, paths, save_as))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// The answer to [`editor::OpenOffered`]: add the dropped files (true; before clip `at`, its
 /// index, else on the end), replace the timeline's files with them (false), or neither (null).
 #[tauri::command]

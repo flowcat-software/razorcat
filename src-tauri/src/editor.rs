@@ -1,8 +1,9 @@
 //! The main window: the editor. It opens hidden and shows once its page has loaded (no white
 //! flash), and opens the files Razorcat is given: from Open, a drop, "Open with" or a second
-//! launch.
+//! launch. A project (`.rct`, project.rs) opens its videos and hands the page its document;
+//! Save writes one.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use specta::Type;
@@ -10,7 +11,9 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_specta::Event;
 
+use crate::media::grid::Rate;
 use crate::placement::{self, Placement};
+use crate::project;
 use crate::source::{self, OpenError, Source, SourceInfo};
 use crate::state::AppState;
 
@@ -41,6 +44,8 @@ pub struct EditorState {
     pub start_hidden: bool,
     /// It has been shown (the first time shows it maximized, if it was).
     shown: bool,
+    /// The project open, once saved or opened (PLAN PR2): Save writes it.
+    project: Option<PathBuf>,
 }
 
 /// Held while files open, so the files of one request, and requests one after another, open
@@ -50,6 +55,16 @@ static OPENING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// Rust → editor: a file was opened (it replaces the timeline's files).
 #[derive(Clone, Serialize, Type, Event)]
 pub struct SourceOpened(pub SourceInfo);
+
+/// Rust → editor: a project was opened (PLAN PR2): its videos, in its document's order, opened
+/// in place of the timeline's files, and its document (the page's JSON, as saved).
+#[derive(Clone, Serialize, Type, Event)]
+pub struct ProjectOpened {
+    /// Its name, without `.rct`.
+    pub name: String,
+    pub sources: Vec<SourceInfo>,
+    pub doc: String,
+}
 
 /// Rust → editor: a file was added to the timeline's (PLAN 4.5e): it goes before clip `at` (its
 /// index), else on the end.
@@ -186,6 +201,16 @@ pub fn request_open_at(app: &AppHandle, paths: Vec<PathBuf>, add: bool, at: Opti
             return;
         }
     }
+    // A project opens alone, in place of the timeline (its files with it).
+    if let Some(project) = paths.iter().find(|p| is_project(p)).cloned() {
+        crate::convert::cancel(app);
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let _turn = OPENING.lock().unwrap_or_else(|e| e.into_inner());
+            open_project(&app, &project);
+        });
+        return;
+    }
     // A file being converted for opening is replaced by these (an added one is let finish).
     if !add {
         crate::convert::cancel(app);
@@ -220,42 +245,62 @@ fn open_one(app: &AppHandle, path: PathBuf, add: bool, at: Option<u32>) -> bool 
         sources.first().filter(|_| add).map(|s| s.grid.rate)
     };
     let add = rate.is_some();
-    let opened = match source::open(&path, None, rate) {
+    match load(app, &path, rate) {
+        Some(opened) => {
+            show(app, path, opened, add, at, true);
+            true
+        }
+        None => false,
+    }
+}
+
+/// `path` read (at `rate`, if it's added to a timeline at it), converted first if it must be;
+/// none if it couldn't be (`OpenFailed` or `ConvertEnded` has told the page why).
+fn load(app: &AppHandle, path: &Path, rate: Option<Rate>) -> Option<Source> {
+    let opened = match source::open(path, None, rate) {
         // MKV, GIF...: opened from a converted copy.
-        Err(OpenError::NeedsConversion) => match crate::convert::before_open(app, &path) {
-            Ok(Some(copy)) => source::open(&path, Some(copy), rate),
+        Err(OpenError::NeedsConversion) => match crate::convert::before_open(app, path) {
+            Ok(Some(copy)) => source::open(path, Some(copy), rate),
             // Cancelled, or failed: `ConvertEnded` has told the page.
-            Ok(None) | Err(_) => return false,
+            Ok(None) | Err(_) => return None,
         },
         // The preview needed a copy of this one before (its codec): it plays that at once.
         Ok(mut opened) => {
-            opened.playable = crate::convert::cached_for_preview(app, &path);
+            opened.playable = crate::convert::cached_for_preview(app, path);
             Ok(opened)
         }
         Err(e) => Err(e),
     };
     match opened {
-        Ok(opened) => {
-            show(app, path, opened, add, at);
-            true
-        }
+        Ok(opened) => Some(opened),
         Err(e) => {
             let message = match e {
                 OpenError::Failed(message) => message,
                 OpenError::NeedsConversion => {
-                    format!("{} can't be opened.", source::file_name(&path))
+                    format!("{} can't be opened.", source::file_name(path))
                 }
             };
-            logln!("[editor] {message}");
-            let _ = OpenFailed { message }.emit_to(app, LABEL);
-            false
+            failed(app, message);
+            None
         }
     }
 }
 
+fn failed(app: &AppHandle, message: String) {
+    logln!("[editor] {message}");
+    let _ = OpenFailed { message }.emit_to(app, LABEL);
+}
+
 /// Makes `opened` the timeline's file, or with `add` one more of them (before clip `at`, else on
-/// the end): the title, the page, its proxy.
-fn show(app: &AppHandle, path: PathBuf, mut opened: Source, add: bool, at: Option<u32>) {
+/// the end): the title, the page (with `tell`; a project's are told together), its proxy.
+fn show(
+    app: &AppHandle,
+    path: PathBuf,
+    mut opened: Source,
+    add: bool,
+    at: Option<u32>,
+    tell: bool,
+) -> SourceInfo {
     let use_proxies = crate::proxy::enabled(app);
     if use_proxies {
         opened.proxy = crate::proxy::cached(app, &path);
@@ -304,20 +349,25 @@ fn show(app: &AppHandle, path: PathBuf, mut opened: Source, add: bool, at: Optio
         }
         sources.push(opened);
     }
-    // The title names the first file.
+    // The title names the first file; a new edit, no project yet.
     if !add {
-        if let Some(window) = app.get_webview_window(LABEL) {
-            let _ = window.set_title(&format!("{} — {}", info.name, crate::product_name(app)));
-        }
+        app.state::<AppState>().editor.lock().unwrap().project = None;
+        set_title(app, &info.name);
     }
     let id = info.id.clone();
-    let told = if add {
-        SourceAdded { source: info, at }.emit_to(app, LABEL)
-    } else {
-        SourceOpened(info).emit_to(app, LABEL)
-    };
-    if let Err(e) = told {
-        logln!("[editor] couldn't tell the page: {e}");
+    if tell {
+        let told = if add {
+            SourceAdded {
+                source: info.clone(),
+                at,
+            }
+            .emit_to(app, LABEL)
+        } else {
+            SourceOpened(info.clone()).emit_to(app, LABEL)
+        };
+        if let Err(e) = told {
+            logln!("[editor] couldn't tell the page: {e}");
+        }
     }
     if !add {
         crate::check::opened(app, id);
@@ -330,6 +380,165 @@ fn show(app: &AppHandle, path: PathBuf, mut opened: Source, add: bool, at: Optio
     } else {
         crate::thumbs::start(app, generation);
     }
+    info
+}
+
+/// The window's title: `name` (a file's, or the project's), then Razorcat.
+fn set_title(app: &AppHandle, name: &str) {
+    if let Some(window) = app.get_webview_window(LABEL) {
+        let _ = window.set_title(&format!("{name} — {}", crate::product_name(app)));
+    }
+}
+
+fn is_project(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case(project::EXTENSION))
+}
+
+fn project_name(path: &Path) -> String {
+    path.file_stem()
+        .map_or_else(|| "Project".into(), |s| s.to_string_lossy().into_owned())
+}
+
+/// Opens project `path` (PLAN PR2): its videos, each found beside it or where it was (or asked
+/// for), all read before any replaces the timeline's, so one that can't open leaves the
+/// timeline as it was; then its document goes to the page.
+fn open_project(app: &AppHandle, path: &Path) {
+    let file_name = source::file_name(path);
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) => return failed(app, format!("{file_name} couldn't be read: {e}")),
+    };
+    let file = match project::read(&text, &file_name) {
+        Ok(file) => file,
+        Err(message) => return failed(app, message),
+    };
+    let dir = path.parent().unwrap_or(Path::new(""));
+    let mut loaded: Vec<(PathBuf, Source)> = Vec::new();
+    for s in &file.sources {
+        let Some(found) = project::find(dir, s, Path::exists).or_else(|| locate(app, &s.path))
+        else {
+            let name = source::file_name(Path::new(&s.path));
+            return failed(
+                app,
+                format!("{file_name} wasn't opened: its video {name} couldn't be found."),
+            );
+        };
+        // The first sets the rate the rest are gridded at, as when they were added.
+        let rate = loaded.first().map(|(_, s)| s.grid.rate);
+        let Some(opened) = load(app, &found, rate) else {
+            return;
+        };
+        loaded.push((found, opened));
+    }
+    if loaded.is_empty() {
+        return failed(app, format!("{file_name} has no videos."));
+    }
+    let sources = loaded
+        .into_iter()
+        .enumerate()
+        .map(|(i, (p, s))| show(app, p, s, i > 0, None, false))
+        .collect();
+    let name = project_name(path);
+    app.state::<AppState>().editor.lock().unwrap().project = Some(path.to_path_buf());
+    set_title(app, &name);
+    crate::log::private_file(path);
+    logln!("[editor] opened a project of {} videos", file.sources.len());
+    let doc = file.doc.to_string();
+    if let Err(e) = (ProjectOpened { name, sources, doc }).emit_to(app, LABEL) {
+        logln!("[editor] couldn't tell the page: {e}");
+    }
+}
+
+/// A project's video `was` isn't where it was, or beside the project: asks where it is now.
+fn locate(app: &AppHandle, was: &str) -> Option<PathBuf> {
+    let name = source::file_name(Path::new(was));
+    let mut dialog = app
+        .dialog()
+        .file()
+        .set_title(format!("Where is {name}?"))
+        .set_file_name(&name)
+        .add_filter("Videos", EXTENSIONS)
+        .add_filter("All files", &["*"]);
+    if let Some(window) = app.get_webview_window(LABEL) {
+        dialog = dialog.set_parent(&window);
+    }
+    dialog.blocking_pick_file()?.into_path().ok()
+}
+
+/// Saves the timeline as a project (PLAN PR2): `doc`, the page's document, showing `paths` in
+/// its order. To the project open, unless `save_as` or there's none: then where the Save
+/// dialog says. Its file name, once saved; none if the dialog was cancelled.
+pub fn save_project(
+    app: &AppHandle,
+    doc: &str,
+    paths: Vec<String>,
+    save_as: bool,
+) -> Result<Option<String>, String> {
+    let doc: serde_json::Value =
+        serde_json::from_str(doc).map_err(|e| format!("The project couldn't be saved: {e}"))?;
+    let open = app
+        .state::<AppState>()
+        .editor
+        .lock()
+        .unwrap()
+        .project
+        .clone();
+    let target = match open.filter(|_| !save_as) {
+        Some(path) => path,
+        None => match ask_save(app, &paths) {
+            Some(path) => path,
+            None => return Ok(None),
+        },
+    };
+    let dir = target.parent().unwrap_or(Path::new(""));
+    let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    let text = project::write(dir, &paths, doc, &app.package_info().version.to_string());
+    // Written beside it, then put in its place: a crash midway never leaves half a project.
+    let partial = target.with_extension("rct.partial");
+    std::fs::write(&partial, text)
+        .and_then(|()| std::fs::rename(&partial, &target))
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&partial);
+            format!("{} couldn't be saved: {e}", source::file_name(&target))
+        })?;
+    app.state::<AppState>().editor.lock().unwrap().project = Some(target.clone());
+    set_title(app, &project_name(&target));
+    crate::log::private_file(&target);
+    logln!("[editor] saved a project of {} videos", paths.len());
+    Ok(Some(source::file_name(&target)))
+}
+
+/// The Save dialog for a project: named and placed as the project open, else after the first
+/// video, beside it.
+fn ask_save(app: &AppHandle, paths: &[String]) -> Option<PathBuf> {
+    let open = app
+        .state::<AppState>()
+        .editor
+        .lock()
+        .unwrap()
+        .project
+        .clone();
+    let first = paths.first().map(PathBuf::from);
+    let like = open.as_deref().or(first.as_deref());
+    let name = like.map_or_else(|| "Project".into(), project_name);
+    let mut dialog = app
+        .dialog()
+        .file()
+        .set_title("Save project")
+        .set_file_name(format!("{name}.{}", project::EXTENSION))
+        .add_filter("Razorcat projects", &[project::EXTENSION]);
+    if let Some(folder) = like.and_then(Path::parent) {
+        dialog = dialog.set_directory(folder);
+    }
+    if let Some(window) = app.get_webview_window(LABEL) {
+        dialog = dialog.set_parent(&window);
+    }
+    let mut path = dialog.blocking_save_file()?.into_path().ok()?;
+    if !is_project(&path) {
+        path.set_extension(project::EXTENSION);
+    }
+    Some(path)
 }
 
 /// Files are dragged over the window, the pointer at `at` (CSS pixels), or (`None`) no longer.
@@ -357,6 +566,11 @@ pub fn offer_recording(app: &AppHandle, path: PathBuf) {
 
 fn offer_as(app: &AppHandle, paths: Vec<PathBuf>, recording: bool) {
     if paths.is_empty() {
+        return;
+    }
+    // A project replaces the timeline (PR3 asks first if it's unsaved).
+    if paths.iter().any(|p| is_project(p)) {
+        request_open_all(app, paths, false);
         return;
     }
     let empty = {
@@ -389,7 +603,19 @@ pub fn ask_open(app: &AppHandle, add: bool) {
     let mut dialog = app
         .dialog()
         .file()
-        .set_title(if add { "Add video" } else { "Open video" })
+        .set_title(if add { "Add video" } else { "Open" });
+    // Open takes projects too (PLAN PR2); Add, videos only.
+    if !add {
+        let both: Vec<&str> = EXTENSIONS
+            .iter()
+            .copied()
+            .chain([project::EXTENSION])
+            .collect();
+        dialog = dialog
+            .add_filter("Videos and projects", &both)
+            .add_filter("Razorcat projects", &[project::EXTENSION]);
+    }
+    dialog = dialog
         .add_filter("Videos", EXTENSIONS)
         .add_filter("All files", &["*"]);
     if let Some(start) = crate::folders::open_start(app) {
