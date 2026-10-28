@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { MarkupDrawing } from "../markup/MarkupDrawing";
 import { MarkupLayer } from "../markup/MarkupLayer";
 import { connectMarkup } from "../markup/model/store";
-import type { SourceCamera, SourceInfo } from "../shared/ipc";
+import type { CameraFitting, SourceCamera, SourceInfo } from "../shared/ipc";
 import { CameraLayer } from "./CameraLayer";
 import { cameraOnStage, type Square } from "./cameraPlace";
 import { CropOverlay } from "./CropOverlay";
@@ -34,6 +34,8 @@ interface Props {
   proxyUrls: Readonly<Record<string, string | null>>;
   /** The cameras recorded with files, once found (camera.rs), by file id. */
   cameras: Readonly<Record<string, SourceCamera>>;
+  /** The cameras still being fitted to their recordings (camera.rs), by file id. */
+  fitting: Readonly<Record<string, CameraFitting>>;
   /** The cameras fade with their clips (Settings › Recording). */
   cameraFades: boolean;
   /** A picture can't be shown, even from a converted copy. */
@@ -61,6 +63,7 @@ export function Preview({
   player,
   proxyUrls,
   cameras,
+  fitting,
   cameraFades,
   onError,
   onUnplayable,
@@ -116,13 +119,13 @@ export function Preview({
     width: source.width * scale,
     height: source.height * scale,
   };
-  // Each camera on the finished frame.
+  // Each camera on the finished frame (being fitted, where it'll be).
   const places: Record<string, Square> = {};
   for (const s of sources) {
-    const c = cameras[s.id];
-    if (!c) continue;
+    const place = cameras[s.id]?.place ?? fitting[s.id]?.place;
+    if (!place) continue;
     places[s.id] = cameraOnStage(
-      { x: c.place.x ?? 0, y: c.place.y ?? 0, size: c.place.size ?? 0 },
+      { x: place.x ?? 0, y: place.y ?? 0, size: place.size ?? 0 },
       s,
       source,
       { ...picture, left: inner.x + picture.left, top: inner.y + picture.top },
@@ -216,6 +219,7 @@ export function Preview({
             player={player}
             sources={sources}
             cameras={cameras}
+            fitting={fitting}
             places={places}
             fades={cameraFades}
           />

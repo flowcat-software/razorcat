@@ -801,15 +801,17 @@ pub fn bubble_circle(app: &AppHandle) -> Option<(f64, f64, f64)> {
 /// The camera's file fitted to the recording, at `out`: from the take's frames, the stretch of
 /// each of the recording's parts (each started at µs since 1970, lasting s), less the camera's
 /// delay, one after another, at a steady 30 fps from the recording's first frame; where the
-/// bubble was left (`place`) kept in it. Then the take is deleted.
+/// bubble was left (`place`) kept in it; `progress` hears how far along it is (0 to 1). Then the
+/// take is deleted.
 pub fn fit(
     take: &Take,
     parts: &[(i64, f64)],
     encoder: Encoder,
     out: &Path,
     place: Option<Place>,
+    mut progress: impl FnMut(f64),
 ) -> Result<(), String> {
-    let (filter, _) = fit_filter(take.origin_us, parts, encoder.pixels());
+    let (filter, frames) = fit_filter(take.origin_us, parts, encoder.pixels());
     let mut writing = out.as_os_str().to_owned();
     writing.push(".part");
     let writing = PathBuf::from(writing);
@@ -824,12 +826,38 @@ pub fn fit(
     if let Some(p) = place {
         cmd.args(["-metadata".into(), format!("comment={}", p.tag())]);
     }
+    // How far it's got, as frames written (`progress`, 0 to 1), on stdout.
     cmd.args(["-movflags", "+faststart", "-f", "mp4"])
-        .arg(&writing);
-    let done = cmd.output().map_err(|e| e.to_string())?;
-    if !done.status.success() {
+        .arg(&writing)
+        .args(["-progress", "pipe:1", "-nostats"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // Not in Razorcat's job: closed while fitting, the camera's still fitted.
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    let stderr = child.stderr.take();
+    let said = std::thread::spawn(move || {
+        let mut text = String::new();
+        if let Some(mut e) = stderr {
+            let _ = e.read_to_string(&mut text);
+        }
+        text
+    });
+    if let Some(out) = child.stdout.take() {
+        use std::io::BufRead;
+        for line in std::io::BufReader::new(out).lines().map_while(Result::ok) {
+            let written = line
+                .strip_prefix("frame=")
+                .and_then(|n| n.trim().parse::<u64>().ok());
+            if let Some(n) = written {
+                progress((n as f64 / frames.max(1) as f64).min(1.0));
+            }
+        }
+    }
+    let status = child.wait().map_err(|e| e.to_string())?;
+    let said = said.join().unwrap_or_default();
+    if !status.success() {
         let _ = std::fs::remove_file(&writing);
-        return Err(String::from_utf8_lossy(&done.stderr).trim().to_string());
+        return Err(said.trim().to_string());
     }
     std::fs::rename(&writing, out).map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(&take.path);
@@ -948,8 +976,74 @@ pub struct CameraReady {
     pub camera: SourceCamera,
 }
 
+/// Rust → editor: an open recording's camera is being fitted (PLAN 5d.5c), `progress` (0 to 1)
+/// of the way: the editor shows where it'll be till it's ready (`CameraReady`).
+#[derive(Clone, Serialize, Type, tauri_specta::Event)]
+#[serde(rename_all = "camelCase")]
+pub struct CameraFitting {
+    /// The source it's for (its `SourceInfo::id`).
+    pub source: String,
+    pub place: Place,
+    pub progress: f64,
+}
+
+/// The recordings whose cameras are being fitted: each one's file, the bubble's place (None:
+/// the usual), and how far along.
+static FITTING: Mutex<Vec<(PathBuf, Option<Place>, f64)>> = Mutex::new(Vec::new());
+
+/// The camera of recording `file` is being fitted, `progress` of the way (its bubble at
+/// `place`): the editor's told, if it has the file open.
+pub fn fitting(app: &AppHandle, file: &Path, place: Option<Place>, progress: f64) {
+    {
+        let mut all = FITTING.lock().unwrap();
+        match all.iter_mut().find(|f| f.0 == file) {
+            Some(f) => f.2 = progress,
+            None => all.push((file.to_path_buf(), place, progress)),
+        }
+    }
+    let open: Vec<u64> = app
+        .state::<crate::state::AppState>()
+        .sources
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|s| s.path == file)
+        .map(|s| s.generation)
+        .collect();
+    for generation in open {
+        tell_fitting(app, generation, place, progress);
+    }
+}
+
+/// The camera of recording `file` is fitted, or couldn't be.
+pub fn fitting_over(file: &Path) {
+    FITTING.lock().unwrap().retain(|f| f.0 != file);
+}
+
+/// Tells the editor the camera of the source opened as `generation` is being fitted.
+fn tell_fitting(app: &AppHandle, generation: u64, place: Option<Place>, progress: f64) {
+    let info = app
+        .state::<crate::state::AppState>()
+        .sources
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|s| s.generation == generation)
+        .map(|s| s.info());
+    let Some(info) = info else {
+        return;
+    };
+    let fitting = CameraFitting {
+        source: info.id,
+        place: place.unwrap_or_else(|| Place::default_for(info.width, info.height)),
+        progress,
+    };
+    let _ = tauri_specta::Event::emit_to(&fitting, app, crate::editor::LABEL);
+}
+
 /// Looks beside the source opened as `generation` for its camera, and if it's there, tells the
-/// editor (on a thread of its own: ffmpeg reads the place).
+/// editor (on a thread of its own: ffmpeg reads the place); if it's still being fitted, tells
+/// it so.
 pub fn look(app: &AppHandle, generation: u64) {
     let app = app.clone();
     std::thread::spawn(move || {
@@ -966,6 +1060,15 @@ pub fn look(app: &AppHandle, generation: u64) {
         };
         let file = beside(&path);
         if !file.is_file() {
+            let fitting = FITTING
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|f| f.0 == path)
+                .map(|f| (f.1, f.2));
+            if let Some((place, progress)) = fitting {
+                tell_fitting(&app, generation, place, progress);
+            }
             return;
         }
         let described = sidecar::command(Tool::Ffmpeg)

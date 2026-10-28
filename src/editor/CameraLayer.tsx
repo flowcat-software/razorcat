@@ -1,7 +1,8 @@
 // A recording's camera in the preview (PLAN 5d.4): its own video, round, on top of everything
 // (Richard, 2026-10-27: markup and redactions go under it), where it was left while recording,
 // on the finished frame (cameraPlace.ts). Shown while the playhead's clip is from a recording
-// with a camera; faded with its clip.
+// with a camera; faded with its clip. While its camera's still being fitted to it (camera.rs:
+// seconds a minute), where it'll be, a ring filling as it's fitted (PLAN 5d.5c).
 //
 // The camera's file is fitted to its recording (camera.rs), so its time is the recording's: it
 // follows the video on screen (the player's, original or proxy), its time and its speed.
@@ -13,7 +14,7 @@
 // Development builds log how far apart they played, and the frames dropped.
 
 import { useEffect, useRef } from "react";
-import type { SourceCamera, SourceInfo } from "../shared/ipc";
+import type { CameraFitting, SourceCamera, SourceInfo } from "../shared/ipc";
 import { logLine } from "../shared/log";
 import type { Square } from "./cameraPlace";
 import { clipAt, clipOpacityAt } from "./doc";
@@ -32,18 +33,25 @@ const BEHIND = 0.01;
 const NEAR = 0.003;
 const NUDGE = 0.03;
 
+/** The ring round a camera being fitted: its radius, of the circle's 100 (its stroke's in CSS). */
+const RING = 43;
+
 interface Props {
   player: Player;
   /** The files open, with their cameras (by file id) and where each shows on the stage. */
   sources: readonly SourceInfo[];
   cameras: Readonly<Record<string, SourceCamera>>;
+  /** The cameras still being fitted (where they'll be, how far along), by file id. */
+  fitting: Readonly<Record<string, CameraFitting>>;
   places: Readonly<Record<string, Square>>;
   /** It fades with its clip (Settings › Recording); else it stays as the clip fades. */
   fades: boolean;
 }
 
-export function CameraLayer({ player, sources, cameras, places, fades }: Props) {
+export function CameraLayer({ player, sources, cameras, fitting, places, fades }: Props) {
   const videos = useRef(new Map<string, HTMLVideoElement>());
+  /** Each camera's circle (its video's, or its stand-in's while it's fitted), by file id. */
+  const circles = useRef(new Map<string, HTMLDivElement>());
   useEffect(() => {
     /** A stretch of playing, for the log: how far apart, and the camera's frames dropped. */
     let played: { apart: number[]; dropped: number; video: HTMLVideoElement } | null = null;
@@ -67,19 +75,20 @@ export function CameraLayer({ player, sources, cameras, places, fades }: Props) 
       const { doc } = useDoc.getState();
       const { frame, speed } = player.getState();
       const at = clipAt(doc, frame);
-      const on = at && cameras[at.clip.source] ? at.clip.source : null;
+      const on = at && circles.current.has(at.clip.source) ? at.clip.source : null;
+      for (const [id, circle] of circles.current) {
+        circle.style.visibility = id === on ? "visible" : "hidden";
+      }
       for (const [id, v] of videos.current) {
-        const wrap = v.parentElement;
-        if (wrap) wrap.style.visibility = id === on ? "visible" : "hidden";
         if (id !== on && !v.paused) v.pause();
       }
+      const circle = on && circles.current.get(on);
+      if (circle) circle.style.opacity = String(fades ? clipOpacityAt(doc, frame) : 1);
       const v = on && videos.current.get(on);
       if (!at || !v) {
         endPlayed();
         return;
       }
-      const opacity = fades ? clipOpacityAt(doc, frame) : 1;
-      if (v.parentElement) v.parentElement.style.opacity = String(opacity);
       const shown = player.shownPicture();
       const master = shown?.source === on ? shown.video : null;
       // The picture's time; while its video moves on at a cut (seeking), the playhead's.
@@ -135,26 +144,63 @@ export function CameraLayer({ player, sources, cameras, places, fades }: Props) 
       endPlayed();
       for (const v of all.values()) v.pause();
     };
-  }, [player, cameras, fades]);
+  }, [player, cameras, fitting, fades]);
+
+  /** Keeps `id`'s circle, to show and fade. */
+  const circle = (id: string) => (el: HTMLDivElement | null) => {
+    if (el) circles.current.set(id, el);
+    else circles.current.delete(id);
+  };
 
   return (
     <>
       {sources.map((s) => {
         const camera = cameras[s.id];
+        const waiting = fitting[s.id];
         const at = places[s.id];
-        if (!camera || !at) return null;
+        if ((!camera && !waiting) || !at) return null;
+        const square = {
+          left: at.left,
+          top: at.top,
+          width: at.size,
+          height: at.size,
+          visibility: "hidden" as const,
+        };
+        if (!camera) {
+          // Being fitted: a ring filling round the inside of where it'll be, from the top.
+          const done = Math.round(Math.min(1, Math.max(0, waiting.progress ?? 0)) * 100);
+          return (
+            <div
+              key={`fitting-${s.id}`}
+              ref={circle(s.id)}
+              className={`${styles.camera} ${styles.cameraFitting}`}
+              style={{ ...square, fontSize: at.size * 0.075 }}
+              role="progressbar"
+              aria-label="Processing camera footage"
+              aria-valuenow={done}
+            >
+              <svg className={styles.cameraFittingRing} viewBox="0 0 100 100" aria-hidden>
+                <circle className={styles.cameraFittingTrack} cx="50" cy="50" r={RING} />
+                {done > 0 && (
+                  <circle
+                    className={styles.cameraFittingDoneRing}
+                    cx="50"
+                    cy="50"
+                    r={RING}
+                    pathLength={100}
+                    strokeDasharray={`${done} 100`}
+                  />
+                )}
+              </svg>
+              <div className={styles.cameraFittingText}>
+                <span>Processing camera footage</span>
+                <span className={styles.cameraFittingDone}>{done}%</span>
+              </div>
+            </div>
+          );
+        }
         return (
-          <div
-            key={camera.url}
-            className={styles.camera}
-            style={{
-              left: at.left,
-              top: at.top,
-              width: at.size,
-              height: at.size,
-              visibility: "hidden",
-            }}
-          >
+          <div key={camera.url} ref={circle(s.id)} className={styles.camera} style={square}>
             <video
               ref={(v) => {
                 if (v) videos.current.set(s.id, v);

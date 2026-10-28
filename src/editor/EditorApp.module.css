@@ -756,6 +756,53 @@
   object-fit: cover;
 }
 
+/* A camera still being fitted to its recording (PLAN 5d.5c): where it'll be, a ring with
+   rounded ends filling round its inside edge from the top as it's fitted (CameraLayer.tsx), and
+   what's happening in the middle. */
+.cameraFitting {
+  background: rgb(18 18 20 / 0.85);
+}
+
+.cameraFittingRing {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.cameraFittingRing circle {
+  fill: none;
+  stroke-width: 7;
+}
+
+.cameraFittingTrack {
+  stroke: rgb(255 255 255 / 0.18);
+}
+
+.cameraFittingDoneRing {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.25s linear;
+}
+
+.cameraFittingText {
+  position: absolute;
+  inset: 20%;
+  display: grid;
+  place-content: center;
+  gap: 0.3em;
+  color: #fff;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.cameraFittingDone {
+  font-size: 1.6em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 /* The clips' fades (PLAN 4.7a): black over the whole frame, its opacity set as the playhead moves. */
 .clipFade {
   position: absolute;

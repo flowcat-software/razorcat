@@ -237,6 +237,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	cameraFitting: makeEvent<CameraFitting>("camera-fitting"),
 	cameraReady: makeEvent<CameraReady>("camera-ready"),
 	checkFrames: makeEvent<CheckFrames>("check-frames"),
 	clicksNoted: makeEvent<ClicksNoted>("clicks-noted"),
@@ -296,6 +297,17 @@ export type CacheReport = {
  */
 export type Camera = {
 	name: string,
+};
+
+/**
+ *  Rust → editor: an open recording's camera is being fitted (PLAN 5d.5c), `progress` (0 to 1)
+ *  of the way: the editor shows where it'll be till it's ready (`CameraReady`).
+ */
+export type CameraFitting = {
+	/**  The source it's for (its `SourceInfo::id`). */
+	source: string,
+	place: Place,
+	progress: number | null,
 };
 
 /**

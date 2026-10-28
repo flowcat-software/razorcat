@@ -136,6 +136,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             thumbs::ThumbsUpdate,
             wave::WaveReady,
             camera::CameraReady,
+            camera::CameraFitting,
             check::CheckFrames,
             appearance::WindowsAccentChanged,
             settings::SettingsChanged,

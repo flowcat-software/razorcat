@@ -36,6 +36,8 @@ pub const RECORDER: &str = "recorder";
 const OUTLINE_LABEL: &str = "recording-outline";
 /// The countdown's window (countdown.html).
 const COUNTDOWN_LABEL: &str = "recording-countdown";
+/// How often the editor's told how far a camera's fitting has got.
+const FITTING_TOLD: Duration = Duration::from_millis(250);
 /// The longest the countdown waits for its page to load before it starts anyway.
 const COUNTDOWN_LOADING: Duration = Duration::from_secs(2);
 /// The control's size (logical px) and its gap from the monitor's top: the dot, the time, clicks,
@@ -1333,10 +1335,22 @@ fn fit_camera(
     place: Option<crate::camera::Place>,
 ) {
     let app = app.clone();
+    // Known as being fitted before the editor opens the recording, so it shows where it'll be.
+    crate::camera::fitting(&app, &file, place, 0.0);
     std::thread::spawn(move || {
         let t0 = Instant::now();
         let out = crate::camera::beside(&file);
-        match crate::camera::fit(&take, &parts, encoder, &out, place) {
+        // The editor's told how far along, a few times a second.
+        let mut told = Instant::now();
+        let progress = |p: f64| {
+            if told.elapsed() >= FITTING_TOLD || p >= 1.0 {
+                told = Instant::now();
+                crate::camera::fitting(&app, &file, place, p);
+            }
+        };
+        let fitted = crate::camera::fit(&take, &parts, encoder, &out, place, progress);
+        crate::camera::fitting_over(&file);
+        match fitted {
             Ok(()) => {
                 logln!(
                     "[recording] the camera fitted in {:.1} s",
