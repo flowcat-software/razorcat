@@ -21,7 +21,7 @@ import {
   type ThumbsInfo,
 } from "../shared/ipc";
 import { recordedCamera } from "./cameraKeys";
-import { useRecordedCameras, type RecordedCamera } from "./cameraStore";
+import { KEY_FADE, useRecordedCameras, type RecordedCamera } from "./cameraStore";
 import { CommandBar } from "./CommandBar";
 import { useToolKeys } from "./cropTool";
 import { EmptyEditor } from "./EmptyEditor";
@@ -381,6 +381,11 @@ export function EditorApp() {
   const sourceId = source?.id;
   const fps = source ? source.rateNum / source.rateDen : 0;
   const player = useMemo(() => (sourceId ? new Player(fps) : null), [sourceId, fps]);
+  // Settings › Editing › Fade the camera between keyframes (PLAN 5d.9), at the timeline's rate.
+  const keyFades = settings?.editing.cameraKeyFades ?? true;
+  useEffect(() => {
+    useRecordedCameras.setState({ fade: keyFades ? Math.round(KEY_FADE * fps) : 0 });
+  }, [keyFades, fps]);
 
   useEffect(() => {
     if (!player) return;
@@ -912,7 +917,7 @@ export function EditorApp() {
             proxyUrls={proxyUrls}
             cameras={cameras}
             fitting={fitting}
-            cameraFades={settings?.recording.cameraFades ?? true}
+            cameraFades={settings?.editing.cameraFades ?? true}
             onError={(text) => setNotice({ text, error: true })}
             onUnplayable={(s) => {
               if (convertAsked.current === s.url) return;

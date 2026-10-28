@@ -4,7 +4,7 @@ import { MarkupLayer } from "../markup/MarkupLayer";
 import { connectMarkup } from "../markup/model/store";
 import type { CameraFitting, SourceCamera, SourceInfo } from "../shared/ipc";
 import { CameraLayer } from "./CameraLayer";
-import { cameraAt, placeOf } from "./cameraKeys";
+import { cameraShownAt, placeOf } from "./cameraKeys";
 import { cameraOnStage, type ShownCamera } from "./cameraPlace";
 import { useRecordedCameras } from "./cameraStore";
 import { CropOverlay } from "./CropOverlay";
@@ -39,7 +39,7 @@ interface Props {
   cameras: Readonly<Record<string, SourceCamera>>;
   /** The cameras still being fitted to their recordings (camera.rs), by file id. */
   fitting: Readonly<Record<string, CameraFitting>>;
-  /** The cameras fade with their clips (Settings › Recording). */
+  /** The cameras fade with their clips (Settings › Editing). */
   cameraFades: boolean;
   /** A picture can't be shown, even from a converted copy. */
   onError: (message: string) => void;
@@ -124,12 +124,17 @@ export function Preview({
     height: source.height * scale,
   };
   // A clip's camera on the finished frame at timeline frame `f` (being fitted, where it'll
-  // be): as the keyframes say (PLAN 5d.8), or before any, as it was recorded; hidden, none.
+  // be): as the keyframes say (PLAN 5d.8), faded at them (5d.9), or before any, as it was
+  // recorded; hidden, none.
   const cameraOf = (clip: Clip, f: number): ShownCamera | null => {
     const s = sources.find((x) => x.id === clip.source);
     const rec = recorded[clip.source];
     if (!s || !rec) return null;
-    const state = cameraAt(useDoc.getState().doc, f) ?? rec.state;
+    const { fade } = useRecordedCameras.getState();
+    const { state, opacity } = cameraShownAt(useDoc.getState().doc, f, fade) ?? {
+      state: rec.state,
+      opacity: 1,
+    };
     if (state.hidden) return null;
     const place = placeOf(state, s);
     const shownAt = { ...picture, left: inner.x + picture.left, top: inner.y + picture.top };
@@ -142,6 +147,7 @@ export function Preview({
       place,
       picture: s,
       scale: s.width > 0 ? fitIn(s, source, shownAt).width / s.width : 0,
+      opacity,
     };
   };
   const one = growMode(grow) === "one";

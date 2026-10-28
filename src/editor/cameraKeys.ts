@@ -14,7 +14,7 @@
 
 import type { CameraSize } from "../shared/ipc";
 import { CAMERA_SHARES, sizeOfPlace, sizedPlace, type CameraPlace } from "./cameraPlace";
-import { clipAt, clipLength, clipStarts, total, type ClipId, type Doc } from "./doc";
+import { clipAt, clipLength, clipStarts, markOpacity, total, type ClipId, type Doc } from "./doc";
 import type { Size } from "./fit";
 
 export type KeyId = number;
@@ -261,31 +261,126 @@ export function keepCameraStarts(
   return doc;
 }
 
-/** A stretch of a clip's camera: from its `from`th frame for `length`, as `state` says. */
+/**
+ * A stretch of the camera: from frame `from` for `length`, as `state` says, fading in over its
+ * first `fadeIn` frames and out over its last `fadeOut` (PLAN 5d.9; none if it jumps).
+ */
 export interface CameraStretch {
   from: number;
   length: number;
   state: CameraState;
+  fadeIn: number;
+  fadeOut: number;
+}
+
+/** Whether the camera's moved or resized from `a` to `b`. */
+const placeChanged = (a: CameraState, b: CameraState) =>
+  a.x !== b.x || a.y !== b.y || a.size !== b.size;
+
+const runsCache = new WeakMap<Doc, Map<number, CameraStretch[]>>();
+
+/**
+ * The camera along the whole timeline, stretch by stretch from the first keyframe, as it shows
+ * (PLAN 5d.9; Richard, 2026-10-28): each change starts at its keyframe, and fades over `fade`
+ * frames where there's room before the next one and its clip's end. Moved or resized, it
+ * fades out where it was, then in where it goes; hidden, it fades out; shown, it fades in.
+ * Without room, or on a clip's first frame (a cut: the picture jumps too), it jumps.
+ */
+export function cameraRuns(doc: Doc, fade: number): CameraStretch[] {
+  let byFade = runsCache.get(doc);
+  const cached = byFade?.get(fade);
+  if (cached) return cached;
+  // The keyframes in view, one a frame (the last made counts, as `cameraAt`'s).
+  const keys: { f: number; state: CameraState }[] = [];
+  for (const k of shownKeys(doc)) {
+    if (keys.length && keys[keys.length - 1].f === k.f) keys.pop();
+    keys.push({ f: k.f, state: stateOf(k.key) });
+  }
+  const end = total(doc);
+  const runs: CameraStretch[] = [];
+  keys.forEach(({ f, state }, i) => {
+    const next = i + 1 < keys.length ? keys[i + 1].f : end;
+    const at = clipAt(doc, f);
+    const last = runs[runs.length - 1];
+    let from = f;
+    let fadeIn = 0;
+    if (last && at && fade > 0 && at.start !== f) {
+      const room = Math.min(next, at.start + clipLength(at.clip)) - f;
+      const was = last.state;
+      const out = () => {
+        last.length += fade;
+        last.fadeOut = fade;
+        from += fade;
+      };
+      if (!was.hidden && !state.hidden) {
+        if (placeChanged(was, state) && room >= 2 * fade) {
+          out();
+          fadeIn = fade;
+        }
+      } else if (!was.hidden && room >= fade) out();
+      else if (!state.hidden && room >= fade) fadeIn = fade;
+    }
+    runs.push({ from, length: next - from, state, fadeIn, fadeOut: 0 });
+  });
+  if (!byFade) runsCache.set(doc, (byFade = new Map()));
+  byFade.set(fade, runs);
+  return runs;
 }
 
 /**
- * Clip `index`'s camera over its frames, stretch by stretch (`fallback` before any keyframe:
- * its recording's as recorded), as the preview shows it.
+ * The camera on timeline frame `f` as it shows (fading over `fade` frames: `cameraRuns`), and
+ * how much of it shows (0 to 1); none before the first keyframe.
  */
-export function clipCamera(doc: Doc, index: number, fallback: CameraState | null): CameraStretch[] {
-  const start = clipStarts(doc)[index];
-  const length = clipLength(doc.clips[index]);
-  const changes = shownKeys(doc).filter((k) => k.f > start && k.f < start + length);
-  const stretches: CameraStretch[] = [];
-  let from = 0;
-  let state = cameraAt(doc, start) ?? fallback;
-  for (const k of changes) {
-    const at = k.f - start;
-    if (at > from && state) stretches.push({ from, length: at - from, state });
-    from = at;
-    state = cameraAt(doc, k.f);
+export function cameraShownAt(
+  doc: Doc,
+  f: number,
+  fade: number,
+): { state: CameraState; opacity: number } | null {
+  const runs = cameraRuns(doc, fade);
+  let lo = 0;
+  let hi = runs.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (runs[mid].from <= f) lo = mid + 1;
+    else hi = mid;
   }
-  if (state && length > from) stretches.push({ from, length: length - from, state });
+  if (lo === 0) return null;
+  const r = runs[lo - 1];
+  return { state: r.state, opacity: markOpacity(r, r.length, f - r.from) };
+}
+
+/**
+ * Clip `index`'s camera over its frames, stretch by stretch from its first (`fallback` before
+ * any keyframe: its recording's as recorded), as the preview shows it (fading over `fade`
+ * frames: `cameraRuns`; a fade's always inside one clip).
+ */
+export function clipCamera(
+  doc: Doc,
+  index: number,
+  fallback: CameraState | null,
+  fade = 0,
+): CameraStretch[] {
+  const start = clipStarts(doc)[index];
+  const end = start + clipLength(doc.clips[index]);
+  const runs = cameraRuns(doc, fade);
+  const stretches: CameraStretch[] = [];
+  const first = runs.length ? runs[0].from : end;
+  if (fallback && first > start) {
+    const length = Math.min(first, end) - start;
+    stretches.push({ from: 0, length, state: fallback, fadeIn: 0, fadeOut: 0 });
+  }
+  for (const r of runs) {
+    const a = Math.max(r.from, start);
+    const b = Math.min(r.from + r.length, end);
+    if (a >= b) continue;
+    stretches.push({
+      from: a - start,
+      length: b - a,
+      state: r.state,
+      fadeIn: a === r.from ? r.fadeIn : 0,
+      fadeOut: b === r.from + r.length ? r.fadeOut : 0,
+    });
+  }
   return stretches;
 }
 

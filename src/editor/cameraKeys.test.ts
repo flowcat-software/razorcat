@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   cameraAt,
+  cameraRuns,
+  cameraShownAt,
   clipCamera,
   deleteKeys,
   firstKey,
@@ -190,16 +192,51 @@ describe("keeping each clip's start through an edit to the clips", () => {
 });
 
 describe("a clip's camera, stretch by stretch", () => {
+  const still = { fadeIn: 0, fadeOut: 0 };
   it("changes at each keyframe in it, from the one in effect at its start", () => {
     const doc = abc();
     expect(clipCamera(doc, 1, null)).toEqual([
-      { from: 0, length: 50, state: small },
-      { from: 50, length: 50, state: medium },
+      { from: 0, length: 50, state: small, ...still },
+      { from: 50, length: 50, state: medium, ...still },
     ]);
     expect(clipCamera(wholeSource(100), 0, large)).toEqual([
-      { from: 0, length: 100, state: large },
+      { from: 0, length: 100, state: large, ...still },
     ]);
     expect(clipCamera(wholeSource(100), 0, null)).toEqual([]);
+  });
+
+  it("fades out where it was from a move's keyframe, then in where it went", () => {
+    const doc = abc();
+    // B's move at 150: out over 150..155 as it was, in from 156 (6 frames each).
+    expect(clipCamera(doc, 1, null, 6)).toEqual([
+      { from: 0, length: 56, state: small, fadeIn: 0, fadeOut: 6 },
+      { from: 56, length: 44, state: medium, fadeIn: 6, fadeOut: 0 },
+    ]);
+    expect(cameraShownAt(doc, 149, 6)).toEqual({ state: small, opacity: 1 });
+    expect(cameraShownAt(doc, 150, 6)?.opacity).toBeCloseTo(5 / 6);
+    expect(cameraShownAt(doc, 155, 6)).toEqual({ state: small, opacity: 0 });
+    expect(cameraShownAt(doc, 156, 6)).toEqual({ state: medium, opacity: 0 });
+    expect(cameraShownAt(doc, 162, 6)).toEqual({ state: medium, opacity: 1 });
+  });
+
+  it("fades as it's hidden or shown, and jumps without room or at a cut", () => {
+    const hide = { ...medium, hidden: true };
+    let doc = setCameraAt(wholeSource(100), 0, small);
+    doc = setCameraAt(doc, 20, hide);
+    doc = setCameraAt(doc, 40, large);
+    // Too near the next for a move's 2 × 6: it jumps there.
+    doc = setCameraAt(doc, 90, medium);
+    expect(cameraRuns(doc, 6)).toEqual([
+      { from: 0, length: 26, state: small, fadeIn: 0, fadeOut: 6 },
+      { from: 26, length: 14, state: hide, fadeIn: 0, fadeOut: 0 },
+      { from: 40, length: 50, state: large, fadeIn: 6, fadeOut: 0 },
+      { from: 90, length: 10, state: medium, fadeIn: 0, fadeOut: 0 },
+    ]);
+    // Off: they all jump.
+    expect(cameraRuns(doc, 0).every((r) => !r.fadeIn && !r.fadeOut)).toBe(true);
+    // C's start (a cut) keyed: it jumps there.
+    const cut = setCameraAt(abc(), 200, small);
+    expect(cameraShownAt(cut, 200, 6)).toEqual({ state: small, opacity: 1 });
   });
 });
 

@@ -15,9 +15,17 @@ export interface RecordedCamera {
   picture: Size;
 }
 
-export const useRecordedCameras = create<{ cameras: Readonly<Record<string, RecordedCamera>> }>(
-  () => ({ cameras: {} }),
-);
+export const useRecordedCameras = create<{
+  cameras: Readonly<Record<string, RecordedCamera>>;
+  /**
+   * The frames the camera fades out and in over at a keyframe (PLAN 5d.9; 0: it jumps):
+   * Settings › Editing's "Fade the camera between keyframes", at the timeline's rate.
+   */
+  fade: number;
+}>(() => ({ cameras: {}, fade: 0 }));
+
+/** How long (s) the camera fades out, and then in, over at a keyframe (PLAN 5d.9). */
+export const KEY_FADE = 0.2;
 
 /** Whether file `source` has a camera. */
 export const hasCamera = (source: string) => source in useRecordedCameras.getState().cameras;

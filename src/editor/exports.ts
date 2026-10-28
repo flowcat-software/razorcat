@@ -31,14 +31,21 @@ export type ExportFormat = "mp4" | "gif";
 
 /**
  * Clip `index`'s camera (its file `source`'s) stretch by stretch, as the preview shows it (PLAN
- * 5d.8): where it's shown, on its file's picture.
+ * 5d.8): where it's shown, on its file's picture, and its fades at keyframes (5d.9).
  */
 function cameraSpans(doc: Doc, index: number, source: string) {
-  const rec = useRecordedCameras.getState().cameras[source];
+  const { cameras, fade } = useRecordedCameras.getState();
+  const rec = cameras[source];
   if (!rec) return [];
-  return clipCamera(doc, index, rec.state)
+  return clipCamera(doc, index, rec.state, fade)
     .filter((s) => !s.state.hidden)
-    .map((s) => ({ from: s.from, length: s.length, place: placeOf(s.state, rec.picture) }));
+    .map((s) => ({
+      from: s.from,
+      length: s.length,
+      place: placeOf(s.state, rec.picture),
+      fadeIn: s.fadeIn,
+      fadeOut: s.fadeOut,
+    }));
 }
 
 /**

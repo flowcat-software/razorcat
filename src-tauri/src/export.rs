@@ -89,12 +89,17 @@ pub struct ExportClip {
 }
 
 /// A stretch of a clip's camera: from its `from`th frame (on the timeline, from its first) for
-/// `length`, at `place` on its file's picture.
+/// `length`, at `place` on its file's picture; fading in over its first `fade_in` frames and out
+/// over its last `fade_out` (PLAN 5d.9: at keyframes, as the preview's `markOpacity` ramps).
 #[derive(Debug, Clone, Copy, Deserialize, Type)]
 pub struct CameraSpan {
     pub from: u32,
     pub length: u32,
     pub place: Place,
+    #[serde(default, rename = "fadeIn")]
+    pub fade_in: u32,
+    #[serde(default, rename = "fadeOut")]
+    pub fade_out: u32,
 }
 
 impl ExportClip {
@@ -390,7 +395,7 @@ struct Cut {
 
 /// A clip's camera as the export lays it: its file (fitted to the clip's, so its time is the
 /// file's), its square on the frame (top-left and across, px), and the frames it fades in and
-/// out over with its clip (none if it doesn't: Settings › Recording).
+/// out over with its clip (none if it doesn't: Settings › Editing).
 #[derive(Debug, Clone, PartialEq, Default)]
 struct CutCamera {
     path: PathBuf,
@@ -401,7 +406,7 @@ struct CutCamera {
 }
 
 /// A stretch of a clip's camera on the export's frame: from its clip's `from`th frame for
-/// `length`, its top-left and across (px).
+/// `length`, its top-left and across (px), and its fades at keyframes (frames).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 struct CameraOn {
     from: u32,
@@ -409,6 +414,8 @@ struct CameraOn {
     x: u32,
     y: u32,
     size: u32,
+    fade_in: u32,
+    fade_out: u32,
 }
 
 impl Cut {
@@ -849,8 +856,10 @@ fn cameras(
                 f.push(format!("{square},{scaled}"));
             }
             f.push(format!(
-                "[cv{t}][cm{t}]alphamerge{fades},settb={}/{},setpts=N+{from}[cc{t}]",
-                rate.den, rate.num
+                "[cv{t}][cm{t}]alphamerge{fades}{},settb={}/{},setpts=N+{from}[cc{t}]",
+                key_fades(&cam.spans, d, length),
+                rate.den,
+                rate.num
             ));
             // Its stretches at this size, on the export's frames (kept to the clip's).
             let on: Vec<(u32, u32, u32, u32)> = cam
@@ -886,6 +895,32 @@ fn cameras(
         }
     }
     at
+}
+
+/// The fades at keyframes (PLAN 5d.9) of a clip's camera at size `d` (its stretches `spans`, in
+/// a clip `length` frames long): ffmpeg's `fade` on just each one's frames (each laid on what
+/// the clip's own fades left), ramped as the preview's `markOpacity` is.
+fn key_fades(spans: &[CameraOn], d: u32, length: u32) -> String {
+    let mut f = String::new();
+    for s in spans.iter().filter(|s| s.size == d && s.from < length) {
+        let end = (s.from + s.length).min(length);
+        if s.fade_in > 0 {
+            let (a, n) = (s.from, s.fade_in);
+            f += &format!(
+                ",fade=t=in:s={a}:n={n}:alpha=1:enable='between(n,{a},{})'",
+                a + n - 1
+            );
+        }
+        if s.fade_out > 0 && end >= s.fade_out {
+            let (a, n) = (end - s.fade_out, s.fade_out);
+            f += &format!(
+                ",fade=t=out:s={}:n={n}:alpha=1:enable='between(n,{a},{})'",
+                a.saturating_sub(1),
+                end - 1
+            );
+        }
+    }
+    f
 }
 
 /// The inputs and the graph for `cuts`, mapped: the joined picture, made into the `frame`
@@ -1570,10 +1605,7 @@ fn prepare(
     let (keep_pitch, camera_fades) = {
         let state = app.state::<AppState>();
         let settings = state.settings.read().unwrap();
-        (
-            settings.timeline.keep_pitch,
-            settings.recording.camera_fades,
-        )
+        (settings.timeline.keep_pitch, settings.editing.camera_fades)
     };
     let first_size = (first.width, first.height);
     let out = output_size(frame, first.width, first.height);
@@ -1600,6 +1632,8 @@ fn prepare(
                         x,
                         y,
                         size: across,
+                        fade_in: s.fade_in.min(s.length),
+                        fade_out: s.fade_out.min(s.length),
                     }
                 })
                 .filter(|s| s.size > 0 && s.length > 0)
@@ -2996,6 +3030,7 @@ mod tests {
             x: 1500,
             y: 700,
             size: 300,
+            ..Default::default()
         };
         let camera = |fade_in, fade_out| CutCamera {
             path: PathBuf::from("in (camera).mp4"),
@@ -3060,22 +3095,24 @@ mod tests {
     fn the_cameras_keyframes_move_and_resize_it_partway() {
         let rate = Rate { num: 30, den: 1 };
         // One clip of 60 frames: 300 px at (1500, 700) for 20, at (100, 100) for 20, then 200
-        // px for the rest.
-        let span = |from, x, y, size| CameraOn {
+        // px for the rest; the move fades (out over 5 frames, then in over 5), the resize jumps.
+        let span = |from, x, y, size, fade_in, fade_out| CameraOn {
             from,
             length: 20,
             x,
             y,
             size,
+            fade_in,
+            fade_out,
         };
         let c = [Cut {
             out: 60,
             camera: Some(CutCamera {
                 path: PathBuf::from("in (camera).mp4"),
                 spans: vec![
-                    span(0, 1500, 700, 300),
-                    span(20, 100, 100, 300),
-                    span(40, 50, 60, 200),
+                    span(0, 1500, 700, 300, 0, 5),
+                    span(20, 100, 100, 300, 5, 0),
+                    span(40, 50, 60, 200, 0, 0),
                 ],
                 fade_in: 0,
                 fade_out: 0,
@@ -3097,6 +3134,12 @@ mod tests {
         assert!(a.contains("crop='min(iw,ih)':'min(iw,ih)',split=2[cs0_0][cs0_1]"));
         assert!(a.contains("[cs0_0]scale=300:300,format=yuva444p[cv0_0]"));
         assert!(a.contains("[cs0_1]scale=200:200,format=yuva444p[cv0_1]"));
+        // The move's fades, each on just its frames, ramped as the preview's are.
+        assert!(a.contains(
+            "[cv0_0][cm0_0]alphamerge,fade=t=out:s=14:n=5:alpha=1:enable='between(n,15,19)',\
+             fade=t=in:s=20:n=5:alpha=1:enable='between(n,20,24)',settb=1/30"
+        ));
+        assert!(a.contains("[cv0_1][cm0_1]alphamerge,settb=1/30"));
         // The 300 px one moves at frame 20, and shows till 39; the 200 px one from 40.
         assert!(a.contains(
             "[cc0_0]overlay=x='if(between(n,0,19),1500,if(between(n,20,39),100,0))':\

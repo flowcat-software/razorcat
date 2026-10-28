@@ -93,6 +93,8 @@ export interface ShownCamera {
   place: CameraPlace;
   picture: Size;
   scale: number;
+  /** How much of it shows (0 to 1): its fades at keyframes (PLAN 5d.9). */
+  opacity: number;
 }
 
 /**

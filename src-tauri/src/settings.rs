@@ -113,9 +113,6 @@ pub struct Recording {
     /// How big the bubble's drawn while recording (what the video will show), and the size the
     /// recording's clips start at (PLAN 5d.6a).
     pub camera_size: CameraSize,
-    /// The camera fades with its clip (PLAN 5d.5; Richard, 2026-10-27); off, it stays as its
-    /// clip fades.
-    pub camera_fades: bool,
     /// The pointer is in the recording (PLAN 5b.5a).
     pub cursor: bool,
     /// Frames per second, one of [`RECORD_RATES`].
@@ -246,7 +243,6 @@ impl Default for Recording {
             camera: false,
             camera_device: String::new(),
             camera_size: CameraSize::Medium,
-            camera_fades: true,
             cursor: true,
             fps: 60,
             countdown: 3,
@@ -484,6 +480,12 @@ pub struct Editing {
     pub number_drag_speed: DragSpeed,
     /// The grow tool's presets, in the order its options bar shows them.
     pub grow_presets: Vec<GrowPreset>,
+    /// The camera fades with its clip (PLAN 5d.5; Richard, 2026-10-27); off, it stays as its
+    /// clip fades.
+    pub camera_fades: bool,
+    /// The camera fades out and in at a keyframe that moves, resizes, hides or shows it, where
+    /// there's room (PLAN 5d.9; Richard, 2026-10-28); off, it jumps. The editor works it out.
+    pub camera_key_fades: bool,
 }
 
 impl Default for Editing {
@@ -491,6 +493,8 @@ impl Default for Editing {
         Self {
             number_drag_speed: DragSpeed::default(),
             grow_presets: default_grow_presets(),
+            camera_fades: true,
+            camera_key_fades: true,
         }
     }
 }

@@ -22,7 +22,7 @@ import { logLine } from "../shared/log";
 import { useStyleConfig } from "../markup/styles";
 import { stateOfPlace } from "./cameraKeys";
 import { CAMERA_SIZE_NAMES, CAMERA_SIZES, movedPlace, type ShownCamera } from "./cameraPlace";
-import { sizeCameraAt } from "./cameraStore";
+import { sizeCameraAt, useRecordedCameras } from "./cameraStore";
 import { Menu, type MenuItems } from "./Menu";
 import { clipAt, clipOpacityAt, type Clip } from "./doc";
 import { useDoc } from "./docStore";
@@ -71,7 +71,7 @@ interface Props {
   fitting: Readonly<Record<string, CameraFitting>>;
   /** A clip's camera as the preview shows it on a frame (none: it has none, or it's hidden). */
   cameraOf: (clip: Clip, f: number) => ShownCamera | null;
-  /** It fades with its clip (Settings › Recording); else it stays as the clip fades. */
+  /** It fades with its clip (Settings › Editing); else it stays as the clip fades. */
   fades: boolean;
 }
 
@@ -142,7 +142,9 @@ export function CameraLayer({ player, sources, cameras, fitting, cameraOf, fades
         if (id !== on && !v.paused) v.pause();
       }
       const circle = on && circles.current.get(on);
-      if (circle) circle.style.opacity = String(fades ? clipOpacityAt(doc, frame) : 1);
+      if (circle && camera) {
+        circle.style.opacity = String((fades ? clipOpacityAt(doc, frame) : 1) * camera.opacity);
+      }
       const v = on && videos.current.get(on);
       if (!at || !v) {
         endPlayed();
@@ -198,6 +200,7 @@ export function CameraLayer({ player, sources, cameras, fitting, cameraOf, fades
     const stopDoc = useDoc.subscribe(update);
     const stopTool = useTool.subscribe(update);
     const stopStyles = useStyleConfig.subscribe(update);
+    const stopFade = useRecordedCameras.subscribe(update);
     // Ctrl held flips whether a drawing tool picks it.
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Control" || ctrl === (e.type === "keydown")) return;
@@ -218,6 +221,7 @@ export function CameraLayer({ player, sources, cameras, fitting, cameraOf, fades
       stopDoc();
       stopTool();
       stopStyles();
+      stopFade();
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("keyup", onKey);
       window.removeEventListener("blur", letCtrlGo);

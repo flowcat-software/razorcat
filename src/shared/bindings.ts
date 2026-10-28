@@ -336,12 +336,15 @@ export type CameraSize = "small" | "medium" | "large";
 
 /**
  *  A stretch of a clip's camera: from its `from`th frame (on the timeline, from its first) for
- *  `length`, at `place` on its file's picture.
+ *  `length`, at `place` on its file's picture; fading in over its first `fade_in` frames and out
+ *  over its last `fade_out` (PLAN 5d.9: at keyframes, as the preview's `markOpacity` ramps).
  */
 export type CameraSpan = {
 	from: number,
 	length: number,
 	place: Place,
+	fadeIn?: number,
+	fadeOut?: number,
 };
 
 /**  Rust → editor: check the source just opened. */
@@ -443,6 +446,16 @@ export type Editing = {
 	numberDragSpeed?: DragSpeed,
 	/**  The grow tool's presets, in the order its options bar shows them. */
 	growPresets?: GrowPreset[],
+	/**
+	 *  The camera fades with its clip (PLAN 5d.5; Richard, 2026-10-27); off, it stays as its
+	 *  clip fades.
+	 */
+	cameraFades?: boolean,
+	/**
+	 *  The camera fades out and in at a keyframe that moves, resizes, hides or shows it, where
+	 *  there's room (PLAN 5d.9; Richard, 2026-10-28); off, it jumps. The editor works it out.
+	 */
+	cameraKeyFades?: boolean,
 };
 
 export type Export = {
@@ -885,11 +898,6 @@ export type Recording = {
 	 *  recording's clips start at (PLAN 5d.6a).
 	 */
 	cameraSize?: CameraSize,
-	/**
-	 *  The camera fades with its clip (PLAN 5d.5; Richard, 2026-10-27); off, it stays as its
-	 *  clip fades.
-	 */
-	cameraFades?: boolean,
 	/**  The pointer is in the recording (PLAN 5b.5a). */
 	cursor?: boolean,
 	/**  Frames per second, one of [`RECORD_RATES`]. */

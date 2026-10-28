@@ -287,8 +287,52 @@ export const sections: Section[] = [
     id: "editing",
     title: "Editing",
     icon: EditingIcon,
-    description: "Editing the picture: crop, and the space grown round it.",
+    description: "Editing the picture: crop, the space grown round it, and the camera.",
     groups: [
+      {
+        title: "Number fields",
+        items: [
+          {
+            id: "numberDragSpeed",
+            kind: "choice",
+            path: "editing.numberDragSpeed",
+            label: "Number drag speed",
+            description:
+              "How fast a value changes when you drag a number field left or right. Slower gives finer control; hold Shift for 10× faster.",
+            options: [
+              { value: "verySlow", label: "Very slow" },
+              { value: "slow", label: "Slow" },
+              { value: "normal", label: "Normal" },
+              { value: "fast", label: "Fast" },
+              { value: "veryFast", label: "Very fast" },
+            ],
+            keywords: ["drag", "speed", "number", "field", "scrub", "sensitivity", "crop", "grow"],
+          },
+        ],
+      },
+      {
+        title: "Camera",
+        items: [
+          {
+            id: "editingCameraFades",
+            kind: "toggle",
+            path: "editing.cameraFades",
+            label: "Fade the camera with its clip",
+            description:
+              "When a clip fades in or out, its camera fades with it. Off, the camera stays fully shown while the clip fades.",
+            keywords: ["camera", "fade", "transition", "bubble", "clip"],
+          },
+          {
+            id: "editingCameraKeyFades",
+            kind: "toggle",
+            path: "editing.cameraKeyFades",
+            label: "Fade the camera between keyframes",
+            description:
+              "When a keyframe moves, resizes, hides or shows the camera, it fades out and back in over a moment, where there's room. Off, it jumps.",
+            keywords: ["camera", "fade", "keyframe", "transition", "bubble", "move"],
+          },
+        ],
+      },
       {
         title: "Grow presets",
         items: [
@@ -310,27 +354,6 @@ export const sections: Section[] = [
               "colour",
               "color",
             ],
-          },
-        ],
-      },
-      {
-        title: "Number fields",
-        items: [
-          {
-            id: "numberDragSpeed",
-            kind: "choice",
-            path: "editing.numberDragSpeed",
-            label: "Number drag speed",
-            description:
-              "How fast a value changes when you drag a number field left or right. Slower gives finer control; hold Shift for 10× faster.",
-            options: [
-              { value: "verySlow", label: "Very slow" },
-              { value: "slow", label: "Slow" },
-              { value: "normal", label: "Normal" },
-              { value: "fast", label: "Fast" },
-              { value: "veryFast", label: "Very fast" },
-            ],
-            keywords: ["drag", "speed", "number", "field", "scrub", "sensitivity", "crop", "grow"],
           },
         ],
       },
@@ -937,15 +960,6 @@ export const sections: Section[] = [
             ],
             disabled: (s) => !s.recording.camera,
             keywords: ["camera", "size", "bubble", "small", "medium", "large", "big"],
-          },
-          {
-            id: "recordingCameraFades",
-            kind: "toggle",
-            path: "recording.cameraFades",
-            label: "Fade the camera with its clip",
-            description:
-              "When a clip fades in or out, its camera fades with it. Off, the camera stays fully shown while the clip fades.",
-            keywords: ["camera", "fade", "transition", "bubble", "clip"],
           },
         ],
       },
