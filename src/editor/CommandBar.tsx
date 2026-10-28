@@ -162,9 +162,9 @@ export function CommandBar({
   onRecord,
 }: Props) {
   const tool = useTool((s) => s.tool);
-  /** Narrow windows: the buttons drop their labels one at a time, Record first, then Open, Add
-   *  Video and Export (labels stay while they fit: Richard), then the tools close up (two steps). */
-  const bar = useSqueeze(6);
+  /** Narrow windows: the buttons drop their labels one at a time, Record first, then File and
+   *  Export (labels stay while they fit: Richard), then the tools close up (two steps). */
+  const bar = useSqueeze(5);
   const undoable = useDoc(canUndo);
   const redoable = useDoc(canRedo);
   const selected = useDoc((s) => s.selected);
@@ -172,6 +172,18 @@ export function CommandBar({
   const clips = useDoc((s) => s.doc.clips.length);
   const muted = useDoc((s) => s.doc.muted);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [fileMenu, setFileMenu] = useState<{ x: number; y: number } | null>(null);
+  // The File menu (PLAN PR1): what's done with files, in one button's room.
+  const fileItems: MenuItems = [
+    { label: "Open…", hint: "Ctrl+O", run: onOpen },
+    {
+      label: "Add video…",
+      hint: "Ctrl+Shift+O",
+      title: "A video on the end of the timeline (or drop one on a cut)",
+      disabled: empty,
+      run: onAdd,
+    },
+  ];
   const noExport = empty || exporting;
   const saveToFolder = settings?.export.saveToFolder ?? false;
   // The Export button's menu (the mockup's).
@@ -313,36 +325,27 @@ export function CommandBar({
       <button
         type="button"
         className={`${styles.button} ${styles.squeeze2}`}
-        aria-label="Open (Ctrl+O)"
-        title="Open (Ctrl+O)"
-        {...hint("open")}
-        onClick={onOpen}
+        aria-label="File"
+        title="Open, add a video"
+        {...hint("file")}
+        aria-haspopup="menu"
+        aria-expanded={fileMenu !== null}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={(e) => {
+          if (fileMenu) return setFileMenu(null);
+          const r = e.currentTarget.getBoundingClientRect();
+          setFileMenu({ x: r.left, y: r.bottom + 4 });
+        }}
       >
         <svg viewBox="0 0 24 24" aria-hidden>
           <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
         </svg>
-        <span className={styles.label}>Open</span>
+        <span className={styles.label}>File</span>
       </button>
-      {!empty && (
-        <button
-          type="button"
-          className={`${styles.button} ${styles.squeeze3}`}
-          aria-label="Add Video (Ctrl+Shift+O)"
-          title="Add a video to the end of the timeline (Ctrl+Shift+O)"
-          {...hint("addVideo")}
-          onClick={onAdd}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden>
-            <rect x="3" y="5" width="18" height="14" rx="2" />
-            <path d="M12 9v6M9 12h6" />
-          </svg>
-          <span className={styles.label}>Add Video</span>
-        </button>
-      )}
       <div className={styles.split}>
         <button
           type="button"
-          className={`${styles.splitMain} ${styles.squeeze4}`}
+          className={`${styles.splitMain} ${styles.squeeze3}`}
           aria-label="Export the timeline as MP4 (Ctrl+E)"
           title={exporting ? "An export is under way" : "Export the timeline as MP4 (Ctrl+E)"}
           {...hint("export")}
@@ -376,6 +379,9 @@ export function CommandBar({
         </button>
       </div>
       {menu && <Menu items={items} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />}
+      {fileMenu && (
+        <Menu items={fileItems} x={fileMenu.x} y={fileMenu.y} onClose={() => setFileMenu(null)} />
+      )}
     </div>
   );
 }

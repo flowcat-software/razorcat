@@ -49,36 +49,33 @@
 }
 
 /* ...and the bar squeezes instead: the action buttons drop their labels (tooltips remain) and
-   go square one at a time, Record (1), Open (2), Add Video (3), then Export (4), so labels stay
-   as long as they fit (Richard); then the tools close up a little (5), then more (6), so Export
-   always shows. */
+   go square one at a time, Record (1), File (2), then Export (3), so labels stay as long as they
+   fit (Richard); then the tools close up a little (4), then more (5), so Export always shows. */
 .commandBar:not([data-fit="0"]) .squeeze1,
 .commandBar:not([data-fit="0"], [data-fit="1"]) .squeeze2,
-.commandBar:not([data-fit="0"], [data-fit="1"], [data-fit="2"]) .squeeze3,
-.commandBar:not([data-fit="0"], [data-fit="1"], [data-fit="2"], [data-fit="3"]) .squeeze4 {
+.commandBar:not([data-fit="0"], [data-fit="1"], [data-fit="2"]) .squeeze3 {
   padding: 0 7px;
 }
 
 .commandBar:not([data-fit="0"]) .squeeze1 .label,
 .commandBar:not([data-fit="0"], [data-fit="1"]) .squeeze2 .label,
-.commandBar:not([data-fit="0"], [data-fit="1"], [data-fit="2"]) .squeeze3 .label,
-.commandBar:not([data-fit="0"], [data-fit="1"], [data-fit="2"], [data-fit="3"]) .squeeze4 .label {
+.commandBar:not([data-fit="0"], [data-fit="1"], [data-fit="2"]) .squeeze3 .label {
   display: none;
 }
 
-.commandBar:is([data-fit="5"], [data-fit="6"]) .tools {
+.commandBar:is([data-fit="4"], [data-fit="5"]) .tools {
   gap: 0;
 }
 
-.commandBar[data-fit="5"] .tool {
+.commandBar[data-fit="4"] .tool {
   width: 34px;
 }
 
-.commandBar[data-fit="6"] .tool {
+.commandBar[data-fit="5"] .tool {
   width: 32px;
 }
 
-.commandBar:is([data-fit="5"], [data-fit="6"]) .toolbarDivider {
+.commandBar:is([data-fit="4"], [data-fit="5"]) .toolbarDivider {
   margin: 0 4px;
 }
 
