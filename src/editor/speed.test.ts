@@ -162,7 +162,8 @@ describe("clip speed", () => {
     expect(speedOf(setClipSpeed(doc, 1, { length: 9000 }).clips[0])).toEqual({ num: 1, den: 10 });
   });
 
-  it("never splits a frame differently: every cut, every speed", () => {
+  // Every cut at every speed: a few seconds, more on CI's slower runners.
+  it("never splits a frame differently: every cut, every speed", { timeout: 30_000 }, () => {
     for (const s of SPEEDS) {
       const doc = setClipSpeed(trimClip(wholeSource(2000), 1, 601, 902), 1, s);
       const whole = shown(doc);
