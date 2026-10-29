@@ -69,6 +69,10 @@ pub struct ProjectOpened {
     pub name: String,
     pub sources: Vec<SourceInfo>,
     pub doc: String,
+    /// Unsaved work a run left behind (PLAN PR4), not the project as saved: `name` is its
+    /// project's, or (`untitled`, never saved) the first video's.
+    pub recovered: bool,
+    pub untitled: bool,
 }
 
 /// Rust → editor: a file was added to the timeline's (PLAN 4.5e): it goes before clip `at` (its
@@ -395,14 +399,9 @@ fn show(
     info
 }
 
-/// The window's title names `name` (a file's, or the project's) now, with nothing unsaved yet.
+/// The window's title names `name` (a file's, or the project's) now.
 fn set_title(app: &AppHandle, name: &str) {
-    {
-        let app_state = app.state::<AppState>();
-        let mut state = app_state.editor.lock().unwrap();
-        state.title = name.into();
-        state.unsaved = false;
-    }
+    app.state::<AppState>().editor.lock().unwrap().title = name.into();
     show_title(app);
 }
 
@@ -410,6 +409,25 @@ fn set_title(app: &AppHandle, name: &str) {
 pub fn set_unsaved(app: &AppHandle, unsaved: bool) {
     app.state::<AppState>().editor.lock().unwrap().unsaved = unsaved;
     show_title(app);
+    // Nothing to recover (PLAN PR4).
+    if !unsaved {
+        crate::recovery::discard(app);
+    }
+}
+
+/// The timeline has changes not saved, as the page last said.
+pub fn is_unsaved(app: &AppHandle) -> bool {
+    app.state::<AppState>().editor.lock().unwrap().unsaved
+}
+
+/// The project open, once saved or opened.
+pub fn project_path(app: &AppHandle) -> Option<PathBuf> {
+    app.state::<AppState>()
+        .editor
+        .lock()
+        .unwrap()
+        .project
+        .clone()
 }
 
 /// The window's title: what's open (a dot before it while it has unsaved changes), then
@@ -454,14 +472,12 @@ fn is_project(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case(project::EXTENSION))
 }
 
-fn project_name(path: &Path) -> String {
+pub fn project_name(path: &Path) -> String {
     path.file_stem()
         .map_or_else(|| "Project".into(), |s| s.to_string_lossy().into_owned())
 }
 
-/// Opens project `path` (PLAN PR2): its videos, each found beside it or where it was (or asked
-/// for), all read before any replaces the timeline's, so one that can't open leaves the
-/// timeline as it was; then its document goes to the page.
+/// Opens project `path` (PLAN PR2).
 fn open_project(app: &AppHandle, path: &Path) {
     let file_name = source::file_name(path);
     let text = match std::fs::read_to_string(path) {
@@ -473,40 +489,103 @@ fn open_project(app: &AppHandle, path: &Path) {
         Err(message) => return failed(app, message),
     };
     let dir = path.parent().unwrap_or(Path::new(""));
+    open_document(app, file, &file_name, dir, Some(path), false);
+}
+
+/// Opens the autosave `path` a run left unsaved (PLAN PR4, recovery.rs), as the project it was
+/// of (if it was saved), with its changes still unsaved. True once it's open.
+pub fn open_recovered(app: &AppHandle, path: &Path) -> bool {
+    let _turn = OPENING.lock().unwrap_or_else(|e| e.into_inner());
+    crate::convert::cancel(app);
+    let file = match std::fs::read_to_string(path)
+        .map_err(|e| e.to_string())
+        .and_then(|text| project::read(&text, "The unsaved work"))
+    {
+        Ok(file) => file,
+        Err(e) => {
+            failed(app, format!("The unsaved work couldn't be recovered: {e}"));
+            return false;
+        }
+    };
+    let project = file.recovers.clone().map(PathBuf::from);
+    let dir = project
+        .as_deref()
+        .and_then(Path::parent)
+        .unwrap_or(Path::new(""))
+        .to_path_buf();
+    open_document(
+        app,
+        file,
+        "The unsaved work",
+        &dir,
+        project.as_deref(),
+        true,
+    )
+}
+
+/// Opens project document `file` (named `file_name`; its videos relative to folder `dir`) as
+/// `project` (none: never saved) (PLAN PR2): its videos, each found beside it or where it was
+/// (or asked for), all read before any replaces the timeline's, so one that can't open leaves
+/// the timeline as it was; then its document goes to the page. True once it's open.
+fn open_document(
+    app: &AppHandle,
+    file: project::ProjectFile,
+    file_name: &str,
+    dir: &Path,
+    project: Option<&Path>,
+    recovered: bool,
+) -> bool {
+    let fail = |message: String| {
+        failed(app, message);
+        false
+    };
     let mut loaded: Vec<(PathBuf, Source)> = Vec::new();
     for s in &file.sources {
         let Some(found) = project::find(dir, s, Path::exists).or_else(|| locate(app, &s.path))
         else {
             let name = source::file_name(Path::new(&s.path));
-            return failed(
-                app,
-                format!("{file_name} wasn't opened: its video {name} couldn't be found."),
-            );
+            return fail(format!(
+                "{file_name} wasn't opened: its video {name} couldn't be found."
+            ));
         };
         // The first sets the rate the rest are gridded at, as when they were added.
         let rate = loaded.first().map(|(_, s)| s.grid.rate);
         let Some(opened) = load(app, &found, rate) else {
-            return;
+            return false;
         };
         loaded.push((found, opened));
     }
     if loaded.is_empty() {
-        return failed(app, format!("{file_name} has no videos."));
+        return fail(format!("{file_name} has no videos."));
     }
-    let sources = loaded
+    let sources: Vec<SourceInfo> = loaded
         .into_iter()
         .enumerate()
         .map(|(i, (p, s))| show(app, p, s, i > 0, None, false))
         .collect();
-    let name = project_name(path);
-    app.state::<AppState>().editor.lock().unwrap().project = Some(path.to_path_buf());
+    // Never saved, it's named for its first video (as `show` titled it).
+    let name = project.map_or_else(|| sources[0].name.clone(), project_name);
+    app.state::<AppState>().editor.lock().unwrap().project = project.map(Path::to_path_buf);
     set_title(app, &name);
-    crate::log::private_file(path);
-    logln!("[editor] opened a project of {} videos", file.sources.len());
-    let doc = file.doc.to_string();
-    if let Err(e) = (ProjectOpened { name, sources, doc }).emit_to(app, LABEL) {
+    if let Some(path) = project {
+        crate::log::private_file(path);
+    }
+    logln!(
+        "[editor] {} a project of {} videos",
+        if recovered { "recovered" } else { "opened" },
+        file.sources.len()
+    );
+    let told = ProjectOpened {
+        name,
+        sources,
+        doc: file.doc.to_string(),
+        recovered,
+        untitled: project.is_none(),
+    };
+    if let Err(e) = told.emit_to(app, LABEL) {
         logln!("[editor] couldn't tell the page: {e}");
     }
+    true
 }
 
 /// A project's video `was` isn't where it was, or beside the project: asks where it is now.

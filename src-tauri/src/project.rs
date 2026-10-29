@@ -27,6 +27,9 @@ pub struct ProjectFile {
     pub sources: Vec<ProjectSource>,
     /// The page's document.
     pub doc: serde_json::Value,
+    /// An autosave to recover (PLAN PR4, recovery.rs): the project it's of, if it was saved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovers: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -42,6 +45,17 @@ const KIND: &str = "project";
 /// The file for `doc` showing `paths`, saved in folder `dir`, as written: packed, as no one
 /// reads it by hand (a JSON formatter lays it out).
 pub fn write(dir: &Path, paths: &[PathBuf], doc: serde_json::Value, app: &str) -> String {
+    write_recovery(dir, paths, doc, app, None)
+}
+
+/// As [`write`], an autosave to recover (PLAN PR4) of project `recovers`, if it was saved.
+pub fn write_recovery(
+    dir: &Path,
+    paths: &[PathBuf],
+    doc: serde_json::Value,
+    app: &str,
+    recovers: Option<&Path>,
+) -> String {
     let file = ProjectFile {
         razorcat: KIND.into(),
         version: VERSION,
@@ -54,6 +68,7 @@ pub fn write(dir: &Path, paths: &[PathBuf], doc: serde_json::Value, app: &str) -
             })
             .collect(),
         doc,
+        recovers: recovers.map(|p| p.to_string_lossy().into_owned()),
     };
     serde_json::to_string(&file).expect("a project serializes")
 }
@@ -161,6 +176,7 @@ mod tests {
         let file = read(&text, "p.rct").unwrap();
         assert_eq!(file.version, VERSION);
         assert_eq!(file.doc, doc);
+        assert_eq!(file.recovers, None);
         assert_eq!(
             file.sources,
             vec![ProjectSource {
@@ -168,6 +184,16 @@ mod tests {
                 relative: Some("a.mp4".into()),
             }]
         );
+    }
+
+    #[test]
+    fn an_autosave_knows_its_project() {
+        let dir = Path::new(r"C:\Videos\Project");
+        let paths = [PathBuf::from(r"C:\Videos\Project\a.mp4")];
+        let project = Path::new(r"C:\Videos\Project\p.rct");
+        let text = write_recovery(dir, &paths, serde_json::json!({}), "0.1.0", Some(project));
+        let file = read(&text, "recovery.rct").unwrap();
+        assert_eq!(file.recovers.as_deref(), Some(r"C:\Videos\Project\p.rct"));
     }
 
     #[test]

@@ -120,9 +120,9 @@ export interface DocState {
   gestureStart: Doc | null;
   /**
    * The Doc as last saved or opened (PLAN PR3): any other has unsaved changes (`unsaved`), so
-   * undoing back to it is saved again.
+   * undoing back to it is saved again. None: nothing is (unsaved work recovered, PLAN PR4).
    */
-  saved: Doc;
+  saved: Doc | null;
   /**
    * The selected clip, range or markup (one or none). Not part of history; cleared if an edit,
    * undo or redo takes it away.
@@ -149,8 +149,11 @@ export interface DocState {
    * history.
    */
   load: (frames: number, size?: Size, id?: SourceId) => void;
-  /** A project's document in place of the timeline's (PLAN PR2): nothing to undo yet. */
-  loadDoc: (doc: Doc) => void;
+  /**
+   * A project's document in place of the timeline's (PLAN PR2): nothing to undo yet, and
+   * nothing unsaved, unless it's unsaved work recovered (`saved` false: PLAN PR4).
+   */
+  loadDoc: (doc: Doc, saved?: boolean) => void;
   /** The Doc as it is now was saved (or is as opened): nothing unsaved (PLAN PR3). */
   markSaved: () => void;
   /** Source `id`, `frames` long, on the end of the timeline (PLAN 4.5e): one undo step. */
@@ -430,12 +433,12 @@ export const useDoc = create<DocState>()((set, get) => {
     },
 
     load: (frames, size, id) => get().loadDoc(wholeSource(frames, size, id)),
-    loadDoc: (doc) => {
+    loadDoc: (doc, saved = true) => {
       gestures = 0;
       keysEdited = false;
       set({
         doc,
-        saved: doc,
+        saved: saved ? doc : null,
         past: [],
         future: [],
         gestureStart: null,

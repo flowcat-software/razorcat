@@ -152,11 +152,47 @@ pub fn set_unsaved(app: AppHandle, unsaved: bool) {
     crate::editor::set_unsaved(&app, unsaved);
 }
 
-/// Razorcat quits: the page has asked about unsaved changes (`QuitAsked`, PLAN PR3).
+/// Razorcat quits: the page has asked about unsaved changes (`QuitAsked`, PLAN PR3), so
+/// there's nothing to recover (PLAN PR4).
 #[tauri::command]
 #[specta::specta]
 pub fn quit_now(app: AppHandle) {
+    crate::recovery::discard(&app);
     app.exit(0);
+}
+
+/// The timeline's document, with unsaved changes, written where it's recovered from after a
+/// crash (PLAN PR4). True once written (the status bar shows it).
+#[tauri::command]
+#[specta::specta]
+pub async fn autosave(app: AppHandle, doc: String, paths: Vec<String>) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::recovery::autosave(&app, &doc, paths))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Unsaved work the last run left (it didn't quit: PLAN PR4), if any: asked as the editor
+/// comes up.
+#[tauri::command]
+#[specta::specta]
+pub fn recovery_offer(app: AppHandle) -> Option<crate::recovery::RecoveryOffer> {
+    crate::recovery::offer(&app)
+}
+
+/// Opens the unsaved work the last run left, in place of the timeline.
+#[tauri::command]
+#[specta::specta]
+pub async fn recover(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::recovery::recover(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// The unsaved work the last run left, let go.
+#[tauri::command]
+#[specta::specta]
+pub fn discard_recovery(app: AppHandle) {
+    crate::recovery::forget(&app);
 }
 
 /// Settings is recording a new shortcut (PLAN 5b.8b): ours let go of, so pressing one is

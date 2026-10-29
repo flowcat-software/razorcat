@@ -27,6 +27,7 @@ mod project;
 mod protocol;
 mod proxy;
 mod recording;
+mod recovery;
 mod scrub;
 mod settings;
 mod settings_window;
@@ -75,6 +76,10 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::closed_to_tray,
             commands::set_unsaved,
             commands::quit_now,
+            commands::autosave,
+            commands::recovery_offer,
+            commands::recover,
+            commands::discard_recovery,
             commands::open_flowcat_site,
             commands::get_settings,
             commands::update_settings,

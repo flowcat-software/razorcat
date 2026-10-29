@@ -95,8 +95,30 @@ export const commands = {
 	 *  quitting asks first.
 	 */
 	setUnsaved: (unsaved: boolean) => __TAURI_INVOKE<void>("set_unsaved", { unsaved }),
-	/**  Razorcat quits: the page has asked about unsaved changes (`QuitAsked`, PLAN PR3). */
+	/**
+	 *  Razorcat quits: the page has asked about unsaved changes (`QuitAsked`, PLAN PR3), so
+	 *  there's nothing to recover (PLAN PR4).
+	 */
 	quitNow: () => __TAURI_INVOKE<void>("quit_now"),
+	/**
+	 *  The timeline's document, with unsaved changes, written where it's recovered from after a
+	 *  crash (PLAN PR4). True once written (the status bar shows it).
+	 */
+	autosave: (doc: string, paths: string[]) => typedError<boolean, string>(__TAURI_INVOKE("autosave", { doc, paths })),
+	/**
+	 *  Unsaved work the last run left (it didn't quit: PLAN PR4), if any: asked as the editor
+	 *  comes up.
+	 */
+	recoveryOffer: () => __TAURI_INVOKE<{
+	/**  The project's name, or (never saved) the first video's. */
+	name: string,
+	/**  Milliseconds since 1970. */
+	savedAt: number | null,
+} | null>("recovery_offer"),
+	/**  Opens the unsaved work the last run left, in place of the timeline. */
+	recover: () => typedError<null, string>(__TAURI_INVOKE("recover")),
+	/**  The unsaved work the last run left, let go. */
+	discardRecovery: () => __TAURI_INVOKE<void>("discard_recovery"),
 	/**  Flowcat Software's website, the maker (Settings › About). A fixed address. */
 	openFlowcatSite: () => __TAURI_INVOKE<void>("open_flowcat_site"),
 	/**  The current settings. */
@@ -883,6 +905,12 @@ export type ProjectOpened = {
 	name: string,
 	sources: SourceInfo[],
 	doc: string,
+	/**
+	 *  Unsaved work a run left behind (PLAN PR4), not the project as saved: `name` is its
+	 *  project's, or (`untitled`, never saved) the first video's.
+	 */
+	recovered: boolean,
+	untitled: boolean,
 };
 
 export type Proxies = {
@@ -1023,6 +1051,14 @@ export type RecordingChanged = {
 
 /**  Rust → the control: the recording paused or going again (its button or [`PAUSE_KEY`]). */
 export type RecordingPaused = boolean;
+
+/**  A run's unsaved work, left behind: what it was, and when it was last autosaved. */
+export type RecoveryOffer = {
+	/**  The project's name, or (never saved) the first video's. */
+	name: string,
+	/**  Milliseconds since 1970. */
+	savedAt: number | null,
+};
 
 /**  How a redaction hides what's under it (Razorcat has no Solid: a filled rectangle does that). */
 export type RedactMode = "pixelate" | "blur";

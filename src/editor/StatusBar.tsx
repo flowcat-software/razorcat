@@ -21,6 +21,8 @@ interface Props {
   notice: Notice | null;
   /** No video yet: the timeline's view controls don't apply. */
   empty: boolean;
+  /** When the last autosave was written (PLAN PR4), else 0: its mark shows a moment. */
+  autosavedAt: number;
   /** A hint too long to fit scrolls when the pointer rests (`appearance.scrollHints`). */
   scrollHints: boolean;
 }
@@ -29,7 +31,7 @@ interface Props {
  * The bottom row: messages, else the hint line (PLAN 4.6b; why a key did nothing even over a
  * message), snapping, the timeline's zoom, and Settings (Vandal's gear).
  */
-export function StatusBar({ notice, empty, scrollHints }: Props) {
+export function StatusBar({ notice, empty, autosavedAt, scrollHints }: Props) {
   const timeline = useTimeline();
   const slider = Math.round(timeline.slider() * 1000);
   const said = useHintSources((s) => s.said !== null);
@@ -60,6 +62,16 @@ export function StatusBar({ notice, empty, scrollHints }: Props) {
         </button>
       )}
       <span className={styles.spacer} />
+      {/* Its slot is always there, so the hints don't shift as it comes and goes; each autosave
+          is a new mark, so it shows again. */}
+      <span className={styles.autosaved}>
+        {autosavedAt > 0 && (
+          <svg key={autosavedAt} viewBox="0 0 24 24" role="img" aria-label="Autosaved">
+            <path d="M5 4a1 1 0 0 1 1-1h10l4 4v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+            <path d="M8.5 12.5l2.5 2.5 4.5-4.5" />
+          </svg>
+        )}
+      </span>
       <button
         type="button"
         className={styles.textButton}

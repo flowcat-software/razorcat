@@ -1446,6 +1446,33 @@
   color: var(--error-text);
 }
 
+/* An autosave's mark (PLAN PR4): a disk with a check, shown a moment, left of Snap. */
+.autosaved {
+  display: flex;
+  width: 14px;
+  margin-right: 6px;
+}
+
+.autosaved svg {
+  fill: none;
+  stroke: var(--success-text);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+  animation: autosaved 2.4s ease forwards;
+}
+
+@keyframes autosaved {
+  8%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 /* A job's progress after its message (an export's, a conversion's). */
 .progress {
   width: 140px;

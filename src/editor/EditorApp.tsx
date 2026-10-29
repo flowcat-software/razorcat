@@ -15,6 +15,7 @@ import {
   commands,
   events,
   type CheckFrames,
+  type RecoveryOffer,
   type Settings,
   type CameraFitting,
   type SourceCamera,
@@ -65,6 +66,12 @@ import { useTool } from "./toolStore";
 import styles from "./EditorApp.module.css";
 
 const openVideo = () => void commands.openDialog(false);
+
+/**
+ * Autosave (PLAN PR4): written this soon after the last finished edit (Richard: as good as at
+ * once), so a run of them (keys held, a burst of nudges, quick edits) is written once.
+ */
+const AUTOSAVE_MS = 2_000;
 /** Add Video (Ctrl+Shift+O): a file on the end of the timeline (PLAN 4.5e). */
 const addVideo = () => void commands.openDialog(true);
 
@@ -267,6 +274,8 @@ export function EditorApp() {
     | { folder: string; go: () => void }
     /** The first close: Razorcat stays in the tray. */
     | { tray: true }
+    /** The last run ended with unsaved work (PLAN PR4): recover it? */
+    | { recover: RecoveryOffer }
     | null
   >(null);
   /**
@@ -310,6 +319,8 @@ export function EditorApp() {
   const [projectName, setProjectName] = useState<string | null>(null);
   /** A project's document, opened: it's loaded once its first file is (the load below). */
   const projectDoc = useRef<Doc | null>(null);
+  /** ...and it's unsaved work recovered (PLAN PR4), not the project as saved. */
+  const projectRecovered = useRef(false);
   /**
    * Saves the timeline as a project (PLAN PR2): to the one open, or (`as`, or none yet) where
    * the Save dialog says. True once it's saved (not if the dialog was cancelled, or it failed).
@@ -338,16 +349,58 @@ export function EditorApp() {
   useEffect(() => {
     saveNow.current = saveProject;
   });
-  // Rust shows a dot in the title while there are unsaved changes, and asks before quitting.
+  // Rust shows a dot in the title while there are unsaved changes, asks before quitting, and
+  // keeps the autosave only while there are some. Work the last run left unsaved is asked
+  // about first (PLAN PR4): the copy is set aside before nothing's unsaved here lets it go.
   useEffect(() => {
-    let was = unsaved(useDoc.getState());
-    void commands.setUnsaved(was);
-    return useDoc.subscribe((s) => {
-      const now = unsaved(s);
-      if (now === was) return;
-      was = now;
-      void commands.setUnsaved(now);
+    let stop = () => {};
+    let gone = false;
+    void commands.recoveryOffer().then((offer) => {
+      if (gone) return;
+      if (offer) setAsking({ recover: offer });
+      let was = unsaved(useDoc.getState());
+      void commands.setUnsaved(was);
+      stop = useDoc.subscribe((s) => {
+        const now = unsaved(s);
+        if (now === was) return;
+        was = now;
+        void commands.setUnsaved(now);
+      });
     });
+    return () => {
+      gone = true;
+      stop();
+    };
+  }, []);
+  /** When the last autosave was written (the status bar's mark shows it), else 0. */
+  const [autosavedAt, setAutosavedAt] = useState(0);
+  // Autosave (PLAN PR4): the document with unsaved changes, after each finished edit (never in
+  // the middle of a drag), written where it's recovered from after a crash.
+  useEffect(() => {
+    let timer = 0;
+    const write = () => {
+      timer = 0;
+      const s = useDoc.getState();
+      if (!unsaved(s) || s.gestureStart) return;
+      const paths = s.doc.sources.map((r) => latest.current.find((f) => f.id === r.id)?.path);
+      if (paths.some((p) => p === undefined)) return;
+      void commands.autosave(JSON.stringify(s.doc), paths as string[]).then((r) => {
+        if (r.status === "error") console.error("[autosave]", r.error);
+        else if (r.data) setAutosavedAt(Date.now());
+      });
+    };
+    const stop = useDoc.subscribe((s, was) => {
+      const changed = s.doc !== was.doc || s.saved !== was.saved;
+      const ended = was.gestureStart !== null && s.gestureStart === null;
+      if (!changed && !ended) return;
+      clearTimeout(timer);
+      timer = 0;
+      if (unsaved(s) && !s.gestureStart) timer = window.setTimeout(write, AUTOSAVE_MS);
+    });
+    return () => {
+      clearTimeout(timer);
+      stop();
+    };
   }, []);
   /** Time as frame numbers, not timecode: the readout and the ruler (a click on the readout). */
   const [inFrames, setInFrames] = useState(false);
@@ -494,7 +547,7 @@ export function EditorApp() {
     const project = projectDoc.current;
     projectDoc.current = null;
     if (project?.sources[0]?.id === sourceId) {
-      doc.loadDoc(project);
+      doc.loadDoc(project, !projectRecovered.current);
       unstarted.current = new Map();
       return;
     }
@@ -575,8 +628,9 @@ export function EditorApp() {
         const files = payload.sources as SourceInfo[];
         const opened = openedDoc(payload.doc, files);
         projectDoc.current = opened?.doc ?? null;
+        projectRecovered.current = payload.recovered;
         setSources(files);
-        setProjectName(opened ? payload.name : null);
+        setProjectName(opened && !payload.untitled ? payload.name : null);
         useTimeline.getState().setDropAt(null);
         setConverting(null);
         setNotice(
@@ -585,12 +639,18 @@ export function EditorApp() {
                 text: `${payload.name} couldn't be read: its videos are open on their own.`,
                 error: true,
               }
-            : opened.changed.length
+            : payload.recovered && !opened.changed.length
               ? {
-                  text: `${opened.changed.join(", ")} changed since ${payload.name} was saved: its clips may be off.`,
-                  error: true,
+                  text: payload.untitled
+                    ? "Recovered the unsaved timeline. Save it as a project to keep it."
+                    : `Recovered ${payload.name}'s unsaved changes. Save to keep them.`,
                 }
-              : { text: `Opened ${payload.name}.` },
+              : opened.changed.length
+                ? {
+                    text: `${opened.changed.join(", ")} changed since ${payload.name} was saved: its clips may be off.`,
+                    error: true,
+                  }
+                : { text: `Opened ${payload.name}.` },
         );
       }),
       // Files dropped while the timeline has files: onto a cut, they go in there (PLAN
@@ -1039,6 +1099,7 @@ export function EditorApp() {
       <StatusBar
         notice={exportNotice ?? conversion ?? notice ?? making}
         empty={empty}
+        autosavedAt={autosavedAt}
         scrollHints={settings?.appearance.scrollHints ?? true}
       />
       {asking && "save" in asking && (
@@ -1068,6 +1129,41 @@ export function EditorApp() {
               ? "The timeline has changes that aren't saved. Without saving, they're lost."
               : "The timeline has edits that aren't saved in a project. Without saving, they're lost."}
           </p>
+        </ConfirmDialog>
+      )}
+      {asking && "recover" in asking && (
+        <ConfirmDialog
+          title="Recover unsaved work?"
+          confirm="Recover"
+          cancel="Not now"
+          onConfirm={() => {
+            setAsking(null);
+            unlessUnsaved(
+              () =>
+                void commands.recover().then((r) => {
+                  if (r.status === "error") setNotice({ text: r.error, error: true });
+                }),
+            );
+          }}
+          onCancel={() => setAsking(null)}
+          other={{
+            label: "Discard",
+            onClick: () => {
+              setAsking(null);
+              void commands.discardRecovery();
+            },
+          }}
+        >
+          <p>
+            Razorcat closed before the changes to <strong>{asking.recover.name}</strong> were saved.
+            They were last autosaved{" "}
+            {new Date(asking.recover.savedAt ?? 0).toLocaleString([], {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })}
+            .
+          </p>
+          <p>Not now asks again the next time Razorcat starts.</p>
         </ConfirmDialog>
       )}
       {asking && "folder" in asking && (
