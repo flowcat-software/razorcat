@@ -10,7 +10,11 @@
 </p>
 
 <p align="center">
-  <strong>Beta coming soon</strong> · Windows 10 (1903+) and Windows 11 · x64
+  <strong>Beta</strong> · Windows 10 (1903+) and Windows 11 · x64
+</p>
+
+<p align="center">
+  <a href="https://github.com/flowcat-software/razorcat/releases"><strong>Download the latest beta</strong></a>
 </p>
 
 ---
@@ -29,7 +33,24 @@ to the next, and tools that remember how you like them.
    back out later.
 4. **Export.** One click: an MP4 or a GIF, straight to your folder with your own file names.
 
-> **Razorcat isn't released yet.** The first beta is on its way.
+> **Razorcat is in beta.** [Download it](https://github.com/flowcat-software/razorcat/releases) and please
+> [report anything odd](#feedback-and-bug-reports).
+
+## Contents
+
+- [Why Razorcat?](#why-razorcat)
+- [Install](#install)
+- [Getting started](#getting-started)
+- [Recording](#recording)
+- [The editor](#the-editor)
+- [Keyboard reference](#keyboard-reference)
+- [Features](#features)
+- [Updating](#updating)
+- [Verify your download](#verify-your-download)
+- [Privacy](#privacy)
+- [Feedback and bug reports](#feedback-and-bug-reports)
+- [Building from source](#building-from-source)
+- [License](#license)
 
 ## Why Razorcat?
 
@@ -83,6 +104,251 @@ first.
 - **Developers and product people:** feature demos, release videos, bug reproductions.
 - **Marketers and sales engineers:** product demos and feature highlights.
 
+## Install
+
+1. Download the newest `Razorcat_<version>_x64-setup.exe` from the
+   [Releases](https://github.com/flowcat-software/razorcat/releases) page (the one at the top).
+2. Run it. Razorcat installs for your user account only, so no administrator rights are
+   needed.
+3. **Windows SmartScreen will warn you** ("Windows protected your PC"). Beta builds aren't
+   code-signed yet, so Windows doesn't recognize them. Click **More info**, then **Run anyway**.
+   To check the installer is genuine first, see [Verify your download](#verify-your-download).
+4. Razorcat opens, with its icon in the tray. See [Getting started](#getting-started).
+
+From then on, Razorcat updates itself when you say so (see [Updating](#updating)).
+
+Razorcat needs Microsoft Edge WebView2, which is part of Windows 11 and up-to-date Windows 10.
+If it's missing, the installer downloads it for you.
+
+## Getting started
+
+1. Open Razorcat from the Start menu. The editor opens, and Razorcat's icon appears in the tray
+   (bottom-right, by the clock; it may be under the **^** arrow).
+2. **Record:** press **Win+F11** (or **Record** in the editor or the tray), drag over the part of
+   the screen you want, and press **Enter**. After a short countdown, Razorcat records. Press
+   **Stop** in the small control that floats by your recording (or **Ctrl+Alt+S**).
+3. The recording opens on the timeline. Press **Space** to play it, **S** to split it at the
+   playhead, and drag the clips' edges to trim them. **Delete** removes a clip you don't want.
+4. **Mark it up:** pick a tool from the bar above the picture (or press its key: **A** for an
+   arrow, **T** for text), and draw on the picture. Each item gets a bar on the timeline: drag
+   its ends to set when it shows.
+5. **Export:** press **Ctrl+E** for an MP4, or open the **Export** menu for a GIF, a single
+   clip, or each clip as its own file.
+
+The line at the bottom of the editor always says which keys do what for what you're doing, and
+every key is listed in **Settings › Keyboard shortcuts** and in the
+[Keyboard reference](#keyboard-reference) below.
+
+Closing the editor keeps Razorcat in the tray, so **Win+F11** always works; the first time, it
+asks. Click the tray icon to bring the editor back, or right-click it for the menu:
+
+| Tray menu item    | What it does                                                |
+| ----------------- | ----------------------------------------------------------- |
+| Record            | Same as Win+F11                                             |
+| Open editor       | Show the editor                                             |
+| Settings          | Open Settings                                               |
+| Launch on login   | Start Razorcat with Windows, in the tray (off at first)     |
+| Restart to update | Install a new version (shown once one is ready)             |
+| Quit Razorcat     | Close Razorcat (asking first, if there are unsaved changes) |
+
+## Recording
+
+Press **Win+F11**, or **Record** in the editor or the tray. The screens dim, and you choose
+what to record:
+
+- **Drag** over an area (with Shift, a square), then adjust it with its handles or the arrow
+  keys, and press **Enter**.
+- **F** records the whole screen under the pointer.
+- **W** switches to picking a window: click one to record it.
+- **M**, **S**, **C** and **V** turn the microphone, the system's sound, your clicks and your
+  camera on or off. The bar under the area shows which are on.
+- **Esc** or a right-click cancels.
+
+While it records, a small control shows the time, with **Pause** and **Stop**; it isn't in
+the recording. These shortcuts work anywhere while recording, and you can change them in
+**Settings › Keyboard shortcuts**:
+
+| Shortcut       | Action                          |
+| -------------- | ------------------------------- |
+| **Ctrl+Alt+P** | Pause or resume                 |
+| **Ctrl+Alt+S** | Stop, and open the recording    |
+| **Ctrl+Alt+M** | Mute or unmute the microphone   |
+| **Ctrl+Alt+D** | Mute or unmute the system sound |
+| **Ctrl+Alt+C** | Note your clicks, or stop       |
+
+When it stops, the recording opens on the timeline. If the timeline already has videos,
+Razorcat asks whether to add it or start afresh. Your camera and your clicks arrive as items
+on the timeline, not in the picture: move, resize, restyle or delete them like any markup.
+Where recordings are saved, and how they're named, is in **Settings › Recording**.
+
+## The editor
+
+The editor has two halves. Above, the **picture**: the tools along the top, their options
+under them, and the preview. Below, **time**: the timeline bar (playing, ranges, sound) and
+the timeline, with your clips on one track and the markup on lanes above them.
+
+- **Opening videos:** drop files on the editor, use **Open** (Ctrl+O), or right-click a video
+  in Explorer › **Open with** › **Razorcat**. MP4, MOV, MKV, WebM and GIF. **Add video**
+  (Ctrl+Shift+O) puts another one after the rest, to join recordings.
+- **Cutting:** **S** splits at the playhead. Drag a clip's edge to trim it; the clips after it
+  move along, so there are never gaps. A trim can always be pulled back out, up to the whole
+  recording. Drag a clip by its top to move it.
+- **Ranges:** mark stretches with **I** and **O** (or **R** for one at the playhead), as many as
+  you like, then **Remove ranges** to cut them out or **Keep ranges** to keep only them.
+- **Crop** (C) and **Grow the frame** (G) work on the picture: drag the box's edges, type exact
+  sizes, or pick a ratio or a preset (captions above or below, black bars).
+- **Speed:** **Ctrl+R** sets the selected clip's speed, by percent or by the length you want.
+- **Fades:** select a clip or a markup item and set its fade in and out in the options above
+  the timeline; clips can also crossfade into each other.
+- **Snapping** lines edges up with the playhead, cuts and other items; hold **Shift** while
+  dragging to turn it off, or switch it off in the status bar.
+- **Projects:** **Ctrl+S** saves your edits as a project (`.rct`), which opens in Razorcat
+  from Explorer. Your videos are never changed. While you work, Razorcat autosaves a copy, and
+  after a crash it offers to recover it.
+
+### Marking up
+
+Pick a tool and draw on the picture: arrows, lines, boxes, ellipses, text, callouts, numbered
+steps, the pen and highlighter, a spotlight, and redaction (solid, pixelate or blur). Each
+item starts at the playhead, with a bar on its lane in the timeline: drag the bar to move it in
+time, and its ends to set when it starts and stops.
+
+- **Styles:** the options bar shows the tool's colors, widths, fonts and sizes, and changes the
+  selected items too. The number keys pick sizes and Ctrl+number picks colors, as in Vandal.
+  Each tool remembers its style.
+- **Many at once:** select several items (Ctrl+click or Shift+click, or Ctrl+A for those at
+  the playhead), then move them, stretch their timing or change their fades together.
+  **Ctrl+C** copies an item; **Ctrl+Shift+V**, **F** and **T** paste its style, fades or
+  timing onto the selected ones. **Alt+drag** copies items along the timeline.
+- **Redaction:** use **Solid** for anything that must stay unreadable, such as passwords:
+  pixelated or blurred text can sometimes be read back with special tools.
+
+### Exporting
+
+**Ctrl+E** exports the whole timeline as an MP4. The **Export** menu has the rest: a GIF, the
+selected clip, selected clips joined, or each clip as its own file; a clip's right-click menu
+exports just that clip. The first time, Razorcat asks whether exports should go straight to a
+folder, named from your templates, or ask where each time. The folder, the file names and
+GIF sizes are in **Settings › Export**.
+
+## Keyboard reference
+
+Keys are matched by position, so they work on any keyboard layout. The recording shortcuts
+can be changed in **Settings › Keyboard shortcuts**, which also lists all of these.
+
+### Tools
+
+| Keys           | Action              |
+| -------------- | ------------------- |
+| **V**          | Select              |
+| **C**          | Crop                |
+| **G**          | Grow the frame      |
+| **T**          | Text                |
+| **A**          | Arrow               |
+| **/** / **\\** | Line                |
+| **B**          | Rectangle (box)     |
+| **E**          | Ellipse             |
+| **Q**          | Callout             |
+| **N**          | Step marker         |
+| **D**          | Click               |
+| **H**          | Highlighter         |
+| **P**          | Pen                 |
+| **F**          | Spotlight (focus)   |
+| **U**          | Redact (blur)       |
+| **X**          | Swap the two colors |
+
+### Playing
+
+| Keys                              | Action                          |
+| --------------------------------- | ------------------------------- |
+| **Space**                         | Play or pause                   |
+| **J**                             | Play backward (again: faster)   |
+| **K**                             | Pause                           |
+| **L**                             | Play forward (again: faster)    |
+| **←** / **→**                     | One frame back or forward       |
+| **Shift**+**←** / **Shift**+**→** | One second back or forward      |
+| **↑** / **↓**                     | The previous or next edit point |
+| **Home** / **End**                | The start or the end            |
+
+### Editing
+
+| Keys                                                | Action                                                  |
+| --------------------------------------------------- | ------------------------------------------------------- |
+| **S**                                               | Split at the playhead                                   |
+| **I** / **O**                                       | A range's in or out point                               |
+| **R**                                               | A range at the playhead                                 |
+| **Del** / **Backspace**                             | Delete what's selected                                  |
+| **Esc**                                             | Drop a range's in point, then the selection             |
+| **M**                                               | Mute the selected clip                                  |
+| **Shift**+**M**                                     | Mute all the sound                                      |
+| **Ctrl**+**D**                                      | Duplicate the selected clip                             |
+| **Ctrl**+**C** / **Ctrl**+**V**                     | Copy and paste a clip, or markup                        |
+| **Ctrl**+**[** / **Ctrl**+**]**                     | Move a clip earlier or later, or markup back or forward |
+| **Ctrl**+**Shift**+**[** / **Ctrl**+**Shift**+**]** | To the start or end, or to the back or front            |
+| **Ctrl**+**R**                                      | The selected clip's speed                               |
+| **Ctrl**+**Shift**+**V**                            | Paste the copied markup's style onto the selected       |
+| **Ctrl**+**Shift**+**F**                            | Paste its fades (a clip's too)                          |
+| **Ctrl**+**Shift**+**T**                            | Paste its timing                                        |
+| **Ctrl**+**Z**                                      | Undo                                                    |
+| **Ctrl**+**Y** / **Ctrl**+**Shift**+**Z**           | Redo                                                    |
+| **Ctrl**+**0**                                      | Fit the timeline                                        |
+| **Ctrl**+**=** / **Ctrl**+**−**                     | Zoom the timeline in or out                             |
+| **Shift**+drag                                      | Drag without snapping                                   |
+| **Alt**+drag                                        | Drag a copy                                             |
+| **Ctrl**+click / **Shift**+click                    | Add to the selection                                    |
+
+### Marking up
+
+| Keys                                          | Action                                                  |
+| --------------------------------------------- | ------------------------------------------------------- |
+| **1…0**                                       | Line width, text size or strength, by tool              |
+| **Shift**+**1…0**                             | A callout's pointer thickness                           |
+| **Alt**+**1…0**                               | Font, or corner radius for rectangles and spotlights    |
+| `` ` `` / **Shift**+`` ` `` / **Alt**+`` ` `` | The lowest of those (the key left of 1)                 |
+| **Alt**+**↑** / **Alt**+**↓**                 | The previous or next font                               |
+| **Ctrl**+**1…9**                              | Color (the first, with two)                             |
+| **Ctrl**+**Shift**+**1…9**                    | The second color                                        |
+| **Ctrl**+**B** / **Ctrl**+**I**               | Bold, italic                                            |
+| **Ctrl**+**A**                                | Select the markup at the playhead (again: all of it)    |
+| **Ctrl**+**D**                                | Duplicate the selected markup                           |
+| **←↑↓→**                                      | Nudge, after a click on the picture (with Shift: 10 px) |
+| **Enter**                                     | Edit the selected text, callout or step label           |
+| **Esc**                                       | Deselect, then back to Select                           |
+| **Shift**+drag                                | Square, circle, 45° lines, straight moves               |
+
+### Cropping
+
+| Keys                | Action                                 |
+| ------------------- | -------------------------------------- |
+| **←↑↓→**            | Move the crop (with Shift: 10 px)      |
+| **Ctrl**+**←↑↓→**   | Resize it from the bottom-right corner |
+| **Enter** / **Esc** | Done                                   |
+
+### Files
+
+| Keys                     | Action                      |
+| ------------------------ | --------------------------- |
+| **Ctrl**+**O**           | Open a video or project     |
+| **Ctrl**+**Shift**+**O** | Add a video to the timeline |
+| **Ctrl**+**S**           | Save the project            |
+| **Ctrl**+**Shift**+**S** | Save the project as         |
+| **Ctrl**+**E**           | Export an MP4               |
+| **Ctrl**+**,**           | Settings                    |
+
+### Choosing what to record
+
+| Keys                  | Action                                        |
+| --------------------- | --------------------------------------------- |
+| drag                  | Choose an area (Shift: square)                |
+| **F**                 | Record the screen under the pointer           |
+| **W**                 | Choose a window instead (again, or Esc: back) |
+| **Enter**             | Record                                        |
+| **←↑↓→**              | Move the area (with Shift: 10 px)             |
+| **Ctrl**+**←↑↓→**     | Resize it                                     |
+| **M** / **S**         | Microphone, system sound on or off            |
+| **C** / **V**         | Clicks, camera on or off                      |
+| **Esc** / right-click | Cancel                                        |
+
 ## Features
 
 **Recording**
@@ -122,13 +388,6 @@ first.
 - Hardware encoding on NVIDIA, AMD and Intel graphics, with a fallback that always works
 - The whole timeline, a single clip, selected clips joined, or each clip as its own file
 - Straight to a default folder with file-name templates, or choose each time
-
-## Install
-
-Razorcat isn't released yet. When it is, its installer will be on the
-[Releases](https://github.com/flowcat-software/razorcat/releases) page. It installs for your
-user account only (no administrator rights), and updates itself when you say so, with every
-update signed and checked before it installs.
 
 ## Updating
 
