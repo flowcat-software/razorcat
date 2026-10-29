@@ -3,11 +3,11 @@
 // URL and SHA-256, so every machine (and later CI) builds with the same bytes; the binaries stay
 // out of git. Run once after cloning, and again when a pin changes: `npm run fetch-tools`.
 //
-// Pins (DEVELOPMENT.md › Media tools):
+// Pins (DEVELOPMENT.md › Media tools), downloaded from Razorcat's own `tools` release, where they
+// can't be pruned (it also has their source):
 // - ffmpeg: BtbN's GPL build of the n8.1.3 release (autobuild-2026-09-26-13-03), the checksum
-//   from that release's checksums.sha256. BtbN prunes old autobuilds, so the archive is kept in
-//   the download cache (src-tauri/binaries/.cache/) once fetched.
-// - gifski 1.34.0 (2025-07-13), the checksum GitHub records for the release asset.
+//   from that release's checksums.sha256. BtbN has since pruned it.
+// - gifski 1.34.0 (2025-07-13), the checksum GitHub records for the upstream release asset.
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
@@ -22,18 +22,19 @@ const CACHE = join(BIN, ".cache");
 const TRIPLE = "x86_64-pc-windows-msvc";
 /** Windows' own tar (bsdtar): reads zip and tar.xz. Git Bash's tar can't do zip. */
 const TAR = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
+const TOOLS_RELEASE = "https://github.com/flowcat-software/razorcat/releases/download/tools";
 
 const TOOLS = [
   {
     name: "ffmpeg",
-    url: "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-26-13-03/ffmpeg-n8.1.3-win64-gpl-8.1.zip",
+    url: `${TOOLS_RELEASE}/ffmpeg-n8.1.3-win64-gpl-8.1.zip`,
     sha256: "d20ef03f0f4161453b9f46a72471eb5370f56b6410fe8bca14a4b0220c6c924a",
     exe: "ffmpeg-n8.1.3-win64-gpl-8.1/bin/ffmpeg.exe",
     license: "ffmpeg-n8.1.3-win64-gpl-8.1/LICENSE.txt",
   },
   {
     name: "gifski",
-    url: "https://github.com/ImageOptim/gifski/releases/download/1.34.0/gifski-1.34.0.tar.xz",
+    url: `${TOOLS_RELEASE}/gifski-1.34.0.tar.xz`,
     sha256: "b9b6591aa163123d737353d9c8581efdf3234d28eeaa45329b31da905cd5a996",
     exe: "win/gifski.exe",
     license: "LICENSE",
