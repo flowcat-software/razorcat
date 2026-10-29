@@ -11,6 +11,7 @@ import { FolderInput } from "./FolderInput";
 import { FontPickerSetting } from "./FontPickerEditor";
 import { GrowPresetsEditor } from "./GrowPresetsEditor";
 import { HotkeyField } from "./HotkeyField";
+import { KeyList } from "./KeyList";
 import { LogButtons } from "./LogButtons";
 import { MicrophonePicker } from "./MicrophonePicker";
 import { NumberInput } from "./NumberInput";
@@ -63,6 +64,7 @@ export const controls: Registry = {
   palette: { component: PaletteSetting, layout: "stacked" },
   toolStyle: { component: ToolStyleSetting, layout: "stacked" },
   fontPicker: { component: FontPickerSetting, layout: "stacked" },
+  keyList: { component: KeyList, layout: "stacked" },
   updates: { component: UpdatesCard, layout: "bare" },
   about: { component: AboutCard, layout: "bare" },
   logs: { component: LogButtons, layout: "stacked" },

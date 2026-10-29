@@ -4,6 +4,7 @@
 // add an item type to `Item` below and a component to the registry in `controls/index.ts`
 // (TypeScript will insist on both). Vandal's settings have more kinds to copy (toggle, text...)
 // when a setting needs one.
+import type { KeyEntry } from "./fixedShortcuts";
 import type { ComponentType } from "react";
 import type { ToolId } from "../markup/toolStore";
 import type { Settings, NumberPicker } from "../shared/ipc";
@@ -145,6 +146,12 @@ export interface GrowPresetsItem extends BaseItem {
 }
 
 /** The About card: logo, name, version, description, author. */
+/** A read-only table of shortcuts (Settings › Keyboard shortcuts). */
+export interface KeyListItem extends BaseItem {
+  kind: "keyList";
+  entries: KeyEntry[];
+}
+
 /** Settings › Updates: what the last check found, Check now, Install and restart. */
 export interface UpdatesItem extends BaseItem {
   kind: "updates";
@@ -233,6 +240,7 @@ export type Item =
   | PaletteItem
   | ToolStyleItem
   | FontPickerItem
+  | KeyListItem
   | UpdatesItem
   | AboutItem
   | LogsItem

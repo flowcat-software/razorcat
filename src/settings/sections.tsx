@@ -16,6 +16,15 @@ import {
 import { DEFAULT_STYLE_CONFIG } from "../markup/styles";
 import type { Settings } from "../shared/ipc";
 import type { Section } from "./schema";
+import {
+  CROP_KEYS,
+  FILE_KEYS,
+  MARKUP_KEYS,
+  PICK_KEYS,
+  PLAYBACK_KEYS,
+  TIMELINE_KEYS,
+  TOOL_KEYS,
+} from "./fixedShortcuts";
 
 /** The colours a click's button can be: Settings › Markup › Click markers' (PLAN 5b.6d). */
 const clickColors = (s: Settings) =>
@@ -1197,7 +1206,8 @@ export const sections: Section[] = [
     id: "shortcuts",
     title: "Keyboard shortcuts",
     icon: KeyboardIcon,
-    description: "Shortcuts that work anywhere in Windows, even with the editor closed.",
+    description:
+      "Recording's shortcuts work anywhere in Windows, even with the editor closed. The editor's are listed below.",
     groups: [
       {
         title: "Recording",
@@ -1261,6 +1271,29 @@ export const sections: Section[] = [
             keywords: ["hotkey", "shortcut", "keyboard", "key", "clicks", "highlight", "mouse"],
           },
         ],
+      },
+      {
+        title: "In the editor",
+        description: "These can't be changed.",
+        items: (
+          [
+            ["keys-tools", "Tools", "A tool's key again puts it down.", TOOL_KEYS],
+            ["keys-playback", "Playing", undefined, PLAYBACK_KEYS],
+            ["keys-timeline", "Editing", undefined, TIMELINE_KEYS],
+            ["keys-markup", "Marking up", undefined, MARKUP_KEYS],
+            ["keys-crop", "Cropping", undefined, CROP_KEYS],
+            ["keys-files", "Files", undefined, FILE_KEYS],
+            ["keys-pick", "Choosing what to record", undefined, PICK_KEYS],
+          ] as const
+        ).map(([id, label, description, entries]) => ({
+          id,
+          kind: "keyList" as const,
+          label,
+          description,
+          entries,
+          // Found by what they do: "split", "zoom"...
+          keywords: ["shortcut", "keyboard", "key", ...entries.flatMap((e) => [e.what, ...e.keys])],
+        })),
       },
     ],
   },
