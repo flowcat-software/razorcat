@@ -6,6 +6,16 @@ All notable changes to Razorcat are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0-beta.2] - 2026-10-29
+
+### Added
+
+- **Settings › Keyboard shortcuts lists every shortcut.** Under the recording shortcuts you can
+  change, the editor's own keys are all there: the tools, playing, editing, marking up,
+  cropping, files and choosing what to record. Search Settings by what a key does ("split",
+  "zoom") to find it. The same lists are in the README's
+  [Keyboard reference](https://github.com/flowcat-software/razorcat#keyboard-reference).
+
 ## [0.5.0-beta.1] - 2026-10-29
 
 The first beta of Razorcat, the screencast tool built for speed: record your screen, mark it
@@ -40,5 +50,6 @@ testing it. Please [report anything odd](https://github.com/flowcat-software/raz
 - **The installer is about 50 MB**, most of it ffmpeg. A smaller build of ffmpeg, with only what
   Razorcat uses, is planned.
 
-[Unreleased]: https://github.com/flowcat-software/razorcat/compare/v0.5.0-beta.1...HEAD
+[Unreleased]: https://github.com/flowcat-software/razorcat/compare/v0.5.0-beta.2...HEAD
+[0.5.0-beta.2]: https://github.com/flowcat-software/razorcat/compare/v0.5.0-beta.1...v0.5.0-beta.2
 [0.5.0-beta.1]: https://github.com/flowcat-software/razorcat/releases/tag/v0.5.0-beta.1
