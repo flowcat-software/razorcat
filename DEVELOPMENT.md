@@ -99,6 +99,10 @@ before they're used. `.npmrc` and `src-tauri/deny.toml` enforce part of this.
   crates, [RustSec](https://rustsec.org/advisories/).
 - **Maintenance and owner:** recent releases, an active repository, and the same owner as before.
   A package that changed hands recently is a reason to wait or look elsewhere.
+- **Licence:** compatible with the GPL-3.0 (MIT, Apache-2.0, BSD, ISC, Zlib, MPL-2.0 and the
+  like). A package under a licence the GPL can't take (proprietary, non-commercial, SSPL) is
+  out. Programs we only run, like ffmpeg and gifski, stay separate programs: never link
+  them as libraries.
 - **Prefer what we already have.** Many Windows features only need another feature flag on the
   `windows` crate, not a new crate.
 - **Age:** don't take a version published in the last 7 days. npm enforces this

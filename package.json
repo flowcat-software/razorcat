@@ -5,6 +5,8 @@
   "description": "A small, fast, precise video editor for Windows",
   "author": "Flowcat Software",
   "license": "GPL-3.0-or-later",
+  "homepage": "https://github.com/flowcat-software/razorcat",
+  "repository": "github:flowcat-software/razorcat",
   "type": "module",
   "scripts": {
     "dev": "vite",
