@@ -463,7 +463,7 @@ Razorcat is distributed in the hope that it will be useful, but WITHOUT ANY WARR
 even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 General Public License for more details.
 
-### Using Razorcat at work
+### Using Razorcat for commercial purposes
 
 Razorcat is free to download and use. If you use it at or for a business, we ask that you buy
 a commercial licence for the builds we publish. It's an inexpensive one-time purchase that
