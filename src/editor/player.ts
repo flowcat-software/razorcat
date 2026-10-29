@@ -786,7 +786,7 @@ export class Player {
     const next = this.spans[this.playing + 1];
     if (!o) return;
     // The next clip goes on where this one ends (a split, at 100%, no crossfade): the video's
-    // already there, so it plays on, unpaused and unsought (Richard, 2026-10-27: a seek at each
+    // already there, so it plays on, unpaused and unsought (2026-10-27: a seek at each
     // split showed as a stutter, and a recording's camera stumbled on it).
     if (next && continues(now, next)) {
       this.playing++;

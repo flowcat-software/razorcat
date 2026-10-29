@@ -1,5 +1,5 @@
 // Accent colors: the text color on one. A picked accent is used as it is, in
-// both themes: it's the user's choice, bright or not (Richard, 2026-10-23; it
+// both themes: it's the user's choice, bright or not (2026-10-23; it
 // used to be darkened or lightened to stand out, which muted bright colors).
 // The Windows accent comes with Windows' own shades.
 

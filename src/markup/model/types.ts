@@ -236,7 +236,7 @@ export interface CalloutAnnotation extends Base, TextBody {
 export type ClickLook = "ring" | "halo" | "target" | "ripple";
 
 /** Which button a click mark shows (PLAN 5b.6d): it's drawn in that button's colour from
- *  Settings › Recording, whatever it is now (Richard: no colour of its own, to keep it simple). */
+ *  Settings › Recording, whatever it is now (no colour of its own, to keep it simple). */
 export type ClickButton = "left" | "middle" | "right";
 
 /**

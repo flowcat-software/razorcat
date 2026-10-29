@@ -11,7 +11,7 @@
 // - each showing item's opacity at the playhead, as its fades make it (`opacity`); a
 //   spotlight's is its hole's, and the darkness has its own (`dark`; editor/spotlights.ts);
 // - step markers count up by their start times on the timeline, all of them, not only those
-//   showing (`labels`; Richard, 2026-10-21), where Vandal counts in creation order;
+//   showing (`labels`; 2026-10-21), where Vandal counts in creation order;
 // - a moving click mark (a ripple, PLAN 5b.6e) is drawn as it is so long after its click
 //   (`ages`).
 

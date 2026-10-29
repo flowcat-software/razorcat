@@ -1,6 +1,6 @@
 // Where a recording's camera shows in the preview (PLAN 5d.4): its place on its recording's
-// picture, through the picture's fit and the crop, on the finished frame; never cut off (Richard,
-// 2026-10-27): kept inside the frame, as large as it at most.
+// picture, through the picture's fit and the crop, on the finished frame; never cut off
+// (2026-10-27): kept inside the frame, as large as it at most.
 
 import type { CameraSize } from "../shared/ipc";
 import type { CameraState } from "./cameraKeys";
@@ -31,7 +31,7 @@ export const CAMERA_SIZE_NAMES: Readonly<Record<CameraSize, string>> = {
 
 /**
  * `place` at `size` on picture `s` (none: as it is), the corner it's nearest kept where it is,
- * so one tucked into a corner stays there (Richard).
+ * so one tucked into a corner stays there.
  */
 export function sizedPlace(place: CameraPlace, size: CameraSize | undefined, s: Size): CameraPlace {
   if (!size) return place;

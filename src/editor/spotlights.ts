@@ -2,8 +2,8 @@
 // as dark as each other (the last one made's, should they differ). On video the darkness is there
 // on each unbroken stretch with a spotlight showing (a run). It fades in with the spotlights that
 // start its run and out with those that end it, whose holes open and close with it; a spotlight
-// coming or going in the middle of a run fades its hole instead, the darkness staying (Richard,
-// 2026-10-23). The preview (markup/model/store.ts) and the export (exports.ts) both go by this.
+// coming or going in the middle of a run fades its hole instead, the darkness staying
+// (2026-10-23). The preview (markup/model/store.ts) and the export (exports.ts) both go by this.
 
 import { markFades, markOpacity, shownMarks, type Doc, type MarkId } from "./doc";
 

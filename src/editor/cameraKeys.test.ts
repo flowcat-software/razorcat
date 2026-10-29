@@ -29,7 +29,7 @@ const medium: CameraState = { x: 0.5, y: 0.5, size: "medium", hidden: false };
 const large: CameraState = { x: 0.8, y: 0.7, size: "large", hidden: false };
 const always = () => true;
 
-/** Richard's example (2026-10-28): clips A, B and C, 100 frames each, of one recording. */
+/** The worked example (2026-10-28): clips A, B and C, 100 frames each, of one recording. */
 function abc(): Doc {
   let doc = split(split(wholeSource(300), 100), 200);
   doc = setCameraAt(doc, 0, small); // A's first frame
@@ -171,7 +171,7 @@ describe("keeping each clip's start through an edit to the clips", () => {
     expect(keepCameraStarts(doc, cut, always)).toBe(cut);
   });
 
-  it("keeps each moved clip's start, with a keyframe in view (Richard's example)", () => {
+  it("keeps each moved clip's start, with a keyframe in view (the worked example)", () => {
     const doc = abc();
     // A, C, B: C would start small (A's), B large (C's).
     const moved = keepCameraStarts(doc, moveClip(doc, 3, 1), always);

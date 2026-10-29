@@ -611,7 +611,7 @@ impl Area {
     }
 }
 
-/// While picking, the bubble follows what's picked into its corner (Richard), until it's dragged:
+/// While picking, the bubble follows what's picked into its corner, until it's dragged:
 /// the area it's in, and which overlay's selection put it there (another's clearing its own
 /// selection doesn't move it).
 struct Follow {
@@ -901,7 +901,7 @@ pub fn fit(
     writing.push(".part");
     let writing = PathBuf::from(writing);
     // At normal priority, not below as background work is: over in half the time, and the
-    // editor doesn't feel it (Richard, 2026-10-27; 12.5 min in 10 to 16 s).
+    // editor doesn't feel it (2026-10-27; 12.5 min in 10 to 16 s).
     let mut cmd = sidecar::command(Tool::Ffmpeg)?;
     cmd.args(["-hide_banner", "-loglevel", "error", "-y", "-copyts", "-i"])
         .arg(&take.path)
@@ -1682,7 +1682,7 @@ Error opening input file dummy."#;
             Some(moved)
         );
         assert_eq!(BubblePath::from_description("comment=something else"), None);
-        // Many moves (Richard's 55 s had 47): all of them.
+        // Many moves (a 55 s test recording had 47): all of them.
         let many = BubblePath {
             place: place(1.0, 2.0, 3.0),
             moves: (0..200)

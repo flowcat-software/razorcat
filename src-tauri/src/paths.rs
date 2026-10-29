@@ -93,8 +93,8 @@ mod tests {
         );
         // Not a path-component boundary.
         assert_eq!(
-            contract_env(r"C:\Users\Richard\x", "USERPROFILE", home),
-            r"C:\Users\Richard\x"
+            contract_env(r"C:\Users\Alice\x", "USERPROFILE", home),
+            r"C:\Users\Alice\x"
         );
         assert_eq!(
             contract_env(r"D:\Proxies", "USERPROFILE", home),

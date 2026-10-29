@@ -141,7 +141,7 @@ pub enum FontSource {
 }
 
 /// A font picker (the text tool's, and the step markers'). The user's list is kept while `source` is
-/// `System`, so switching back brings it back (Richard's call, 2C.3). Files
+/// `System`, so switching back brings it back (2C.3). Files
 /// from before 2C.3 (`{"source":"system",...}` without `fonts`) load as is.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
@@ -253,7 +253,7 @@ impl Default for Styles {
                 "#e53935", "#fb8c00", "#fdd835", "#43a047", "#1e88e5", "#8e24aa", "#000000",
                 "#ffffff",
             ]),
-            // Defaults from Richard's list (2026-10-24): a dropdown takes less room, wider
+            // Defaults from the list of 2026-10-24: a dropdown takes less room, wider
             // lines for video, the large sizes captions on video want.
             color_control: ColorControl::Dropdown,
             width: NumberPicker::Slider {
@@ -264,7 +264,7 @@ impl Default for Styles {
             font_size: NumberPicker::Dropdown {
                 values: vec![12.0, 16.0, 18.0, 20.0, 36.0, 48.0, 72.0, 96.0, 117.0, 144.0],
             },
-            // Sliders from 6 to 30 px (Richard, 2026-10-23): on video a redaction wants to be
+            // Sliders from 6 to 30 px (2026-10-23): on video a redaction wants to be
             // strong, and a slider finds the amount by eye.
             pixelate: NumberPicker::Slider {
                 min: 6.0,
@@ -328,7 +328,7 @@ pub const CLICK_PALETTE: [&str; 8] = [
 
 impl ToolStyles {
     /// The callout's default override: its own thickness range, 1 to 20 px
-    /// (Richard, 2026-10-24; Vandal's was a compact dropdown, PLAN 3E.3).
+    /// (2026-10-24; Vandal's was a compact dropdown, PLAN 3E.3).
     pub fn callout_default() -> Self {
         Self {
             palette: None,
@@ -623,7 +623,7 @@ mod tests {
     fn default_shape_matches_plan() {
         let v = serde_json::to_value(Styles::default()).unwrap();
         assert_eq!(v["palette"][0], "#e53935");
-        // Richard's list, 2026-10-24.
+        // The list of 2026-10-24.
         assert_eq!(v["colorControl"], "dropdown");
         assert_eq!(
             v["width"],

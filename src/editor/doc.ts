@@ -109,7 +109,7 @@ export type MarkId = number;
  * What a piece of markup shows: Vandal's markup object (text, an arrow...), without its id. Its
  * geometry is in output pixels, from the top-left of the whole frame (the grown space included).
  * A crop or grow that moves the picture in the frame moves the markup with it (`withFrame`), so
- * it stays over what it marked (Richard, 2026-10-23).
+ * it stays over what it marked (2026-10-23).
  */
 export type MarkObject = NewAnnotation;
 
@@ -132,7 +132,7 @@ export interface Mark {
 /**
  * How opaque markup with `fades` (fitted to it), `length` frames long, is on its frame `u` (from
  * 0): fading in, u / fade-in, so its first frame is clear; fading out, (length − 1 − u) /
- * fade-out, so its last is clear too (Richard, 2026-10-23: the mockup's ramp stopped a step
+ * fade-out, so its last is clear too (2026-10-23: the mockup's ramp stopped a step
  * short, and the last frame wasn't quite gone). The export's `ramps` (export.rs) frame for
  * frame, so the preview and the export agree.
  */
@@ -765,7 +765,7 @@ export function copyClip(doc: Doc, id: ClipId): ClipCopy | null {
 
 /**
  * Inserts `copy` as a new clip at position `at` (clamped; the clips from there move along), with
- * copies of its markup (Richard, 2026-10-20), and its fades if `keepFades`.
+ * copies of its markup (2026-10-20), and its fades if `keepFades`.
  */
 export function insertClip(doc: Doc, copy: ClipCopy, at: number, keepFades = true): Doc {
   const id = doc.nextId;
@@ -922,7 +922,7 @@ export function duplicateClip(doc: Doc, id: ClipId, keepFades = true): Doc {
 
 /**
  * Where Ctrl+V puts a clip: the position of the cut nearest timeline frame `f` (a clip's start,
- * or the timeline's end). From a clip's exact middle, the cut on its right (Richard).
+ * or the timeline's end). From a clip's exact middle, the cut on its right.
  */
 export function pasteSlot(doc: Doc, f: number): number {
   const cuts = [...clipStarts(doc), total(doc)];
@@ -1023,7 +1023,7 @@ function within(doc: Doc, a: number, b: number): Place | null {
 /**
  * The free stretch of timeline round frames `a` to `b`: from the end of the range before them
  * to the start of the one after (not counting range `exclude`). Ranges never overlap, though
- * they may touch (Richard); one already over `a` to `b` doesn't count.
+ * they may touch; one already over `a` to `b` doesn't count.
  */
 export function rangeRoom(doc: Doc, a: number, b: number, exclude: RangeId | null): Place {
   let lo = 0;
@@ -1278,7 +1278,7 @@ function anchorAt(doc: Doc, f: number): { clip: ClipId; at: number } | null {
  * same): its parts outside them kept, each anchored to its video, the part between dropped.
  * Markup wholly between them, or clear of them, is left as it is. The part with the start keeps
  * its fade-in, the part with the end its fade-out; at the cut, none, or with `fadeCuts` the
- * fade the whole had at that end (Richard, 2026-10-08).
+ * fade the whole had at that end (2026-10-08).
  */
 function cutMarks(doc: Doc, a: number, b: number, fadeCuts = false): Doc {
   let nextMarkId = doc.nextMarkId;
@@ -1456,8 +1456,8 @@ export function deleteMark(doc: Doc, id: MarkId): Doc {
 
 /**
  * The lane for new markup from `start` to `end`: in front of all it overlaps, as a drawing's
- * newest stroke is. The top lane if there's room there then, else a new one above it (Richard,
- * 2026-10-21: in a new lane at the bottom, what was just drawn went behind the rest).
+ * newest stroke is. The top lane if there's room there then, else a new one above it
+ * (2026-10-21: in a new lane at the bottom, what was just drawn went behind the rest).
  */
 export function freeLane(doc: Doc, start: number, end: number): number {
   const busy = shownMarks(doc).some((m) => m.lane === 0 && m.start < end && m.end > start);
@@ -1467,7 +1467,7 @@ export function freeLane(doc: Doc, start: number, end: number): number {
 // --- lanes ---
 //
 // Markup lanes grow as they're needed and close up when emptied, and two items in a lane never
-// overlap in time (Richard, 2026-10-21: with two fixed lanes, a third item at a busy moment
+// overlap in time (2026-10-21: with two fixed lanes, a third item at a busy moment
 // stacked over another, out of reach). The upper lane's markup is in front. `settleLanes` keeps
 // it so after every edit (docStore.ts).
 
@@ -1518,8 +1518,8 @@ export function settleLanes(doc: Doc, yielding: readonly MarkId[] = []): Doc {
 }
 
 /**
- * Several markup items' starts (or ends) moved `df` frames together, as one is dragged (Richard,
- * 2026-10-23): each goes as far towards that as it can, stopped by the item next to it in its
+ * Several markup items' starts (or ends) moved `df` frames together, as one is dragged
+ * (2026-10-23): each goes as far towards that as it can, stopped by the item next to it in its
  * lane, the timeline's start or end, or a frame's length, the rest going on. Their places, from
  * where they are in `doc` (the document when the drag started).
  */
@@ -1545,7 +1545,7 @@ export function resizeEdges(
 }
 
 /**
- * Clean up timeline (Richard, 2026-10-23): the lanes closed up as far as they go. Each item,
+ * Clean up timeline (2026-10-23): the lanes closed up as far as they go. Each item,
  * the front lanes' first, goes up to the first lane below everything it overlaps in time that's
  * in front of it, so nothing changes its frames, or its order front to back against what it
  * overlaps, and nothing goes down. Hidden markup keeps its lane. The same document if nothing
@@ -1590,7 +1590,7 @@ export function stackLane(doc: Doc, id: MarkId, how: "front" | "back"): number {
  * Several markup items moved together, each to its place (lanes as they were numbered before:
  * -1 a new lane above them all), as one block: if any of them lands on other markup, the block
  * goes down a lane at a time, all of it, until none does, so their order front to back and the
- * lanes between them stay as they were (Richard, 2026-10-21: settled one by one, a group's items
+ * lanes between them stay as they were (2026-10-21: settled one by one, a group's items
  * got reordered). Settled (`settleLanes`).
  */
 export function placeMarks(
@@ -1667,7 +1667,7 @@ function insertLane(doc: Doc, id: MarkId, at: number): Doc {
  * Markup `id` dragged to `start`–`end` and dropped on `lane`: into it if it's free there (or a
  * new lane above or below them all, -1 or past the last); on a busy lane, into a new lane just
  * above it, or just below it with `below` (the pointer in its lower half), as a layer dropped
- * between layers (Richard, 2026-10-21: a busy lane sent it back down, so it couldn't be put
+ * between layers (2026-10-21: a busy lane sent it back down, so it couldn't be put
  * between). Settled.
  */
 export function dropMark(

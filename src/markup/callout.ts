@@ -12,7 +12,7 @@ export type CalloutFont = Pick<TextBody, "fontSize" | "fontFamily" | "bold" | "i
 /**
  * How far below the text's line boxes the box and underline sit, in px: a
  * line box has more room above the letters than below, so centred on it they
- * looked low (Richard), by an amount that depends on the font. Moving the
+ * looked low, by an amount that depends on the font. Moving the
  * box, not the text, keeps the text editor lined up.
  */
 function boxDrop(font: CalloutFont, px: number): number {

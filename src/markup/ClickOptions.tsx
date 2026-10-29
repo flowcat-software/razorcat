@@ -94,7 +94,7 @@ interface Props {
   showButtonKeys: boolean;
 }
 
-/** "×2": a double-click (Richard: rings looked like the click styles). */
+/** "×2": a double-click (rings looked like the click styles). */
 const DOUBLE_ICON = (
   <text
     className={styles.solid}
@@ -137,7 +137,7 @@ export function ClickOptions({ click, locked, hints, showKeys, showButtonKeys }:
             </button>
           ))}
         </div>
-        {/* With the buttons: what the click was (Richard). Off, and not to be had, while a
+        {/* With the buttons: what the click was. Off, and not to be had, while a
             recording wouldn't show double-clicks (PLAN 5b.6d). */}
         <button
           type="button"
@@ -292,7 +292,7 @@ function SetRecordingStyle() {
   );
 }
 
-/** The click style, in a menu with names: the round icons alone looked alike (Richard). */
+/** The click style, in a menu with names: the round icons alone looked alike. */
 function LookPicker({ look, disabled }: { look: ClickLook; disabled: boolean }) {
   const current = LOOKS.find((l) => l.id === look) ?? LOOKS[0];
   return (

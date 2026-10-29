@@ -18,7 +18,7 @@ use crate::sidecar::{self, Tool};
 /// Progress callbacks at most this often.
 const PROGRESS_EVERY_MS: u128 = 250;
 /// How often a stop is looked for while ffmpeg is quiet (a slow graph can go long without a
-/// progress line: a cancel waited for one, Richard 2026-10-23).
+/// progress line: a cancel waited for one, 2026-10-23).
 const STOP_POLL: Duration = Duration::from_millis(100);
 
 pub enum Outcome {

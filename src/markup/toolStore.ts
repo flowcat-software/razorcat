@@ -175,7 +175,7 @@ export const useToolStore = create<ToolState>((set) => ({
   calloutItalic: false,
   calloutAlign: "left",
   calloutTextColor: null,
-  // A dot at the tip (Richard, 2026-10-24).
+  // A dot at the tip (2026-10-24).
   calloutEnd: "dot",
   calloutShape: "box",
   editing: null,

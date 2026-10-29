@@ -8,7 +8,7 @@ import { nextStepSeq, stepsOf } from "./steps";
 import { stepNumbering } from "./styles";
 
 /**
- * Duplicates land this far (source px) down-right of the original: in Razorcat, on it (Richard),
+ * Duplicates land this far (source px) down-right of the original: in Razorcat, on it,
  * since a copy usually goes on at another time, in another lane.
  */
 const DUPLICATE_OFFSET = 0;

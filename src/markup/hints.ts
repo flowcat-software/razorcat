@@ -339,7 +339,7 @@ const MARKS_SELECTED =
   "[Del] delete · [Ctrl+D] duplicate · [Ctrl+C] copy · [Ctrl+[] [Ctrl+]] a lane back or forward · [Ctrl+Shift+V] [Ctrl+Shift+F] [Ctrl+Shift+T] paste style, fades, timing · [Ctrl+A] again: all of it";
 
 /**
- * Why a key did nothing (Richard, 2026-10-08), said for a moment (`sayWhy`). Keys go in
+ * Why a key did nothing (2026-10-08), said for a moment (`sayWhy`). Keys go in
  * brackets, as above.
  */
 export const WHY = {

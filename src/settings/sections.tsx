@@ -570,7 +570,7 @@ export const sections: Section[] = [
       {
         title: "Step markers",
         items: [
-          // Its own colors with the rest of its options, as Clicks' (Richard, 2026-10-26).
+          // Its own colors with the rest of its options, as Clicks' (2026-10-26).
           {
             id: "tool-style-step",
             kind: "toolStyle",

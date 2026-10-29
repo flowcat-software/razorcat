@@ -12,7 +12,7 @@ import styles from "./SettingsApp.module.css";
 const SHOWN_MS = 3000;
 
 /**
- * A group's heading, with its Reset (Richard, 2026-10-26) while any of its settings differs
+ * A group's heading, with its Reset (2026-10-26) while any of its settings differs
  * from how it was installed (`resettable`: not search results' groups). It asks first, unless
  * "Don't ask again" was ticked (Settings › About › Reset turns asking back on). A group with no
  * title (a page that's one group, as Proxies) has the Reset alone, called by `name`, its page's.

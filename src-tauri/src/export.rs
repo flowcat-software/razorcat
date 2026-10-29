@@ -458,7 +458,7 @@ struct Show {
 
 /// The markup over `clips` (in the export's order), with the export's frames each item shows
 /// on: what of its timeline frames the clips cover, wherever they are in the export. Items over
-/// none of them are left out. As the preview draws them (Vandal's rule, Richard 2026-10-23): the
+/// none of them are left out. As the preview draws them (Vandal's rule, 2026-10-23): the
 /// redactions first (PLAN 4.8b, on the video), then the highlights, then the spotlights' holes and
 /// darkness, then the rest, back to front as sent.
 fn overlays(clips: &[ExportClip], markup: &Markup) -> Vec<Overlay> {
@@ -1178,7 +1178,7 @@ fn graph(
 /// round it as they read, reflected at the frame's edge), and laid back. In full colour, so the
 /// box's pixels are its own. Every box is cut from the one picture, as the preview's are, split
 /// once: each cut from the last one's result made the graph slower by half again per redaction
-/// (24 never finished; Richard, 2026-10-23). The picture's label after it.
+/// (24 never finished; 2026-10-23). The picture's label after it.
 fn redactions(f: &mut Vec<String>, at: &str, overlays: &[Overlay], frame: (u32, u32)) -> String {
     // Each one's index, kind and box, kept to the frame (the page sends it so).
     let boxes: Vec<_> = overlays
@@ -1251,7 +1251,7 @@ fn grown_box(b: (u32, u32, u32, u32), by: u32, frame: (u32, u32)) -> (u32, u32, 
 /// The fades of an item `length` frames long (`fade_in` and `fade_out` frames), for a stream of
 /// it with one frame more in front, which is dropped (its frame u is the stream's u + 1): fading
 /// in, its first frame clear, u / fade-in; fading out, its last clear too, (length − 1 − u) /
-/// fade-out (Richard, 2026-10-23: ending a step short, the last frame wasn't quite gone; the
+/// fade-out (2026-10-23: ending a step short, the last frame wasn't quite gone; the
 /// frame in front lets ffmpeg's `fade` start a frame earlier). The preview's `markOpacity`.
 /// `how`: what fades (`:alpha=1`, or `:color=white`).
 fn ramps(length: u32, fade_in: u32, fade_out: u32, how: &str) -> String {

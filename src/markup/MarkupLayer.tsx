@@ -363,7 +363,7 @@ export function MarkupLayer({
       .filter((n): n is Konva.Node => !!n);
     // Setting the nodes turns the frame upright for several of them. Keep a
     // group's frame at the angle it was rotated to until the selection
-    // changes, so the rotation can be fine-tuned (Richard); one node's frame
+    // changes, so the rotation can be fine-tuned; one node's frame
     // always follows that node's own rotation.
     const current = tr.nodes();
     const sameGroup =
@@ -1067,7 +1067,7 @@ export function MarkupLayer({
   const crop = clip ?? doc.crop;
   const textSelected = doc.annotations.some((a) => isTextual(a) && selection.includes(a.id));
   // Several objects with text among them don't resize: scaling the group
-  // moved and stretched the text boxes, which wasn't useful (Richard).
+  // moved and stretched the text boxes, which wasn't useful.
   const textGroup = textSelected && selection.length > 1;
   const anchors = textGroup || whole ? [] : textSelected ? TEXT_ANCHORS : ALL_ANCHORS;
   // Redactions (Rust bakes whole-pixel rectangles) and spotlights stay axis-aligned.

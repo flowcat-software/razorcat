@@ -98,7 +98,7 @@ const SIDE_NAMES: Record<Side, string> = {
   right: "Right",
 };
 
-/** Each side's label: its edge, and an arrow out to it, the way it grows (Richard's sketch). */
+/** Each side's label: its edge, and an arrow out to it, the way it grows. */
 const SIDE_ICONS: Record<Side, string> = {
   top: "M5 5h14M12 19V8M8 12l4-4 4 4",
   bottom: "M5 19h14M12 5v11M8 12l4 4 4-4",

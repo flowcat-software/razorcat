@@ -387,7 +387,7 @@ export type CameraReady = {
 };
 
 /**
- *  How big the camera shows (PLAN 5d.6; Richard, 2026-10-27): its circle across, a share of the
+ *  How big the camera shows (PLAN 5d.6; 2026-10-27): its circle across, a share of the
  *  picture's shorter side, never pixels, so it's the same on any screen
  *  (`mockup/camera-sizes.html`). Large stays under the 720 px recorded on 4K.
  */
@@ -421,7 +421,7 @@ export type CheckFrames = {
  *  ticks round a ring, or rings spreading out.
  */
 export type ClickLook = "ring" | "halo" | "target" | 
-/**  The default (Richard, 2026-10-26): it draws the eye to where the click was. */
+/**  The default (2026-10-26): it draws the eye to where the click was. */
 "ripple";
 
 /**  Rust → the control: clicks noted or not. */
@@ -506,13 +506,13 @@ export type Editing = {
 	/**  The grow tool's presets, in the order its options bar shows them. */
 	growPresets?: GrowPreset[],
 	/**
-	 *  The camera fades with its clip (PLAN 5d.5; Richard, 2026-10-27); off, it stays as its
+	 *  The camera fades with its clip (PLAN 5d.5; 2026-10-27); off, it stays as its
 	 *  clip fades.
 	 */
 	cameraFades?: boolean,
 	/**
 	 *  The camera fades out and in at a keyframe that moves, resizes, hides or shows it, where
-	 *  there's room (PLAN 5d.9; Richard, 2026-10-28); off, it jumps. The editor works it out.
+	 *  there's room (PLAN 5d.9; 2026-10-28); off, it jumps. The editor works it out.
 	 */
 	cameraKeyFades?: boolean,
 };
@@ -649,7 +649,7 @@ export type FontControl = "dropdown" |
 
 /**
  *  A font picker (the text tool's, and the step markers'). The user's list is kept while `source` is
- *  `System`, so switching back brings it back (Richard's call, 2C.3). Files
+ *  `System`, so switching back brings it back (2C.3). Files
  *  from before 2C.3 (`{"source":"system",...}` without `fonts`) load as is.
  */
 export type FontPicker = {
@@ -757,7 +757,7 @@ export type Markup = {
 	showShortcutHints?: boolean,
 	/**
 	 *  Number buttons in the options bar show their unit ("50%", "10px"). Off by default: it
-	 *  adds clutter (Richard's call, in Vandal).
+	 *  adds clutter (as in Vandal).
 	 */
 	showButtonUnits?: boolean,
 	/**
@@ -1015,7 +1015,7 @@ export type Recording = {
 	clicks?: boolean,
 	/**
 	 *  While clicks are noted, each shows on the screen as it's made, as it'll look (PLAN
-	 *  5b.6f): left out of the recording. Off until chosen (Richard, 2026-10-26).
+	 *  5b.6f): left out of the recording. Off until chosen (2026-10-26).
 	 */
 	liveClicks?: boolean,
 	/**
@@ -1033,7 +1033,7 @@ export type Recording = {
 	clickFadeOut?: number | null,
 	clickDouble?: boolean,
 	/**
-	 *  Clicks placed by hand in the editor look and last as recorded ones (Richard, 2026-10-26):
+	 *  Clicks placed by hand in the editor look and last as recorded ones (2026-10-26):
 	 *  the click tool's look, colour (the left button's) and size follow these, and its options
 	 *  bar's are locked.
 	 */
@@ -1067,7 +1067,7 @@ export type RedactMode = "pixelate" | "blur";
 export type Reset = {
 	/**
 	 *  A group's Reset (its heading's link) asks first; its "Don't ask again" turns this off
-	 *  (Richard, 2026-10-26). On by default, so Reset all settings asks again.
+	 *  (2026-10-26). On by default, so Reset all settings asks again.
 	 */
 	askForGroups?: boolean,
 };
@@ -1258,7 +1258,7 @@ export type Timeline = {
 	defaultMarkupFade?: number,
 	/**
 	 *  Markup and clips duplicated, Alt-dragged or pasted keep the original's fades (on by
-	 *  default; Richard, 2026-10-23). Off: copies start without.
+	 *  default; 2026-10-23). Off: copies start without.
 	 */
 	copiesKeepFades?: boolean,
 	/**
@@ -1273,7 +1273,7 @@ export type Timeline = {
 	fadeSplitClips?: boolean,
 	/**
 	 *  Changing a clip's speed scales the markup on it, its length and fades, with the video
-	 *  (on by default; Richard, 2026-10-24). Off, markup keeps its length. Only while ranges and
+	 *  (on by default; 2026-10-24). Off, markup keeps its length. Only while ranges and
 	 *  markup follow their video.
 	 */
 	markupStretchesWithSpeed?: boolean,
@@ -1300,7 +1300,7 @@ export type ToolStyles = {
  */
 export type ToolStylesReset = null;
 
-/**  Razorcat in the tray (PLAN 5b.8a, Richard 2026-10-26). */
+/**  Razorcat in the tray (PLAN 5b.8a, 2026-10-26). */
 export type Tray = {
 	/**  Closing the editor hides it, Razorcat staying in the tray; off, closing it quits. */
 	keepRunning?: boolean,

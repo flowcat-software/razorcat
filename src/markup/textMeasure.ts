@@ -39,7 +39,7 @@ export interface FontMetrics {
 /**
  * How far below a line box's centre a font's letters are centred, as a share
  * of its size: halfway between its capitals' and its lowercase letters'
- * middles. That's the centre Richard picked by eye for Segoe UI (mixed case)
+ * middles. That's the centre picked by eye for Segoe UI (mixed case)
  * and Instruction (capitals only); fonts with less room above the letters,
  * like Arial and Helvetica, need about half as much.
  */

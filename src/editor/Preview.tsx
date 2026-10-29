@@ -314,7 +314,7 @@ function ClipFade({ player }: { player: Player }) {
  * it; then it plays along, sought again only if it falls well behind (seeking a playing video
  * stutters). At the crossfade's end the player moves its own video on to the incoming clip,
  * which takes a seek when both are from one file: till its picture's there, this one stays on
- * top, all of it, playing on (Richard, 2026-10-23: playing across a crossfade stuttered).
+ * top, all of it, playing on (2026-10-23: playing across a crossfade stuttered).
  */
 function CrossfadeMix({
   sources,

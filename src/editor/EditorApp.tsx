@@ -68,7 +68,7 @@ import styles from "./EditorApp.module.css";
 const openVideo = () => void commands.openDialog(false);
 
 /**
- * Autosave (PLAN PR4): written this soon after the last finished edit (Richard: as good as at
+ * Autosave (PLAN PR4): written this soon after the last finished edit (as good as at
  * once), so a run of them (keys held, a burst of nudges, quick edits) is written once.
  */
 const AUTOSAVE_MS = 2_000;

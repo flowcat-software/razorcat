@@ -8,7 +8,7 @@ import styles from "./EditorApp.module.css";
 const MIN_THUMB = 24;
 
 /**
- * The timeline's scrollbar, along its bottom while zoomed in past fit (Richard, 2026-10-24): the
+ * The timeline's scrollbar, along its bottom while zoomed in past fit (2026-10-24): the
  * thumb is the part in view; drag it to scroll, or click the track to jump there (and drag on).
  */
 export function TimelineScrollbar() {

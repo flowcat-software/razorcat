@@ -102,7 +102,7 @@ describe("delete and move", () => {
   });
 
   it("a dragged clip stays put until its edge passes a neighbour's middle", () => {
-    // Clips 0-30, 30-75 (2), 75-100 (3). Richard's bug: clip 2 longer than clip 3, so measured
+    // Clips 0-30, 30-75 (2), 75-100 (3). The bug: clip 2 longer than clip 3, so measured
     // by the pointer it jumped past clip 3 on a click.
     const long = split(split(wholeSource(100), 30), 75);
     expect(moveSlot(long, 2, 0)).toBe(1);

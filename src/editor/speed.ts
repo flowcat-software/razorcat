@@ -13,7 +13,7 @@
 //
 // Markup on a clip whose speed changes keeps its start on its video. Its length and fades scale
 // with the speed (`stretchMarks`), or stay in timeline frames (Settings › Timeline, on by default;
-// Richard, 2026-10-24). Ranges mark video, so they always scale with it. Fades and crossfades are in
+// 2026-10-24). Ranges mark video, so they always scale with it. Fades and crossfades are in
 // timeline frames, and stay.
 
 import type { Clip, ClipId, Doc } from "./doc";

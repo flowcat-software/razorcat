@@ -36,7 +36,7 @@ interface Props {
  * that speed gives it (its video all kept, where the options bar's Length trims), linked; the
  * usual speeds a click away. Its fields drag as the options bar's do; its title bar moves it.
  * Everything changed while it's open is one undo step: Enter, OK, × or a click elsewhere keeps
- * it (Richard), Esc puts it all back. Closed, the timeline has the keys again (Space plays).
+ * it, Esc puts it all back. Closed, the timeline has the keys again (Space plays).
  */
 export function SpeedPopover({ source, inFrames }: Props) {
   const at = useSpeedPopover((s) => s.at);
@@ -74,7 +74,7 @@ function Panel({
     moved.current ? null : { left: at.x, top: at.y, width: 0, height: 0 },
   );
 
-  // Its title bar moves it, kept inside the window (Richard).
+  // Its title bar moves it, kept inside the window.
   const onTitleDown = (e: PointerEvent<HTMLDivElement>) => {
     const root = rootRef.current;
     if (e.button !== 0 || !root || (e.target as Element).closest("button")) return;

@@ -4,7 +4,7 @@
 // background, a callout's box, a step marker) and text. A callout's box and a step marker take a
 // fill, else a line; an outlined shape given a fill gets one. Text colour is an island: it goes
 // only to text (a text's colour, a callout's or a step's label) and text takes no other
-// (Richard, 2026-10-22: an arrow's colour turned a text yellow but no label, and a text's turned
+// (2026-10-22: an arrow's colour turned a text yellow but no label, and a text's turned
 // a line its colour). A text's background is a fill, and goes as one. Never the text, the shape drawn or
 // the place. Written for Vandal to take back too: it needs only the annotations.
 

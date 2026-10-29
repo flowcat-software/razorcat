@@ -40,7 +40,7 @@ export interface FileInfo {
 }
 
 /**
- * The options bar's file info for what's selected (Richard, 2026-10-23). Nothing (`picked` the
+ * The options bar's file info for what's selected (2026-10-23). Nothing (`picked` the
  * selected clips' files, one per clip, empty): the one file's facts, or with several the
  * project's, which the first file sets. One file: its facts, how many clips, and how it's fitted
  * or timed if it isn't the project's size or rate. Several: how many clips from how many files,

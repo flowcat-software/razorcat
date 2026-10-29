@@ -32,7 +32,7 @@ const RESETS = {
 } as const;
 
 /**
- * Settings › About › Reset (Richard, 2026-10-26): every setting, or only the styles, as
+ * Settings › About › Reset (2026-10-26): every setting, or only the styles, as
  * installed, after asking. Done, a success alert says so and fades; a failure stays, as an error.
  */
 export function ResetButtons({ id, disabled }: ControlProps<ResetItem>) {

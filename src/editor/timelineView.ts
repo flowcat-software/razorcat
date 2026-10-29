@@ -43,7 +43,7 @@ const minZoom = (width: number, frames: number) => fitZoom(width, frames) * 0.5;
 
 /**
  * Fitted or zoomed out past it, the timeline's start never comes into the view past the left
- * edge (Richard, 2026-10-08). Zooming still follows the pointer, so the frame under it never
+ * edge (2026-10-08). Zooming still follows the pointer, so the frame under it never
  * flies off: zoomed in and back out at the same place, the timeline retraces its path to the
  * left edge; elsewhere it may stay partly off the left, and scrolling brings it back to the
  * edge, no further.

@@ -1,5 +1,5 @@
 // A recording's camera in the preview (PLAN 5d.4): its own video, round, on top of everything
-// (Richard, 2026-10-27: markup and redactions go under it), where it was left while recording,
+// (2026-10-27: markup and redactions go under it), where it was left while recording,
 // on the finished frame (cameraPlace.ts), at its clip's size (PLAN 5d.6a). Shown while the
 // playhead's clip is from a recording with a camera, placed as that clip says; faded with it.
 // Dragged, it moves in that clip (PLAN 5d.6b), snapping to the gap from the picture's edges; it's
@@ -275,7 +275,7 @@ export function CameraLayer({ player, sources, cameras, fitting, cameraOf, fades
     else useDoc.getState().cancelGesture();
   };
   // Right-clicked: its size at the playhead (a keyframe there). Shown or hidden is the options
-  // bar's: hidden, there'd be nothing to right-click to show it again (Richard).
+  // bar's: hidden, there'd be nothing to right-click to show it again.
   const sizes = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();

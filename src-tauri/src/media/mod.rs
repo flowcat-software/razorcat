@@ -6,7 +6,7 @@ pub mod mp4;
 /// Checks against ffprobe on real files, frame by frame. Not run by default (they need the
 /// spike's ffprobe and test media): `cargo test real_files -- --ignored --nocapture`. Files:
 /// `spikes/media/` (`node spikes/make-test-media.mjs`) and any paths listed in
-/// `spikes/playback/media.local.json` (Richard's recordings).
+/// `spikes/playback/media.local.json` (your own recordings).
 #[cfg(test)]
 mod real_files {
     use std::path::{Path, PathBuf};

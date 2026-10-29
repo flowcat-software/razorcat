@@ -125,7 +125,7 @@ pub struct Recording {
     /// Clicks noted while recording, to become markup (PLAN 5b.6); off until chosen.
     pub clicks: bool,
     /// While clicks are noted, each shows on the screen as it's made, as it'll look (PLAN
-    /// 5b.6f): left out of the recording. Off until chosen (Richard, 2026-10-26).
+    /// 5b.6f): left out of the recording. Off until chosen (2026-10-26).
     pub live_clicks: bool,
     /// How a recording's clicks look (PLAN 5b.6d): the look; the left, right and middle buttons'
     /// colours; the size (px across); how long each shows and fades in and out over (s); and a
@@ -139,7 +139,7 @@ pub struct Recording {
     pub click_fade_in: f64,
     pub click_fade_out: f64,
     pub click_double: bool,
-    /// Clicks placed by hand in the editor look and last as recorded ones (Richard, 2026-10-26):
+    /// Clicks placed by hand in the editor look and last as recorded ones (2026-10-26):
     /// the click tool's look, colour (the left button's) and size follow these, and its options
     /// bar's are locked.
     pub placed_clicks_follow: bool,
@@ -153,12 +153,12 @@ pub enum ClickLook {
     Ring,
     Halo,
     Target,
-    /// The default (Richard, 2026-10-26): it draws the eye to where the click was.
+    /// The default (2026-10-26): it draws the eye to where the click was.
     #[default]
     Ripple,
 }
 
-/// How big the camera shows (PLAN 5d.6; Richard, 2026-10-27): its circle across, a share of the
+/// How big the camera shows (PLAN 5d.6; 2026-10-27): its circle across, a share of the
 /// picture's shorter side, never pixels, so it's the same on any screen
 /// (`mockup/camera-sizes.html`). Large stays under the 720 px recorded on 4K.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -188,7 +188,7 @@ pub const CLICK_SECONDS_RANGE: std::ops::RangeInclusive<f64> = 0.2..=5.0;
 pub const CLICK_FADE_RANGE: std::ops::RangeInclusive<f64> = 0.0..=2.0;
 
 /// The colours clicks are picked from: their custom palette (Settings › Markup › Clicks), or,
-/// with that off, the ones they come with (not the shared palette: Richard, 2026-10-26).
+/// with that off, the ones they come with (not the shared palette: 2026-10-26).
 pub fn click_palette(s: &Settings) -> Vec<String> {
     s.styles
         .tools
@@ -279,7 +279,7 @@ impl Default for Hotkeys {
             pause: held("Ctrl+Alt+P"),
             stop: held("Ctrl+Alt+S"),
             mute: held("Ctrl+Alt+M"),
-            // D, desktop (Richard, 2026-10-26).
+            // D, desktop (2026-10-26).
             system: held("Ctrl+Alt+D"),
             clicks: held("Ctrl+Alt+C"),
         }
@@ -321,7 +321,7 @@ impl Default for Recording {
     }
 }
 
-/// Razorcat in the tray (PLAN 5b.8a, Richard 2026-10-26).
+/// Razorcat in the tray (PLAN 5b.8a, 2026-10-26).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Tray {
@@ -349,7 +349,7 @@ impl Default for Tray {
 #[serde(default, rename_all = "camelCase")]
 pub struct Reset {
     /// A group's Reset (its heading's link) asks first; its "Don't ask again" turns this off
-    /// (Richard, 2026-10-26). On by default, so Reset all settings asks again.
+    /// (2026-10-26). On by default, so Reset all settings asks again.
     pub ask_for_groups: bool,
 }
 
@@ -481,7 +481,7 @@ pub struct Timeline {
     /// `DEFAULT_FADE_RANGE`).
     pub default_markup_fade: u32,
     /// Markup and clips duplicated, Alt-dragged or pasted keep the original's fades (on by
-    /// default; Richard, 2026-10-23). Off: copies start without.
+    /// default; 2026-10-23). Off: copies start without.
     pub copies_keep_fades: bool,
     /// The fade Apply Default Fades gives clips (PLAN 4.7a), in frames (15 by default; kept to
     /// `DEFAULT_FADE_RANGE`).
@@ -490,7 +490,7 @@ pub struct Timeline {
     /// the cut is clean).
     pub fade_split_clips: bool,
     /// Changing a clip's speed scales the markup on it, its length and fades, with the video
-    /// (on by default; Richard, 2026-10-24). Off, markup keeps its length. Only while ranges and
+    /// (on by default; 2026-10-24). Off, markup keeps its length. Only while ranges and
     /// markup follow their video.
     pub markup_stretches_with_speed: bool,
     /// A clip at another speed keeps its sound's pitch (on by default); off, it's tape-style,
@@ -539,11 +539,11 @@ pub struct Editing {
     pub number_drag_speed: DragSpeed,
     /// The grow tool's presets, in the order its options bar shows them.
     pub grow_presets: Vec<GrowPreset>,
-    /// The camera fades with its clip (PLAN 5d.5; Richard, 2026-10-27); off, it stays as its
+    /// The camera fades with its clip (PLAN 5d.5; 2026-10-27); off, it stays as its
     /// clip fades.
     pub camera_fades: bool,
     /// The camera fades out and in at a keyframe that moves, resizes, hides or shows it, where
-    /// there's room (PLAN 5d.9; Richard, 2026-10-28); off, it jumps. The editor works it out.
+    /// there's room (PLAN 5d.9; 2026-10-28); off, it jumps. The editor works it out.
     pub camera_key_fades: bool,
 }
 
@@ -567,7 +567,7 @@ pub struct Markup {
     /// Slot-number badges and shortcut tooltips on the style pickers.
     pub show_shortcut_hints: bool,
     /// Number buttons in the options bar show their unit ("50%", "10px"). Off by default: it
-    /// adds clutter (Richard's call, in Vandal).
+    /// adds clutter (as in Vandal).
     pub show_button_units: bool,
     /// With a drawing tool, pressing on an object selects it (off: drawing tools always draw).
     /// Ctrl flips this for one press.
@@ -781,7 +781,7 @@ pub fn normalize_color(c: &str) -> Option<String> {
     }
 }
 
-/// `s` with its styles as installed (Settings › About › Reset all styles, Richard 2026-10-26):
+/// `s` with its styles as installed (Settings › About › Reset all styles, 2026-10-26):
 /// Settings › Markup's pickers (not its Behavior), and how Settings › Recording's clicks look
 /// and last (not whether they're noted, shown live or locked). The rest is left as it is.
 pub fn styles_reset(s: &Settings) -> Settings {

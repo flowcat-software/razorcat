@@ -1,5 +1,5 @@
 // The icons that say what a number picker sets. They lead a picker shown as a
-// dropdown or slider, which on its own doesn't say (Richard's rule); buttons
+// dropdown or slider, which on its own doesn't say; buttons
 // show their values instead. Corner radius and darkness always have theirs.
 
 import styles from "./options.module.css";
@@ -22,8 +22,8 @@ export const LINE_WIDTH_ICON = (
 );
 
 /**
- * Corner radius: a rounded corner with an arrow pushing it in from outside
- * (Richard's idea), so it doesn't read as another shape button.
+ * Corner radius: a rounded corner with an arrow pushing it in from outside,
+ * so it doesn't read as another shape button.
  */
 export const CORNER_ICON = (
   <svg className={`${styles.pickerIcon} ${styles.cornerIcon}`} viewBox="0 0 16 16" aria-hidden>

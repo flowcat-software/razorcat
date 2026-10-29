@@ -5,7 +5,7 @@
 // the picture must say 1234. Whole seconds flash a white bar in step with a 1 kHz beep, to
 // check A/V sync after cuts.
 //
-// Real clips (OBS recordings and an iPhone clip in D:\obs on Richard's machine) cover real
+// Real clips (OBS recordings and an iPhone clip, kept locally) cover real
 // encoders; these cover the cases on demand and are reproducible.
 //
 // Usage (PowerShell, from the repo root):  node spikes/make-test-media.mjs [name ...]

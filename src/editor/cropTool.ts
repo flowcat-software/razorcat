@@ -72,7 +72,7 @@ const TOOL_KEYS: Record<string, Tool> = {
   KeyC: "crop",
   KeyG: "grow",
   KeyT: "text",
-  // Vandal's L, R and O play, add a range and end one here (Richard, 2026-10-21).
+  // Vandal's L, R and O play, add a range and end one here (2026-10-21).
   KeyA: "arrow",
   // Line: / or \ (both look like one; the second \ is a UK or European keyboard's, by Shift).
   Slash: "line",
@@ -87,7 +87,7 @@ const TOOL_KEYS: Record<string, Tool> = {
   KeyQ: "callout",
   KeyH: "highlighter",
   KeyP: "pen",
-  // F: focus (S is the timeline's split; Richard, 2026-10-23).
+  // F: focus (S is the timeline's split; 2026-10-23).
   KeyF: "spotlight",
   // U: blur (Vandal's B is the rectangle here, X swaps colours).
   KeyU: "redact",

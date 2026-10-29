@@ -235,12 +235,12 @@ mod tests {
 
     #[test]
     fn blanking_keeps_lengths() {
-        let path = r"C:\Users\Richard\AppData\Local\Razorcat\razorcat.exe";
+        let path = r"C:\Users\Alice\AppData\Local\Razorcat\razorcat.exe";
         let mut bytes: Vec<u8> = b"head ".to_vec();
         bytes.extend(path.encode_utf16().flat_map(u16::to_le_bytes));
-        bytes.extend(b" and RICHARD in ascii");
+        bytes.extend(b" and ALICE in ascii");
         let len = bytes.len();
-        assert_eq!(blank(&mut bytes, "richard"), 2);
+        assert_eq!(blank(&mut bytes, "alice"), 2);
         assert_eq!(bytes.len(), len);
         let wide: Vec<u16> = bytes[5..5 + path.len() * 2]
             .chunks(2)
@@ -248,9 +248,9 @@ mod tests {
             .collect();
         assert_eq!(
             String::from_utf16(&wide).unwrap(),
-            r"C:\Users\_______\AppData\Local\Razorcat\razorcat.exe"
+            r"C:\Users\_____\AppData\Local\Razorcat\razorcat.exe"
         );
-        assert!(bytes.ends_with(b" and _______ in ascii"));
+        assert!(bytes.ends_with(b" and _____ in ascii"));
         assert_eq!(blank(&mut bytes, ""), 0);
     }
 
@@ -278,7 +278,7 @@ mod tests {
             "<name>: clip fades"
         );
         assert_eq!(
-            scrub("user Richard here", &["richard".into()]),
+            scrub("user Alice here", &["alice".into()]),
             "user <name> here"
         );
     }

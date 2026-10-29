@@ -60,7 +60,7 @@ export function deleteSelected() {
 export function addRangeAtPlayhead(player: Player) {
   const f = player.getState().frame;
   const { doc, addRange } = useDoc.getState();
-  // On or in a range already: nothing, rather than another range over it (Richard).
+  // On or in a range already: nothing, rather than another range over it.
   if (shownRanges(doc).some((r) => r.a <= f && f <= r.b)) {
     sayWhy("range.on");
     return;

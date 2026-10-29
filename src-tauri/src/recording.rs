@@ -1672,7 +1672,7 @@ fn show_over(window: &tauri::WebviewWindow, screen: &Screen) {
 /// particular, it showed at Windows' default place and size, 800 × 600 near the top left (a
 /// place off every monitor is taken for nowhere); made its full size, it flashed over the whole
 /// monitor. Put in place, it still shows for a moment at 136 × 39 in the monitor's top-left
-/// corner (its webview, sized after it): the least of what was tried (Richard).
+/// corner (its webview, sized after it): the least of what was tried.
 pub fn made_at(x: i32, y: i32, width: u32, height: u32, scale: f64) -> (f64, f64) {
     let right = f64::from(x) + f64::from(width) - 1.0;
     let bottom = f64::from(y) + f64::from(height) - 1.0;

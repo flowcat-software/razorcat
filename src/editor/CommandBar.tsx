@@ -166,7 +166,7 @@ export function CommandBar({
 }: Props) {
   const tool = useTool((s) => s.tool);
   /** Narrow windows: the buttons drop their labels one at a time, Record first, then File and
-   *  Export (labels stay while they fit: Richard), then the tools close up (two steps). */
+   *  Export (labels stay while they fit), then the tools close up (two steps). */
   const bar = useSqueeze(5);
   const undoable = useDoc(canUndo);
   const redoable = useDoc(canRedo);

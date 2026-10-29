@@ -422,7 +422,7 @@ describe("cleaning up the lanes", () => {
   const lanes = (doc: Doc) => shownMarks(doc).map((m) => m.lane);
 
   it("closes the lanes up, keeping every item's frames and its order against what it overlaps", () => {
-    // Richard's screenshot: eight lanes, steps stacked at 130-150 with gaps under the long one.
+    // A reported case: eight lanes, steps stacked at 130-150 with gaps under the long one.
     const doc = laid([
       [130, 150, 0],
       [175, 195, 0],

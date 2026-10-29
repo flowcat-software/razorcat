@@ -1,7 +1,7 @@
 // Spike 0.3: export. Renders one edit (three clips reordered, a crop, a grow, two fading PNG
 // overlays, audio) with ffmpeg and each candidate encoder, then measures it:
 //   exact    every frame by its barcode (synthetic clip), and A/V sync from the beeps
-//   speed    wall time for a 30 s edit and a 5 min one (Richard's OBS recording)
+//   speed    wall time for a 30 s edit and a 5 min one (a real OBS recording)
 //   quality  VMAF against a lossless render, at matched bitrates
 //   gif      ffmpeg palettegen/paletteuse against gifski: size, SSIM, time
 // Usage (PowerShell, repo root): node spikes/export/run.mjs [exact|speed|quality|gif ...]
@@ -215,7 +215,7 @@ if (stages.includes("exact")) {
 }
 
 if (stages.includes("speed") && OBS) {
-  log("\n== speed: Richard's OBS recording (1080p30): a 30 s edit and a 5 min one, crop, grow, overlays");
+  log("\n== speed: a real OBS recording (1080p30): a 30 s edit and a 5 min one, crop, grow, overlays");
   const p = probe(OBS);
   const ovs = overlays(CROP.w, CROP.h + GROW);
   const cases = {
@@ -285,11 +285,11 @@ if (stages.includes("gif") && OBS) {
 }
 
 // The OBS segment is mostly a still screen: every encoder scores ~97 and undershoots its bitrate,
-// so quality and GIFs are also measured on real motion, Richard's iPhone clip (1080x1920 after
+// so quality and GIFs are also measured on real motion, an iPhone clip (1080x1920 after
 // rotation). No crop or grow; cuts and overlays only.
 const PHONE = existsSync(local) ? JSON.parse(readFileSync(local, "utf8")).find((m) => /iphone/i.test(m.label))?.path : null;
 if (stages.includes("phone") && PHONE) {
-  log("\n== quality on motion: Richard's iPhone clip, two cuts, overlays, VMAF against lossless");
+  log("\n== quality on motion: an iPhone clip, two cuts, overlays, VMAF against lossless");
   const p = { fps: 30, w: 1080, h: 1920 };
   const ovs = overlays(1080, 1920);
   const clips = [[30, 330], [400, 700]];

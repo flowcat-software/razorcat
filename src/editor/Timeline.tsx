@@ -93,7 +93,7 @@ interface Props {
 }
 
 // The mockup's geometry (mockup/main.html): the ruler, the markup lanes, the clip track.
-/** Taller than the mockup's 30: below the range strip, a press moves the playhead (Richard). */
+/** Taller than the mockup's 30: below the range strip, a press moves the playhead. */
 const RULER = 42;
 /** The strip along the ruler's top: ranges' bars; drag on it to draw one. Tinted, to show it. */
 const RANGE_STRIP = 11;
@@ -101,7 +101,7 @@ const LANE_TOP = RULER + 8;
 /**
  * The markup lanes' area at the timeline's own height: two lanes; more scroll in it (PLAN
  * 4.5b2), so the clips never move as lanes come and go. (Thinner lanes to fit three felt
- * tight: Richard, 2026-10-21.)
+ * tight: 2026-10-21.)
  */
 const LANES_MIN = 60;
 /** The timeline's own height (EditorApp.module.css's .timeline): taller, the lanes get it all. */
@@ -178,7 +178,7 @@ function filmSign(g: CanvasRenderingContext2D, x: number, y: number, colour: str
   g.lineWidth = 1;
 }
 const CLIP_RADIUS = 8;
-/** How long a new clip's light takes to fade (Richard: briefly). */
+/** How long a new clip's light takes to fade (briefly). */
 const FLASH_MS = 800;
 /** How near (px, either side) a clip's edge the pointer grabs it. */
 const EDGE_HIT = 7;
@@ -329,7 +329,7 @@ interface MarkDrag {
     | { id: MarkId; start: number; end: number; lane: number; fadeIn: number; fadeOut: number }[]
     | null;
   /**
-   * Alt-dragged (Richard, 2026-10-23): once it moves, copies are made where they are and
+   * Alt-dragged (2026-10-23): once it moves, copies are made where they are and
    * placed only on release (`dropCopies`); till then they're drawn faded and dashed where
    * they'd go (`ghost`, their originals' ids), the originals staying put.
    */
@@ -1873,7 +1873,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
     const r = e.currentTarget.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top, view: useTimeline.getState().view };
   };
-  /** Snapping, unless it's off or Shift is held (Richard, 2026-10-23: as Shift keeps lines straight). */
+  /** Snapping, unless it's off or Shift is held (2026-10-23: as Shift keeps lines straight). */
   const snapping = (e: React.PointerEvent) => useTimeline.getState().snap && !e.shiftKey;
   const scrubTo = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const { x, view } = at(e);
@@ -1955,7 +1955,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
       return;
     }
     const { a, b } = d.orig;
-    // Ranges don't overlap: a drag stops against the ranges either side (Richard).
+    // Ranges don't overlap: a drag stops against the ranges either side.
     const room = rangeRoom(store.doc, a, b, d.id);
     let to: { a: number; b: number };
     if (d.kind === "move") {
@@ -2020,7 +2020,7 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
       const fmt = formatter();
       const name = fadeIn ? "Fade in" : "Fade out";
       if (d.group) {
-        // Several selected (Richard, 2026-10-23): theirs change by as much, each as far as it
+        // Several selected (2026-10-23): theirs change by as much, each as far as it
         // can; with Shift held (it can come and go mid-drag), each the dragged one's length.
         const same = e.shiftKey;
         for (const m of d.group) {
@@ -2313,7 +2313,7 @@ ${d.group.length} items`,
   /**
    * A keyframe's menu (PLAN 5d.8b), for the keyframes selected: the camera shown or hidden from
    * there, its size (its nearest corner kept; shown, picked), the playhead there, and deleting
-   * them. Hidden, it's still on the lane, so it can show the camera again (Richard).
+   * them. Hidden, it's still on the lane, so it can show the camera again.
    */
   const keyItems = (key: CameraKey, f: number): MenuItems => {
     const { doc, selectedKeys, restyleKeys, deleteKeys } = useDoc.getState();

@@ -1,4 +1,4 @@
-// A group's Reset (Richard, 2026-10-26): the settings a group's items stand for, whether any
+// A group's Reset (2026-10-26): the settings a group's items stand for, whether any
 // differs from how it was installed, and the settings with them put back. The heading shows the
 // link only while something differs. Pure.
 

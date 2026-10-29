@@ -163,7 +163,7 @@ unsafe extern "system" fn on_mouse(code: i32, w: WPARAM, l: LPARAM) -> LRESULT {
 
 /// A click: a second one soon after, close by, with the same button, makes the first a
 /// double-click instead; a third and more as quick (a triple-click) are part of it too
-/// (Richard, 2026-10-26: no ×3 for now). `last` is when the click before it was.
+/// (2026-10-26: no ×3 for now). `last` is when the click before it was.
 fn note_click(
     presses: &mut Vec<Press>,
     last: &mut i64,

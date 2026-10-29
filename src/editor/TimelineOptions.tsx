@@ -41,7 +41,7 @@ interface Props {
   player: Player | null;
 }
 
-/** How fast the fade fields drag, against the others: fades are short (Richard). */
+/** How fast the fade fields drag, against the others: fades are short. */
 const FADE_GAIN = 0.5;
 
 /** A colour picked from a swatch, one undo step (Esc puts it back). */
@@ -245,7 +245,7 @@ export function TimelineOptions({ source, inFrames, player }: Props) {
   const fmt = (f: number) => (inFrames ? String(f) : timecode(f, num, den, hours));
   // The timing fields (PLAN 4.4d2): typed as the readout shows times (a plain frame number
   // too), dragged a frame at a time when slow, Shift ×10 (a second's worth zoomed through
-  // short clips; Richard). Fades, short by nature, drag at half speed.
+  // short clips). Fades, short by nature, drag at half speed.
   const time = {
     hint: "time" as const,
     format: fmt,

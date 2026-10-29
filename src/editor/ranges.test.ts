@@ -33,7 +33,7 @@ describe("ranges", () => {
     expect(editPoints(doc)).toEqual([0, 500, 600, 1000]);
   });
 
-  it("follow their video through a trim (Richard's example)", () => {
+  it("follow their video through a trim (the worked example)", () => {
     // Frames 500-600, then 50 frames trimmed off the front.
     const doc = trimClip(addRange(wholeSource(1000), 500, 600), 1, 50, 1000);
     expect(places(doc)).toEqual([[450, 550]]);
@@ -56,7 +56,7 @@ describe("ranges", () => {
   });
 
   it("stay one range on the second half when the first half is extended over their frames", () => {
-    // Richard's bug in the mockup: split at 600, a range on the second half, then the first
+    // A bug found in the mockup: split at 600, a range on the second half, then the first
     // half's out pulled over the range's source frames. The range must stay on the second half.
     let doc = split(wholeSource(1000), 600);
     doc = addRange(doc, 660, 720);

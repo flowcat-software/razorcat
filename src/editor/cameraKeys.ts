@@ -1,4 +1,4 @@
-// Camera keyframes (PLAN 5d.8; Richard, 2026-10-28): frames where the camera's set, its
+// Camera keyframes (PLAN 5d.8; 2026-10-28): frames where the camera's set, its
 // position, size and shown or hidden. They're anchored as markup is (a clip, and the clip's frame:
 // doc.ts), so they move with their clip and a split hands them to its part; but a trim hides one
 // (pulled back, it's there again) where markup is kept inside its clip.
@@ -164,7 +164,7 @@ export function restyleKeys(
 
 /**
  * The first keyframe in view, which is pinned: it sets the camera from the start, so it's never
- * moved or deleted (Richard, 2026-10-28). Its settings still change.
+ * moved or deleted (2026-10-28). Its settings still change.
  */
 export function firstKey(doc: Doc): ShownKey | null {
   return shownKeys(doc)[0] ?? null;
@@ -281,7 +281,7 @@ const runsCache = new WeakMap<Doc, Map<number, CameraStretch[]>>();
 
 /**
  * The camera along the whole timeline, stretch by stretch from the first keyframe, as it shows
- * (PLAN 5d.9; Richard, 2026-10-28): each change starts at its keyframe, and fades over `fade`
+ * (PLAN 5d.9; 2026-10-28): each change starts at its keyframe, and fades over `fade`
  * frames where there's room before the next one and its clip's end. Moved or resized, it
  * fades out where it was, then in where it goes; hidden, it fades out; shown, it fades in.
  * Without room, or on a clip's first frame (a cut: the picture jumps too), it jumps.

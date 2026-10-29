@@ -268,7 +268,7 @@ function handleCtrl(e: KeyboardEvent): boolean {
     case "KeyA": {
       if (e.shiftKey) return false;
       // Razorcat: the markup at the playhead; again (or with none there), all of it on the
-      // timeline (Richard, 2026-10-23).
+      // timeline (2026-10-23).
       const here = store.doc.annotations.map((a) => a.id);
       if (here.length && !here.every((id) => store.selection.includes(id))) store.select(here);
       else selectAllMarkup();

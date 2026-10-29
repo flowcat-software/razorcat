@@ -50,7 +50,7 @@
 
 /* ...and the bar squeezes instead: the action buttons drop their labels (tooltips remain) and
    go square one at a time, Record (1), File (2), then Export (3), so labels stay as long as they
-   fit (Richard); then the tools close up a little (4), then more (5), so Export always shows. */
+   fit; then the tools close up a little (4), then more (5), so Export always shows. */
 .commandBar:not([data-fit="0"]) .squeeze1,
 .commandBar:not([data-fit="0"], [data-fit="1"]) .squeeze2,
 .commandBar:not([data-fit="0"], [data-fit="1"], [data-fit="2"]) .squeeze3 {

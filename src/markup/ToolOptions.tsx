@@ -120,7 +120,7 @@ const SPOTLIGHT_SHAPES: { id: SpotlightShape; label: string; icon: ReactNode }[]
 ];
 
 /** A callout's shapes (PLAN 3E.3, 3E.11). */
-// Each with its pointer down to the right (Richard's mockup); the text is left off.
+// Each with its pointer down to the right (as in the mockup); the text is left off.
 const CALLOUT_SHAPES: { id: CalloutShape; label: string; icon: ReactNode }[] = [
   {
     id: "outline",
@@ -331,7 +331,7 @@ export function ToolOptions({ compact = false }: { compact?: boolean }) {
     </>
   );
 
-  // A callout: shape and end, thickness and corners, then its text (Richard's order).
+  // A callout: shape and end, thickness and corners, then its text.
   const shapeAndWidth = (
     <>
       {callout && values.callout && (
@@ -421,7 +421,7 @@ export function ToolOptions({ compact = false }: { compact?: boolean }) {
       {show.text &&
         (callout ? (
           // A callout's styling (text, then colors) wraps to the next line as
-          // one, under its shape controls (Richard: it looks more organized).
+          // one, under its shape controls (it looks more organized).
           // In quick edit it always does (see `stacked`).
           <div className={`${styles.section} ${styles.run}`}>
             {textPickers}

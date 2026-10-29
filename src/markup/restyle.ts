@@ -467,7 +467,7 @@ export function patchAnnotation(a: Annotation, p: StylePatch): Annotation {
   if (p.cornerRadius !== undefined && (a.kind === "rect" || a.kind === "spotlight"))
     a = { ...a, cornerRadius: p.cornerRadius };
   if (a.kind === "callout") {
-    // A new shape keeps both colors (Richard: the colors are chosen, not the shape's).
+    // A new shape keeps both colors (the colors are chosen, not the shape's).
     const c = {
       ...a,
       shape: p.calloutShape ?? a.shape,

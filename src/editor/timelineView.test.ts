@@ -51,7 +51,7 @@ describe("zoom", () => {
     expect(out.scroll).toBe(0);
     expect(scrolled(out, -200, width, frames).scroll).toBe(0);
     expect(scrolled(out, 200, width, frames).scroll).toBe(0);
-    // Zooming in follows the pointer at once, below fit too (Richard: the frame under it
+    // Zooming in follows the pointer at once, below fit too (the frame under it
     // mustn't fly off while the timeline grows to fill the view).
     const before = fOf(out, 400);
     const z = zoomAt(out, out.zoom * 1.3, 400, width, frames);
