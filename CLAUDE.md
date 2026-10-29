@@ -17,6 +17,7 @@ commit its changes in `internal/`, never in this repo. If it's missing, ask Rich
 - `internal/research.md`: other tools.
 - `internal/spikes/`: Phase 0 spike briefs and results.
 - `internal/mockup/`: UI mockups.
+- `internal/local.md`: this machine's setup.
 
 If the plan turns out to be wrong, update `internal/PLAN.md` at the same time (committed in
 `internal/`) and add an entry to `internal/decisions.md`.
