@@ -100,6 +100,39 @@ export const commands = {
 	 *  there's nothing to recover (PLAN PR4).
 	 */
 	quitNow: () => __TAURI_INVOKE<void>("quit_now"),
+	/**  Settings › Updates' "Check now": the newer version, if any. */
+	updateCheck: () => typedError<{
+	version: string,
+	currentVersion: string,
+	/**  The release notes (the CHANGELOG section, Markdown). */
+	notes: string,
+	/**  When it was published (RFC 3339), if the manifest says. */
+	date: string | null,
+} | null, string>(__TAURI_INVOKE("update_check")),
+	/**  The update the last check found, for pages that open later. */
+	updateAvailable: () => __TAURI_INVOKE<{
+	version: string,
+	currentVersion: string,
+	/**  The release notes (the CHANGELOG section, Markdown). */
+	notes: string,
+	/**  When it was published (RFC 3339), if the manifest says. */
+	date: string | null,
+} | null>("update_available"),
+	/**
+	 *  Install the update found and restart into it. Returns only if something stopped it (a
+	 *  recording or an export under way, changes kept unsaved, a failed download).
+	 */
+	updateInstall: () => typedError<null, string>(__TAURI_INVOKE("update_install")),
+	/**
+	 *  A release's notes on GitHub, in the default browser (Settings › Updates' "What's new"). Only
+	 *  a version number goes into the address.
+	 */
+	openReleaseNotes: (version: string) => __TAURI_INVOKE<void>("open_release_notes", { version }),
+	/**
+	 *  The editor's answer to "save first?" before an update (`UpdateAsked`): `go` once saved or
+	 *  not to be saved; else the update waits.
+	 */
+	updateAnswer: (go: boolean) => __TAURI_INVOKE<void>("update_answer", { go }),
 	/**
 	 *  The timeline's document, with unsaved changes, written where it's recovered from after a
 	 *  crash (PLAN PR4). True once written (the status bar shows it).
@@ -325,6 +358,9 @@ export const events = {
 	systemMuted: makeEvent<SystemMuted>("system-muted"),
 	thumbsUpdate: makeEvent<ThumbsUpdate>("thumbs-update"),
 	toolStylesReset: makeEvent<ToolStylesReset>("tool-styles-reset"),
+	updateAsked: makeEvent<UpdateAsked>("update-asked"),
+	updateAvailable: makeEvent<UpdateAvailable>("update-available"),
+	updateProgress: makeEvent<UpdateProgress>("update-progress"),
 	waveReady: makeEvent<WaveReady>("wave-ready"),
 	windowsAccentChanged: makeEvent<WindowsAccentChanged>("windows-accent-changed"),
 };
@@ -1099,6 +1135,8 @@ export type Settings = {
 	tray?: Tray,
 	/**  Settings › Keyboard shortcuts (PLAN 5b.8b). */
 	hotkeys?: Hotkeys,
+	/**  Settings › Updates (updater.rs). */
+	updates?: UpdateSettings,
 };
 
 /**  Rust → all windows: settings changed (from any source), here's the new state. */
@@ -1311,6 +1349,45 @@ export type Tray = {
 	 *  the editor hidden. Off by default.
 	 */
 	startWithWindows?: boolean,
+};
+
+/**
+ *  Rust → editor: an update is to install, with unsaved changes: the page asks whether to save
+ *  them, as quitting does, and answers `update_answer` (Cancel: the update waits).
+ */
+export type UpdateAsked = null;
+
+/**  Rust → all windows: a newer version was found (not repeated for the same one). */
+export type UpdateAvailable = UpdateInfo;
+
+/**  Which releases the updater offers. */
+export type UpdateChannel = 
+/**  Prereleases and final releases. */
+"beta" | 
+/**  Final releases only. */
+"stable";
+
+/**  An update that can be installed. */
+export type UpdateInfo = {
+	version: string,
+	currentVersion: string,
+	/**  The release notes (the CHANGELOG section, Markdown). */
+	notes: string,
+	/**  When it was published (RFC 3339), if the manifest says. */
+	date: string | null,
+};
+
+/**  Rust → all windows: the installer is downloading. */
+export type UpdateProgress = {
+	downloaded: number,
+	total: number | null,
+};
+
+/**  Settings › Updates. */
+export type UpdateSettings = {
+	/**  Check a minute after starting, then daily. Off: nothing is fetched unless asked for. */
+	checkAutomatically?: boolean,
+	channel?: UpdateChannel,
 };
 
 /**  Rust → editor: a source's waveform is ready. */

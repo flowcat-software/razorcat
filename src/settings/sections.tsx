@@ -11,6 +11,7 @@ import {
   ProxiesIcon,
   RecordIcon,
   TimelineIcon,
+  UpdatesIcon,
 } from "./icons";
 import { DEFAULT_STYLE_CONFIG } from "../markup/styles";
 import type { Settings } from "../shared/ipc";
@@ -1258,6 +1259,44 @@ export const sections: Section[] = [
             label: "Highlight clicks",
             description: "Turns noting your clicks on or off.",
             keywords: ["hotkey", "shortcut", "keyboard", "key", "clicks", "highlight", "mouse"],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "updates",
+    title: "Updates",
+    icon: UpdatesIcon,
+    groups: [
+      {
+        items: [
+          {
+            id: "update-status",
+            kind: "updates",
+            label: "Updates",
+            keywords: ["update", "upgrade", "new version", "check", "install", "download"],
+          },
+          {
+            id: "check-automatically",
+            kind: "toggle",
+            path: "updates.checkAutomatically",
+            label: "Check for updates automatically",
+            description:
+              "A minute after Razorcat starts, then once a day. A check only downloads a small file from GitHub; nothing about you or your videos is sent. Off: Razorcat never checks unless you press Check now.",
+            keywords: ["update", "automatic", "privacy", "network", "internet", "offline"],
+          },
+          {
+            id: "update-channel",
+            kind: "choice",
+            path: "updates.channel",
+            label: "Update channel",
+            description: "Beta gets new features first, with test versions before each release.",
+            options: [
+              { value: "stable", label: "Stable" },
+              { value: "beta", label: "Beta" },
+            ],
+            keywords: ["update", "beta", "stable", "prerelease", "testing", "channel"],
           },
         ],
       },

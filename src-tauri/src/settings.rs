@@ -52,6 +52,8 @@ pub struct Settings {
     pub tray: Tray,
     /// Settings › Keyboard shortcuts (PLAN 5b.8b).
     pub hotkeys: Hotkeys,
+    /// Settings › Updates (updater.rs).
+    pub updates: UpdateSettings,
 }
 
 impl Default for Settings {
@@ -71,6 +73,7 @@ impl Default for Settings {
             reset: Reset::default(),
             tray: Tray::default(),
             hotkeys: Hotkeys::default(),
+            updates: UpdateSettings::default(),
         }
     }
 }
@@ -340,6 +343,51 @@ impl Default for Tray {
             keep_running: true,
             told: false,
             start_with_windows: false,
+        }
+    }
+}
+
+/// Which releases the updater offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdateChannel {
+    /// Prereleases and final releases.
+    Beta,
+    /// Final releases only.
+    Stable,
+}
+
+impl UpdateChannel {
+    /// The default for a build: whoever installed a beta is testing betas.
+    pub fn for_version(version: &str) -> Self {
+        if version.split('+').next().unwrap_or(version).contains('-') {
+            Self::Beta
+        } else {
+            Self::Stable
+        }
+    }
+}
+
+impl Default for UpdateChannel {
+    fn default() -> Self {
+        Self::for_version(env!("CARGO_PKG_VERSION"))
+    }
+}
+
+/// Settings › Updates.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct UpdateSettings {
+    /// Check a minute after starting, then daily. Off: nothing is fetched unless asked for.
+    pub check_automatically: bool,
+    pub channel: UpdateChannel,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            check_automatically: true,
+            channel: UpdateChannel::default(),
         }
     }
 }
@@ -968,6 +1016,9 @@ pub fn update(app: &AppHandle<Wry>, new: Settings) -> Result<Settings, String> {
     if old.hotkeys != new.hotkeys {
         crate::hotkeys::register(app, &new.hotkeys);
     }
+    if new.updates != old.updates {
+        crate::updater::settings_changed(app, &old.updates, &new.updates);
+    }
     let camera = |r: &Recording| (r.camera, r.camera_device.clone(), r.camera_size);
     if camera(&new.recording) != camera(&old.recording) {
         crate::camera::sync(app);
@@ -1107,6 +1158,35 @@ mod tests {
     #[test]
     fn missing_store_gives_defaults_and_saves() {
         assert_eq!(migrate(None), (Settings::default(), true));
+    }
+
+    #[test]
+    fn a_beta_build_checks_the_beta_channel() {
+        assert_eq!(
+            UpdateChannel::for_version("0.5.0-beta.1"),
+            UpdateChannel::Beta
+        );
+        assert_eq!(
+            UpdateChannel::for_version("0.5.0-beta.1+5"),
+            UpdateChannel::Beta
+        );
+        assert_eq!(UpdateChannel::for_version("1.0.0"), UpdateChannel::Stable);
+        assert_eq!(
+            UpdateChannel::for_version("1.0.0+5-x"),
+            UpdateChannel::Stable
+        );
+    }
+
+    #[test]
+    fn files_from_before_updates_get_the_defaults() {
+        let v = CURRENT_VERSION;
+        let (s, _) = migrate(Some(json!({ "version": v })));
+        assert_eq!(s.updates, UpdateSettings::default());
+        let (s, _) = migrate(Some(
+            json!({ "version": v, "updates": { "channel": "stable" } }),
+        ));
+        assert!(s.updates.check_automatically);
+        assert_eq!(s.updates.channel, UpdateChannel::Stable);
     }
 
     #[test]

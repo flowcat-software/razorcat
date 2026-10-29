@@ -1988,7 +1988,7 @@ pub fn start(app: &AppHandle, jobs: Vec<Job>) -> bool {
 }
 
 /// An export is under way.
-fn busy(app: &AppHandle) -> bool {
+pub fn busy(app: &AppHandle) -> bool {
     app.state::<AppState>().exporting.lock().unwrap().is_some()
 }
 

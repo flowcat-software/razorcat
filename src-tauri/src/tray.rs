@@ -49,6 +49,16 @@ fn build_menu(app: &AppHandle, s: &Settings) -> tauri::Result<Menu<Wry>> {
         none,
     )?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
+    // An update found and waiting (updater.rs).
+    if let Some(update) = crate::updater::available(app) {
+        menu.append(&MenuItem::with_id(
+            app,
+            "install-update",
+            format!("Restart to update to {}", update.version),
+            true,
+            none,
+        )?)?;
+    }
     menu.append(&MenuItem::with_id(
         app,
         "quit",
@@ -85,6 +95,7 @@ pub fn create(app: &AppHandle, s: &Settings) -> tauri::Result<()> {
                     logln!("[tray] launch on login: {e}");
                 }
             }
+            "install-update" => crate::updater::install_in_background(app),
             "quit" => {
                 if !editor::asks_before_quit(app) {
                     app.exit(0);
@@ -111,6 +122,18 @@ pub fn refresh(app: &AppHandle, s: &Settings) {
     if let (Some(tray), Ok(menu)) = (app.tray_by_id(TRAY_ID), build_menu(app, s)) {
         let _ = tray.set_menu(Some(menu));
     }
+}
+
+/// The menu again, from the current settings (an update found or gone).
+pub fn rebuild(app: &AppHandle) {
+    let s = app.state::<AppState>().settings.read().unwrap().clone();
+    refresh(app, &s);
+}
+
+/// Take the icon down now: an app ended with `process::exit` (installing an update) would
+/// leave it in the tray until it's hovered.
+pub fn remove(app: &AppHandle) {
+    drop(app.remove_tray_by_id(TRAY_ID));
 }
 
 /// Razorcat starts with Windows, or doesn't. Never a dev build.

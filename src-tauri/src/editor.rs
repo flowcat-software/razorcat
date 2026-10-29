@@ -109,6 +109,11 @@ pub struct OpenOffered {
 #[derive(Clone, Serialize, Type, Event)]
 pub struct QuitAsked;
 
+/// Rust → editor: an update is to install, with unsaved changes: the page asks whether to save
+/// them, as quitting does, and answers `update_answer` (Cancel: the update waits).
+#[derive(Clone, Serialize, Type, Event)]
+pub struct UpdateAsked;
+
 /// Rust → editor: the open source plays from a converted copy now (its codec): the same
 /// source, at a new URL.
 #[derive(Clone, Serialize, Type, Event)]
@@ -462,6 +467,25 @@ pub fn asks_before_quit(app: &AppHandle) -> bool {
     show_window(app);
     if let Err(e) = QuitAsked.emit_to(app, LABEL) {
         logln!("[editor] couldn't ask before quitting: {e}");
+        return false;
+    }
+    true
+}
+
+/// An update is to install (updater.rs): with unsaved changes the editor comes out and asks
+/// first, and true is returned (the answer comes back through `update_answer`); else false.
+pub fn asks_before_update(app: &AppHandle) -> bool {
+    let (ready, unsaved) = {
+        let app_state = app.state::<AppState>();
+        let state = app_state.editor.lock().unwrap();
+        (state.ready, state.unsaved)
+    };
+    if !ready || !unsaved {
+        return false;
+    }
+    show_window(app);
+    if let Err(e) = UpdateAsked.emit_to(app, LABEL) {
+        logln!("[editor] couldn't ask before updating: {e}");
         return false;
     }
     true

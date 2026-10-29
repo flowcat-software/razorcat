@@ -145,6 +145,11 @@ export interface GrowPresetsItem extends BaseItem {
 }
 
 /** The About card: logo, name, version, description, author. */
+/** Settings › Updates: what the last check found, Check now, Install and restart. */
+export interface UpdatesItem extends BaseItem {
+  kind: "updates";
+}
+
 export interface AboutItem extends BaseItem {
   kind: "about";
 }
@@ -228,6 +233,7 @@ export type Item =
   | PaletteItem
   | ToolStyleItem
   | FontPickerItem
+  | UpdatesItem
   | AboutItem
   | LogsItem
   | ResetItem;

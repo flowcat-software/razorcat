@@ -23,6 +23,7 @@ import { Slider } from "./Slider";
 import { TextInput } from "./TextInput";
 import { Toggle } from "./Toggle";
 import { ToolStyleSetting } from "./ToolStyleEditor";
+import { UpdatesCard } from "./UpdatesCard";
 
 export interface ControlProps<I extends Item> {
   item: I;
@@ -62,6 +63,7 @@ export const controls: Registry = {
   palette: { component: PaletteSetting, layout: "stacked" },
   toolStyle: { component: ToolStyleSetting, layout: "stacked" },
   fontPicker: { component: FontPickerSetting, layout: "stacked" },
+  updates: { component: UpdatesCard, layout: "bare" },
   about: { component: AboutCard, layout: "bare" },
   logs: { component: LogButtons, layout: "stacked" },
   reset: { component: ResetButtons, layout: "stacked" },

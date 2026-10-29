@@ -39,6 +39,7 @@ mod thumbs;
 mod tool_styles;
 mod tray;
 mod unloads;
+mod updater;
 mod wave;
 mod webview_crash;
 mod winenum;
@@ -76,6 +77,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::closed_to_tray,
             commands::set_unsaved,
             commands::quit_now,
+            commands::update_check,
+            commands::update_available,
+            commands::update_install,
+            commands::open_release_notes,
+            commands::update_answer,
             commands::autosave,
             commands::recovery_offer,
             commands::recover,
@@ -132,6 +138,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             editor::SourceAdded,
             editor::ProjectOpened,
             editor::QuitAsked,
+            editor::UpdateAsked,
+            updater::UpdateAvailable,
+            updater::UpdateProgress,
             editor::OpenOffered,
             editor::DropHover,
             editor::OpenFailed,
@@ -229,6 +238,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // Launch on login (PLAN 5b.8a): in the tray, the editor hidden.
         .plugin(
             tauri_plugin_autostart::Builder::new()
@@ -248,19 +258,29 @@ pub fn run() {
             export::probe(app.handle());
             let args: Vec<String> = std::env::args().collect();
             editor::open(app.handle())?;
-            if args.iter().any(|a| a == tray::STARTED_ARG) {
+            // Started by Windows at login, or by an update: in the tray.
+            if args
+                .iter()
+                .any(|a| a == tray::STARTED_ARG || a == updater::UPDATED_ARG)
+            {
                 let state = app.state::<AppState>();
                 state.editor.lock().unwrap().start_hidden = true;
             }
             {
                 let state = app.state::<AppState>();
                 let settings = state.settings.read().unwrap().clone();
+                // Before the tray: its menu shows an update waiting.
+                updater::init(app.handle());
                 tray::create(app.handle(), &settings)?;
                 hotkeys::register(app.handle(), &settings.hotkeys);
                 tray::start_with_windows(app.handle(), settings.tray.start_with_windows);
             }
             let cwd = std::env::current_dir().unwrap_or_default();
             open_from_args(app.handle(), &args, &cwd);
+            if args.iter().any(|a| a == updater::UPDATED_ARG) {
+                updater::announce_updated(app.handle());
+            }
+            updater::delete_old_installers(app.handle());
             logln!("[startup] ready");
             crash::test_from_env(app.handle());
             Ok(())

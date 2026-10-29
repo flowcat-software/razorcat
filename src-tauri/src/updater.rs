@@ -1,0 +1,499 @@
+//! Automatic updates with `tauri-plugin-updater` (Vandal's updater.rs the model), driven from
+//! Rust only: no webview has the plugin's permission, the pages use our commands.
+//!
+//! Each channel's manifest is a static file on the `update-manifests` branch, written by
+//! `publish-updates.yml` when a release is published. Checks run a minute after startup and then
+//! daily, only while `updates.checkAutomatically` is on; "Check now" always works. Installing
+//! never interrupts work: it refuses while a recording or an export is under way, and with
+//! unsaved changes the editor asks first, as quitting does (Save, Don't save, Cancel); Cancel
+//! stops the install.
+//!
+//! `RAZORCAT_UPDATE_ENDPOINT` (a full manifest URL) replaces the channel's address, for testing;
+//! the installer must still be signed with the key in `tauri.conf.json`. Dev builds only check
+//! when it's set.
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant, SystemTime};
+
+use serde::{Deserialize, Serialize};
+use specta::Type;
+use tauri::{AppHandle, Manager, Url, Wry};
+use tauri_plugin_updater::{Update, UpdaterExt};
+use tauri_specta::Event;
+use tauri_winrt_notification::Toast;
+
+use crate::settings::{UpdateChannel, UpdateSettings};
+use crate::state::AppState;
+use crate::{editor, export, recording, settings_window};
+
+const MANIFESTS: &str =
+    "https://raw.githubusercontent.com/flowcat-software/razorcat/update-manifests";
+const RELEASES: &str = "https://github.com/flowcat-software/razorcat/releases/tag";
+const ENDPOINT_ENV: &str = "RAZORCAT_UPDATE_ENDPOINT";
+/// The relaunch after an update: starts quietly in the tray, like a login start.
+pub const UPDATED_ARG: &str = "--updated";
+
+const FIRST_CHECK: Duration = Duration::from_secs(60);
+const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
+/// How often the scheduler looks at the clock. Wall-clock time, so a day spent asleep still
+/// counts as a day.
+const WAKE_EVERY: Duration = Duration::from_secs(60 * 60);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long the editor's "save first?" may stay unanswered.
+const ANSWER_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+#[derive(Default)]
+pub struct UpdaterState {
+    available: Mutex<Option<Update>>,
+    last_check: Mutex<Option<SystemTime>>,
+    installing: AtomicBool,
+    /// The editor's answer to "save first?": go ahead (true) or not (false).
+    answer: Mutex<Option<bool>>,
+}
+
+/// An update that can be installed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInfo {
+    pub version: String,
+    pub current_version: String,
+    /// The release notes (the CHANGELOG section, Markdown).
+    pub notes: String,
+    /// When it was published (RFC 3339), if the manifest says.
+    pub date: Option<String>,
+}
+
+impl From<&Update> for UpdateInfo {
+    fn from(u: &Update) -> Self {
+        Self {
+            version: u.version.clone(),
+            current_version: u.current_version.clone(),
+            notes: u.body.clone().unwrap_or_default(),
+            date: u.raw_json["pub_date"].as_str().map(str::to_string),
+        }
+    }
+}
+
+/// Rust → all windows: a newer version was found (not repeated for the same one).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+pub struct UpdateAvailable(pub UpdateInfo);
+
+/// Rust → all windows: the installer is downloading.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProgress {
+    pub downloaded: u32,
+    pub total: Option<u32>,
+}
+
+/// Startup: the state, and the daily checks (not in dev builds). Before the tray: its menu
+/// shows an update waiting.
+pub fn init(app: &AppHandle<Wry>) {
+    app.manage(UpdaterState::default());
+    if !can_check() {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(FIRST_CHECK);
+        loop {
+            if check_due(&app) {
+                if let Err(e) = tauri::async_runtime::block_on(check(&app, true)) {
+                    logln!("[updates] check failed: {e}");
+                }
+            }
+            std::thread::sleep(WAKE_EVERY);
+        }
+    });
+}
+
+fn check_due(app: &AppHandle<Wry>) -> bool {
+    let on = app
+        .state::<AppState>()
+        .settings
+        .read()
+        .unwrap()
+        .updates
+        .check_automatically;
+    let last = *app.state::<UpdaterState>().last_check.lock().unwrap();
+    on && last.is_none_or(|t| t.elapsed().map_or(true, |age| age >= CHECK_EVERY))
+}
+
+/// `settings::update`: turning checks on (or switching channel while they're on) checks right
+/// away; a new channel forgets the other one's update.
+pub fn settings_changed(app: &AppHandle<Wry>, old: &UpdateSettings, new: &UpdateSettings) {
+    if old.channel != new.channel {
+        *app.state::<UpdaterState>().available.lock().unwrap() = None;
+        crate::tray::rebuild(app);
+    }
+    let turned_on = new.check_automatically && !old.check_automatically;
+    let switched = new.check_automatically && old.channel != new.channel;
+    if (turned_on || switched) && can_check() {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = check(&app, true).await {
+                logln!("[updates] check failed: {e}");
+            }
+        });
+    }
+}
+
+/// Dev builds only check against a test manifest.
+fn can_check() -> bool {
+    !cfg!(debug_assertions) || std::env::var_os(ENDPOINT_ENV).is_some()
+}
+
+fn endpoint(channel: UpdateChannel) -> Result<Url, String> {
+    let url = match std::env::var(ENDPOINT_ENV) {
+        Ok(url) => url,
+        Err(_) if cfg!(debug_assertions) => {
+            return Err(format!(
+                "Dev builds don't update (set {ENDPOINT_ENV} to test)."
+            ));
+        }
+        Err(_) => {
+            let name = match channel {
+                UpdateChannel::Beta => "beta",
+                UpdateChannel::Stable => "stable",
+            };
+            format!("{MANIFESTS}/{name}.json")
+        }
+    };
+    url.parse()
+        .map_err(|e| format!("Bad update address {url}: {e}"))
+}
+
+/// Ask the channel's manifest for a newer version. Remembers what it finds for [`install`] and
+/// the tray, and tells the pages about a version it hadn't found before; `notify` (the automatic
+/// checks) also shows a notification.
+pub async fn check(app: &AppHandle<Wry>, notify: bool) -> Result<Option<UpdateInfo>, String> {
+    let channel = app
+        .state::<AppState>()
+        .settings
+        .read()
+        .unwrap()
+        .updates
+        .channel;
+    let exit_app = app.clone();
+    let updater = app
+        .updater_builder()
+        .endpoints(vec![endpoint(channel)?])
+        .map_err(|e| e.to_string())?
+        .timeout(REQUEST_TIMEOUT)
+        // The plugin would relaunch with this run's arguments (a file it opened...); start
+        // quietly in the tray instead.
+        .restart_after_install(false)
+        .installer_args(["/R", "/ARGS", UPDATED_ARG])
+        // The plugin ends the app with `process::exit`, skipping the usual cleanup.
+        .on_before_exit(move || before_exit(&exit_app))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let found = updater.check().await.map_err(|e| {
+        logln!("[updates] check: {e}");
+        friendly_error(&e)
+    })?;
+
+    let state = app.state::<UpdaterState>();
+    *state.last_check.lock().unwrap() = Some(SystemTime::now());
+    let info = found.as_ref().map(UpdateInfo::from);
+    let previous = std::mem::replace(&mut *state.available.lock().unwrap(), found);
+    let previous = previous.map(|p| p.version);
+    if previous.as_ref() != info.as_ref().map(|i| &i.version) {
+        crate::tray::rebuild(app);
+        if let Some(info) = &info {
+            logln!("[updates] {} is available", info.version);
+            let _ = UpdateAvailable(info.clone()).emit(app);
+            if notify {
+                notify_available(app, info);
+            }
+        }
+    }
+    Ok(info)
+}
+
+/// The id Windows shows notifications under: the installer's Start menu shortcut carries the
+/// app's identifier. Dev builds have no shortcut, so they borrow PowerShell's.
+fn app_id(app: &AppHandle<Wry>) -> String {
+    if cfg!(debug_assertions) {
+        Toast::POWERSHELL_APP_ID.to_string()
+    } else {
+        app.config().identifier.clone()
+    }
+}
+
+/// "Razorcat X is available": Install, or Later (the notification goes; the tray and Settings ›
+/// Updates keep offering it). The body opens Settings › Updates.
+fn notify_available(app: &AppHandle<Wry>, info: &UpdateInfo) {
+    let app = app.clone();
+    let detail = if editor::is_unsaved(&app) {
+        "You have unsaved changes. Razorcat will ask you to save them before it installs."
+    } else {
+        "Installing restarts Razorcat."
+    };
+    let toast = Toast::new(&app_id(&app))
+        .title(&format!(
+            "{} {} is available",
+            crate::product_name(&app),
+            info.version
+        ))
+        .text1(detail)
+        .sound(None)
+        .add_button("Install", "install")
+        .add_button("Later", "later");
+    let toast = toast.on_activated(move |action| {
+        match action.as_deref() {
+            Some("install") => install_in_background(&app),
+            Some("later") => {}
+            _ => settings_window::open(&app, Some("updates")),
+        }
+        Ok(())
+    });
+    if let Err(e) = toast.show() {
+        logln!("[updates] notification failed: {e}");
+    }
+}
+
+/// A notification with no buttons, for an install that stopped.
+fn notify_error(app: &AppHandle<Wry>, title: &str, body: &str) {
+    if let Err(e) = Toast::new(&app_id(app)).title(title).text1(body).show() {
+        logln!("[updates] notification failed: {e} ({title}: {body})");
+    }
+}
+
+/// Startup: delete installers earlier updates left in %TEMP%. The plugin downloads each into
+/// `<product>-<version>-updater-<random>\`, and can't delete it before exiting: the installer
+/// runs from there.
+pub fn delete_old_installers(app: &AppHandle<Wry>) {
+    let product = crate::product_name(app);
+    // %TEMP% can be large: off the startup path.
+    std::thread::spawn(move || {
+        let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if is_old_installer_dir(&name.to_string_lossy(), &product)
+                && entry.file_type().is_ok_and(|t| t.is_dir())
+            {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
+    });
+}
+
+/// `Razorcat-0.5.0-beta.2-updater-AbC123` for product "Razorcat", but not another product's
+/// ("Razorcat Dev-…", "Razorcat Update Test-…").
+fn is_old_installer_dir(name: &str, product: &str) -> bool {
+    name.strip_prefix(product)
+        .and_then(|rest| rest.strip_prefix('-'))
+        .and_then(|rest| rest.split_once("-updater-"))
+        .is_some_and(|(version, _)| !version.is_empty() && !version.contains(' '))
+}
+
+/// After the relaunch (`--updated`): "Razorcat updated to X", with What's new.
+pub fn announce_updated(app: &AppHandle<Wry>) {
+    let version = app.package_info().version.to_string();
+    let toast = Toast::new(&app_id(app))
+        .title(&format!(
+            "{} updated to {version}",
+            crate::product_name(app)
+        ))
+        .text1("See what's new in this version.")
+        .sound(None)
+        .add_button("What's new", "notes");
+    let toast = toast.on_activated(move |action| {
+        match action.as_deref() {
+            None | Some("notes") => open_release_notes(&version),
+            _ => {}
+        }
+        Ok(())
+    });
+    if let Err(e) = toast.show() {
+        logln!("[updates] notification failed: {e}");
+    }
+}
+
+/// A release's page on GitHub (its notes are the CHANGELOG section).
+pub fn open_release_notes(version: &str) {
+    // Only a version number goes into the address (and onto explorer's command line).
+    let plain = version.split('+').next().unwrap_or(version);
+    if plain.is_empty()
+        || !plain
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+    {
+        return;
+    }
+    let _ = std::process::Command::new("explorer.exe")
+        .arg(format!("{RELEASES}/v{plain}"))
+        .spawn();
+}
+
+/// Install from the notification or the tray; a failure is a notification.
+pub fn install_in_background(app: &AppHandle<Wry>) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = install(&app).await {
+            notify_error(&app, "Update not installed", &e);
+        }
+    });
+}
+
+/// The update found by the last check, if any.
+pub fn available(app: &AppHandle<Wry>) -> Option<UpdateInfo> {
+    app.state::<UpdaterState>()
+        .available
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(UpdateInfo::from)
+}
+
+/// Download, verify and run the installer, then exit; the installer starts the new version.
+/// Returns only if something stopped it.
+pub async fn install(app: &AppHandle<Wry>) -> Result<(), String> {
+    let state = app.state::<UpdaterState>();
+    let update = state
+        .available
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("No update to install: check for updates first.")?;
+    if state.installing.swap(true, Ordering::SeqCst) {
+        return Err("The update is already installing.".into());
+    }
+    let result = install_inner(app, &update).await;
+    state.installing.store(false, Ordering::SeqCst);
+    result
+}
+
+async fn install_inner(app: &AppHandle<Wry>, update: &Update) -> Result<(), String> {
+    ensure_idle(app)?;
+    // Download first, so a failed download doesn't ask anything.
+    let mut downloaded: usize = 0;
+    let bytes = update
+        .download(
+            |chunk, total| {
+                downloaded += chunk;
+                let _ = UpdateProgress {
+                    downloaded: u32::try_from(downloaded).unwrap_or(u32::MAX),
+                    total: total.map(|t| u32::try_from(t).unwrap_or(u32::MAX)),
+                }
+                .emit(app);
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| {
+            logln!("[updates] download: {e}");
+            friendly_error(&e)
+        })?;
+    if !unsaved_answered(app).await {
+        return Err("The changes weren't saved, so the update wasn't installed.".into());
+    }
+    ensure_idle(app)?;
+    logln!("[updates] installing {}", update.version);
+    update
+        .install(bytes)
+        .map_err(|e| format!("The installer didn't start: {e}"))
+}
+
+/// What to tell people when a check or download fails; the details go to the log.
+fn friendly_error(e: &tauri_plugin_updater::Error) -> String {
+    use tauri_plugin_updater::Error as E;
+    match e {
+        E::Minisign(_)
+        | E::Base64(_)
+        | E::SignatureUtf8(_)
+        | E::SignedVersionMismatch { .. }
+        | E::MissingSignedVersion => concat!(
+            "This update couldn't be verified as coming from Razorcat, so it wasn't installed ",
+            "and nothing changed. Try again later, and if it keeps happening, please report it ",
+            "at github.com/flowcat-software/razorcat/issues.",
+        )
+        .into(),
+        E::Reqwest(_) | E::Network(_) | E::ReleaseNotFound | E::Io(_) => {
+            "Couldn't reach the update server. Check your internet connection and try again.".into()
+        }
+        other => format!("Something went wrong with the update: {other}"),
+    }
+}
+
+/// Installing ends Razorcat, so not in the middle of a recording or an export.
+fn ensure_idle(app: &AppHandle<Wry>) -> Result<(), String> {
+    if recording::busy() {
+        Err("Finish the recording first.".into())
+    } else if export::busy(app) {
+        Err("Wait for the export to finish, or cancel it, first.".into())
+    } else {
+        Ok(())
+    }
+}
+
+/// With unsaved changes, the editor asks first ("Save changes?"), as quitting does; true once
+/// it's answered Save (and saved) or Don't save, or if there was nothing to ask.
+async fn unsaved_answered(app: &AppHandle<Wry>) -> bool {
+    let state = app.state::<UpdaterState>();
+    *state.answer.lock().unwrap() = None;
+    if !editor::asks_before_update(app) {
+        return true;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let started = Instant::now();
+        loop {
+            if let Some(go) = *app.state::<UpdaterState>().answer.lock().unwrap() {
+                return go;
+            }
+            if started.elapsed() > ANSWER_TIMEOUT {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    })
+    .await
+    .unwrap_or(false)
+}
+
+/// The editor's answer to "save first?": `go` once saved or not to be saved (the recovery copy
+/// goes with them), else the update waits.
+pub fn answered(app: &AppHandle<Wry>, go: bool) {
+    if go {
+        crate::recovery::discard(app);
+    }
+    *app.state::<UpdaterState>().answer.lock().unwrap() = Some(go);
+}
+
+/// What quitting would do, plus taking the tray icon down (it would linger until hovered).
+fn before_exit(app: &AppHandle<Wry>) {
+    crate::tray::remove(app);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_installer_dirs_are_this_products_only() {
+        assert!(is_old_installer_dir(
+            "Razorcat-0.5.0-beta.7-updater-AbC123",
+            "Razorcat"
+        ));
+        assert!(is_old_installer_dir(
+            "Razorcat Update Test-0.5.0-beta.6.2-updater-3x2gVj",
+            "Razorcat Update Test"
+        ));
+        assert!(!is_old_installer_dir(
+            "Razorcat Dev-0.5.0-updater-x",
+            "Razorcat"
+        ));
+        assert!(!is_old_installer_dir(
+            "Razorcat Update Test-0.5.0-updater-x",
+            "Razorcat"
+        ));
+        assert!(!is_old_installer_dir("Razorcat-updater-x", "Razorcat"));
+        assert!(!is_old_installer_dir("Razorcat-0.5.0-beta.7", "Razorcat"));
+        assert!(!is_old_installer_dir("Other-0.5.0-updater-x", "Razorcat"));
+    }
+}

@@ -273,6 +273,33 @@ in its environment. Never put the key in the repo or a `VITE_` variable.
   copies accept it; sign everything after that with the new key. A leaked key alone can't push
   an update: the manifests and installers also come from this repo.
 
+### Testing updates
+
+The app checks `https://raw.githubusercontent.com/flowcat-software/razorcat/update-manifests/<channel>.json`
+(`src-tauri/src/updater.rs`) a minute after it starts, then daily. For testing,
+`RAZORCAT_UPDATE_ENDPOINT` replaces that address with any manifest URL; the installer it points
+at must still be signed with the key in the build's `tauri.conf.json`. Dev builds only check
+when it's set, so with it, `npm run tauri:dev` shows the notification, the tray item and
+Settings › Updates against a local manifest (an installer that isn't really signed shows the
+"couldn't be verified" error).
+
+To test a real install without touching your own copy, build two versions under another name
+with a throwaway key, and serve the newer one's manifest locally:
+
+1. `npx tauri signer generate --ci -p <password> -w <scratch>/test.key`
+2. For each version, a `--config` overlay with `productName` ("Razorcat Update Test"),
+   `identifier` (`com.razorcat.updatetest`), `version`, and `plugins.updater` with the test
+   `pubkey`, `requireSignedVersion: true` and `dangerousInsecureTransportProtocol: true` (the
+   local server is plain http; never in the real config). Build each with
+   `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` set.
+3. A `beta.json` for the newer one (`scripts/updateManifestsLib.mjs` › `manifest` has the
+   shape; the signature is the `.sig` file's text) beside its installer, served with
+   `python -m http.server 8765 --bind 127.0.0.1`.
+4. Install the older one, start it with `RAZORCAT_UPDATE_ENDPOINT` set, and wait a minute.
+
+The test install takes over the shared registry entries ("Open with" for videos, `.rct`
+projects): afterwards uninstall it and reinstall your real Razorcat.
+
 ## Logs and crash reports
 
 Razorcat logs to `%LOCALAPPDATA%\<identifier>\logs\razorcat.log` (`com.razorcat.desktop`, or

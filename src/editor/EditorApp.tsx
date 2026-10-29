@@ -670,6 +670,14 @@ export function EditorApp() {
       }),
       // Quitting (the tray's Quit, or closing quits) with unsaved changes (PLAN PR3).
       events.quitAsked.listen(() => setAsking({ save: true, go: () => void commands.quitNow() })),
+      // An update is to install: save first? Cancel and the update waits.
+      events.updateAsked.listen(() =>
+        setAsking({
+          save: true,
+          go: () => void commands.updateAnswer(true),
+          stop: () => void commands.updateAnswer(false),
+        }),
+      ),
       // One more file, on the end of the timeline (one undo step).
       events.sourceAdded.listen(({ payload }) => {
         const added = payload.source as SourceInfo;

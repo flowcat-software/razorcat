@@ -10,6 +10,7 @@ use crate::settings_window;
 use crate::sidecar::{self, MediaTools};
 use crate::source::SourceInfo;
 use crate::state::AppState;
+use crate::updater::{self, UpdateInfo};
 
 /// The editor's page has loaded: shows the window, and opens a file Razorcat was started with
 /// ([`editor::SourceOpened`] follows). Returns the open sources, if the page reloaded.
@@ -150,6 +151,44 @@ pub fn closed_to_tray(app: AppHandle, keep: bool) -> Result<(), String> {
 #[specta::specta]
 pub fn set_unsaved(app: AppHandle, unsaved: bool) {
     crate::editor::set_unsaved(&app, unsaved);
+}
+
+/// Settings › Updates' "Check now": the newer version, if any.
+#[tauri::command]
+#[specta::specta]
+pub async fn update_check(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
+    updater::check(&app, false).await
+}
+
+/// The update the last check found, for pages that open later.
+#[tauri::command]
+#[specta::specta]
+pub fn update_available(app: AppHandle) -> Option<UpdateInfo> {
+    updater::available(&app)
+}
+
+/// Install the update found and restart into it. Returns only if something stopped it (a
+/// recording or an export under way, changes kept unsaved, a failed download).
+#[tauri::command]
+#[specta::specta]
+pub async fn update_install(app: AppHandle) -> Result<(), String> {
+    updater::install(&app).await
+}
+
+/// A release's notes on GitHub, in the default browser (Settings › Updates' "What's new"). Only
+/// a version number goes into the address.
+#[tauri::command]
+#[specta::specta]
+pub fn open_release_notes(version: String) {
+    updater::open_release_notes(&version);
+}
+
+/// The editor's answer to "save first?" before an update (`UpdateAsked`): `go` once saved or
+/// not to be saved; else the update waits.
+#[tauri::command]
+#[specta::specta]
+pub fn update_answer(app: AppHandle, go: bool) {
+    updater::answered(&app, go);
 }
 
 /// Razorcat quits: the page has asked about unsaved changes (`QuitAsked`, PLAN PR3), so
