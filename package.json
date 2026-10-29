@@ -19,7 +19,8 @@
     "security": "npm audit --omit=dev && cargo deny --manifest-path src-tauri/Cargo.toml check advisories sources",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "fetch-tools": "node scripts/fetch-tools.mjs",
-    "build:local": "node scripts/build-local.mjs"
+    "build:local": "node scripts/build-local.mjs",
+    "release:bump": "node scripts/release.mjs bump"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

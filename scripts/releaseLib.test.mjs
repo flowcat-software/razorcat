@@ -1,0 +1,193 @@
+import { describe, expect, it } from "vitest";
+import {
+  cargoTomlVersion,
+  compareVersions,
+  localBuildVersion,
+  releaseNotes,
+  setCargoLockVersion,
+  setCargoTomlVersion,
+  setPackageJsonVersion,
+  stampChangelog,
+  versionFromTag,
+} from "./releaseLib.mjs";
+
+describe("compareVersions", () => {
+  it("orders by semver, prereleases before the release", () => {
+    const sorted = [
+      "0.3.0",
+      "0.2.0",
+      "0.3.0-beta.10",
+      "0.3.0-beta.2",
+      "0.3.0-alpha.1",
+      "0.3.0-beta",
+      "0.10.0",
+      "0.3.1",
+    ].sort(compareVersions);
+    expect(sorted).toEqual([
+      "0.2.0",
+      "0.3.0-alpha.1",
+      "0.3.0-beta",
+      "0.3.0-beta.2",
+      "0.3.0-beta.10",
+      "0.3.0",
+      "0.3.1",
+      "0.10.0",
+    ]);
+  });
+
+  it("treats equal versions as equal", () => {
+    expect(compareVersions("0.3.0-beta.1", "0.3.0-beta.1")).toBe(0);
+  });
+
+  it("rejects things that aren't versions", () => {
+    expect(() => compareVersions("0.3", "0.3.0")).toThrow();
+    expect(() => compareVersions("0.3.0+build", "0.3.0")).toThrow();
+  });
+});
+
+describe("versionFromTag", () => {
+  it("reads v-prefixed tags and refs", () => {
+    expect(versionFromTag("v0.3.0-beta.1")).toBe("0.3.0-beta.1");
+    expect(versionFromTag("refs/tags/v1.0.0")).toBe("1.0.0");
+  });
+
+  it("refuses other tags", () => {
+    expect(versionFromTag("0.3.0")).toBeNull();
+    expect(versionFromTag("vnext")).toBeNull();
+  });
+});
+
+describe("version files", () => {
+  const toml = [
+    "[package]",
+    'name = "razorcat"',
+    'authors = ["Flowcat Software"]',
+    'version = "0.2.0"',
+    "",
+    "[dependencies]",
+    'serde = { version = "1" }',
+    "",
+  ].join("\n");
+
+  it("edits only the [package] version in Cargo.toml", () => {
+    expect(cargoTomlVersion(toml)).toBe("0.2.0");
+    const out = setCargoTomlVersion(toml, "0.3.0-beta.1");
+    expect(cargoTomlVersion(out)).toBe("0.3.0-beta.1");
+    expect(out).toContain('serde = { version = "1" }');
+  });
+
+  it("edits only our crate in Cargo.lock, with either line ending", () => {
+    const lock =
+      '[[package]]\nname = "serde"\nversion = "1.0.0"\n\n[[package]]\r\nname = "razorcat"\r\nversion = "0.2.0"\r\n';
+    const out = setCargoLockVersion(lock, "razorcat", "0.3.0");
+    expect(out).toContain('name = "razorcat"\r\nversion = "0.3.0"');
+    expect(out).toContain('name = "serde"\nversion = "1.0.0"');
+    expect(() => setCargoLockVersion(lock, "missing", "1.0.0")).toThrow();
+  });
+
+  it("sets both versions in package-lock.json", () => {
+    const lock = JSON.stringify({
+      name: "razorcat",
+      version: "0.2.0",
+      packages: { "": { version: "0.2.0" } },
+    });
+    const out = JSON.parse(setPackageJsonVersion(lock, "0.3.0"));
+    expect(out.version).toBe("0.3.0");
+    expect(out.packages[""].version).toBe("0.3.0");
+  });
+});
+
+const CHANGELOG = `# Changelog
+
+## [Unreleased]
+
+### Added
+
+- Something new.
+
+## [0.2.0] - 2026-09-27
+
+### Added
+
+- Quick edit.
+
+[Unreleased]: https://github.com/o/r/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/o/r/releases/tag/v0.2.0
+`;
+
+describe("releaseNotes", () => {
+  it("returns a section's body, without the link definitions", () => {
+    expect(releaseNotes(CHANGELOG, "0.2.0")).toBe("### Added\n\n- Quick edit.");
+  });
+
+  it("returns null for a missing or empty section", () => {
+    expect(releaseNotes(CHANGELOG, "9.9.9")).toBeNull();
+    expect(releaseNotes("## [1.0.0] - 2026-01-01\n\n## [0.9.0]\n\n- x\n", "1.0.0")).toBeNull();
+  });
+});
+
+describe("stampChangelog", () => {
+  const stamp = (text, version = "0.3.0") =>
+    stampChangelog(text, {
+      version,
+      previous: "0.2.0",
+      date: "2026-10-01",
+      repoUrl: "https://github.com/o/r",
+    });
+
+  it("dates [Unreleased] and starts a new one", () => {
+    const out = stamp(CHANGELOG);
+    expect(out).toContain(
+      "## [Unreleased]\n\n## [0.3.0] - 2026-10-01\n\n### Added\n\n- Something new.",
+    );
+    expect(releaseNotes(out, "0.3.0")).toBe("### Added\n\n- Something new.");
+    expect(out).toContain(
+      "[Unreleased]: https://github.com/o/r/compare/v0.3.0...HEAD\n[0.3.0]: https://github.com/o/r/compare/v0.2.0...v0.3.0\n[0.2.0]:",
+    );
+  });
+
+  it("keeps CRLF files CRLF", () => {
+    const out = stamp(CHANGELOG.replace(/\n/g, "\r\n"));
+    expect(out).not.toMatch(/[^\r]\n/);
+  });
+
+  it("refuses a version that already has a section", () => {
+    expect(() => stamp(CHANGELOG, "0.2.0")).toThrow(/already/);
+  });
+});
+
+describe("localBuildVersion", () => {
+  it("adds the commits since the release tag as the build number", () => {
+    expect(localBuildVersion("v0.3.0-beta.3-5-g2cf53f9\n", "0.3.0-beta.3")).toEqual({
+      version: "0.3.0-beta.3+5",
+      commit: "2cf53f9",
+      modified: false,
+      untagged: false,
+    });
+  });
+
+  it("builds on the tag itself have the plain version", () => {
+    expect(localBuildVersion("v0.3.0-0-gabc1234", "0.3.0").version).toBe("0.3.0");
+  });
+
+  it("flags uncommitted changes", () => {
+    expect(localBuildVersion("v0.3.0-beta.3-5-g2cf53f9-dirty", "0.3.0-beta.3").modified).toBe(true);
+  });
+
+  it("uses a bumped but untagged version as-is", () => {
+    expect(localBuildVersion("v0.3.0-beta.3-6-g1111111", "0.3.0-beta.4")).toEqual({
+      version: "0.3.0-beta.4",
+      commit: "1111111",
+      modified: false,
+      untagged: true,
+    });
+  });
+
+  it("refuses a package version older than the tag", () => {
+    expect(() => localBuildVersion("v0.3.0-1-g1111111", "0.3.0-beta.3")).toThrow(/older/);
+  });
+
+  it("refuses output it doesn't recognize", () => {
+    expect(() => localBuildVersion("2cf53f9", "0.3.0")).toThrow(/describe/);
+  });
+});

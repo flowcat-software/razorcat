@@ -16,9 +16,16 @@
       "devCsp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA3RDZBRTA3MzFGQ0NBMzQKUldRMHl2d3hCNjdXQjAxeGlBL2hBMnVlQW5FeWo3cXROZHhqUVpyT2Q4dmxGUTNhT2RqTnIrMUgK",
+      "requireSignedVersion": true
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "externalBin": ["binaries/ffmpeg", "binaries/gifski"],
     "resources": {
       "../LICENSE": "licenses/Razorcat-LICENSE.txt",

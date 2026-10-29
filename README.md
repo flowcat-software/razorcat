@@ -86,6 +86,24 @@ Razorcat isn't released yet. When it is, its installer will be on the
 user account only (no administrator rights), and updates itself when you say so, with every
 update signed and checked before it installs.
 
+## Verify your download
+
+Optional, but worth it while the installer isn't code-signed. Either check works:
+
+- **Compare its SHA-256** with the release's `SHA256SUMS.txt`. In PowerShell:
+
+  ```powershell
+  Get-FileHash .\Razorcat_<version>_x64-setup.exe
+  ```
+
+- **Check its build provenance** with the [GitHub CLI](https://cli.github.com). Every
+  installer is built by this repository's release workflow, which signs a record of what it
+  built. This proves the file came from that workflow, unchanged:
+
+  ```powershell
+  gh attestation verify .\Razorcat_<version>_x64-setup.exe --repo flowcat-software/razorcat
+  ```
+
 ## Privacy
 
 Razorcat works entirely on your PC. It doesn't collect usage data, and it has no account to
@@ -143,3 +161,6 @@ folder where Razorcat is installed):
 
 - [FFmpeg](https://ffmpeg.org), under the GNU GPL v3.0 or later.
 - [gifski](https://gif.ski), under the GNU AGPL v3.0 or later.
+
+The exact builds Razorcat ships, and their source code, are on the
+[tools release](https://github.com/flowcat-software/razorcat/releases/tag/tools).

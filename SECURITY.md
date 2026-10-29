@@ -16,6 +16,7 @@ Only the latest release gets security fixes. Install new versions over the old o
 
 ## Checking a download
 
-Each installer comes with a SHA-256 checksum (`SHA256SUMS.txt` on its release). Updates that
-Razorcat installs itself are signed, and Razorcat refuses one whose signature doesn't match the
-key built into it.
+Each installer comes with a build provenance attestation and a SHA-256 checksum. The README's
+[Verify your download](README.md#verify-your-download) section explains how to check them.
+Updates that Razorcat installs itself are signed, and Razorcat refuses one whose signature
+doesn't match the key built into it.

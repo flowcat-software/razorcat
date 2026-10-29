@@ -132,18 +132,21 @@ versions, which proves they're there and run.
 
 `npm run fetch-tools` (`scripts/fetch-tools.mjs`) downloads them into `src-tauri/binaries/`
 (gitignored), named as Tauri expects (`ffmpeg-x86_64-pc-windows-msvc.exe`), with their licences.
-Each download is pinned by URL and SHA-256 and checked; the archives stay in
+Each download is pinned by URL and SHA-256 and checked, and comes from Razorcat's own
+[`tools` release](https://github.com/flowcat-software/razorcat/releases/tag/tools), where it
+can't be pruned (it also holds both tools' source, as their licences ask). The archives stay in
 `src-tauri/binaries/.cache/`, so a rerun needs no network. Without them the Rust build fails,
 naming the missing binary.
 
 - **ffmpeg:** [BtbN's](https://github.com/BtbN/FFmpeg-Builds) GPL build of the n8.1.3 release,
   checked against the release's `checksums.sha256`. Pin a dated `autobuild-…` release, never
   `latest` (it changes daily), and one at least a week old, like any dependency. BtbN prunes old
-  autobuilds: the cache keeps ours. It's the full build (165 MB) for now; a build with only what
+  autobuilds, which is why ours is on the `tools` release. It's the full build (165 MB) for now; a build with only what
   Razorcat uses comes before the beta.
 - **gifski:** the 1.34.0 release, checked against the SHA-256 GitHub records for the asset.
 
-To update one, change its `url` and `sha256` in the script, run it, and check About.
+To update one, upload the new archive (and its source) to the `tools` release, change its
+`url` and `sha256` in the script, run it, and check About.
 
 ## Build an installer
 
@@ -152,22 +155,123 @@ npm run build:local
 ```
 
 This builds a release installer with a build number: a per-user NSIS installer (no admin) in
-`src-tauri/target/release/bundle/nsis/`, for example `Razorcat_0.1.0+8_x64-setup.exe`. It
+`src-tauri/target/release/bundle/nsis/`, for example `Razorcat_0.5.0-beta.1+3_x64-setup.exe`. It
 includes ffmpeg and gifski beside `razorcat.exe`, and the licences (Razorcat's, ffmpeg's GPL,
 gifski's AGPL) in its `licenses` folder. Settings › About shows the same version and the
-commit it was built from, for example `0.1.0+8 (2cf53f9)`, plus "modified" if there were
+commit it was built from, for example `0.5.0-beta.1+3 (2cf53f9)`, plus "modified" if there were
 uncommitted changes. For just the release exe, without an installer, use
 `npm run build:local -- --no-bundle`. Other arguments are passed on to `tauri build` too.
 
-- **The build number (`+8`) is the commit count** for now: every new commit gives the next
-  build a higher number, and nothing in the repo changes. Once there are release tags, it
-  becomes the count since the last one, as in Vandal.
+- **The build number (`+3`) is the count of commits since the last release tag** (before the
+  first release, the count of all commits). Semver ignores it, so the updater treats the build
+  as that release. Nothing in the repo changes. After `release:bump` but before tagging, the
+  build is the new version as it is: its release candidate.
 - **Digits only:** Windows file versions are numeric, so NSIS writes the number into the exe's
-  file version (`0.1.0.8`).
-- The installer has no updater and isn't code-signed yet: those come with releases.
+  file version (`0.5.0.3`).
+- **No updater signature:** a local installer has no `.sig` unless `TAURI_SIGNING_PRIVATE_KEY`
+  is set. Only CI signs releases (see Releasing), and nothing is code-signed for Windows yet.
 - **Symbols:** each build's `razorcat.exe` and `razorcat.pdb` are kept in
   `src-tauri/target/release/bundle/symbols/Razorcat_<version>/`, never shipped. Keep the
   folder of any build given to testers: it's what turns their crash dumps into function names.
+  Releases carry theirs as `…_symbols.zip`.
+
+## Releasing
+
+`package.json` holds the version, which `tauri.conf.json` reads. `src-tauri/Cargo.toml` and
+both lockfiles must match it. Versions follow semver and stay at 0.x for now. Builds for
+testers are prereleases of the next version (`0.5.0-beta.1`, `0.5.0-beta.2`...), which sort
+before the release itself (`0.5.0`). Every release must have a new, higher number:
+
+- **Tester build during a phase:** the next beta (`0.5.0-beta.4`).
+- **Phase done:** the final version (`0.5.0`). Each phase raises the minor version, and the
+  going-public release is `1.0.0`.
+- **Fix to a final release:** the next patch (`0.5.1`). Don't use a patch number for in-between
+  builds: `0.5.1` sorts after `0.5.0`, so it would claim the phase is done and outrank every
+  later beta. Local builds get a build number instead (see Build an installer).
+- **After 1.0:** major if something users rely on breaks (settings or projects that can't
+  migrate, a feature removed, a Windows version dropped), minor for new features, patch for
+  fixes only.
+- **Never reuse a version, or move or delete a published tag.** If a published release is
+  broken, release the next number. A tag whose release is still a draft can be moved (below).
+- **Keep the dot in `beta.10`.** It then sorts as a number, after `beta.9`. Without the dot,
+  `beta10` sorts as text, before `beta9`.
+
+1. As you work, add changes under `## [Unreleased]` in [`CHANGELOG.md`](CHANGELOG.md).
+2. Before bumping, check security:
+   - `npm run security` passes (the release workflow runs it too and won't build if it fails).
+   - Tauri's [security advisories](https://github.com/tauri-apps/tauri/security/advisories)
+     and [plugins' advisories](https://github.com/tauri-apps/plugins-workspace/security/advisories)
+     have nothing new for Tauri or the plugins we use, the updater included.
+3. Bump the version:
+
+   ```powershell
+   npm run release:bump -- 0.5.0-beta.2
+   ```
+
+   This sets the version in all four files. It also turns `[Unreleased]` into a dated
+   `[0.5.0-beta.2]` section and updates the compare links. It refuses a version that isn't
+   higher than the current one (the updater only offers higher versions), and it refuses an
+   empty `[Unreleased]`.
+
+4. Commit, tag and push. The bump prints the exact commands:
+
+   ```powershell
+   git commit -am "Release v0.5.0-beta.2"
+   git tag -a v0.5.0-beta.2 -m "Razorcat 0.5.0-beta.2"
+   git push origin main v0.5.0-beta.2
+   ```
+
+5. The tag starts the **Release** workflow (`.github/workflows/release.yml`). It runs the
+   Security checks first, then checks that the tag matches the version files and has
+   CHANGELOG notes, and runs the full checks. Then it fetches ffmpeg and gifski
+   (`npm run fetch-tools`), builds the installer, attests its build provenance (signed by
+   GitHub, checked with `gh attestation verify`), and creates a **draft** release with the
+   installer, its updater signature (`…-setup.exe.sig`), `SHA256SUMS.txt`, the build's debug
+   symbols (`…_symbols.zip`: `razorcat.exe` and `razorcat.pdb`, for reading crash dumps) and
+   that version's CHANGELOG section. Tags with a `-` are marked as prereleases.
+6. Download the installer from the draft, install it over the previous version and smoke-test
+   it. Check `gh attestation verify <installer> --repo flowcat-software/razorcat` passes and
+   that its SHA-256 (`Get-FileHash`) matches the draft's `SHA256SUMS.txt`. Once Razorcat has a
+   website, put the SHA-256 there too: it's hosted apart from GitHub, so a swapped installer
+   can't come with a matching hash. Then press **Publish release** on GitHub.
+7. Publishing starts the **Publish updates** workflow (`.github/workflows/publish-updates.yml`).
+   It checks the installer's updater signature against the public key and writes the channel
+   manifests to the `update-manifests` branch: `beta.json` gets every release, `stable.json`
+   only final ones. Installed copies read them from
+   `https://raw.githubusercontent.com/flowcat-software/razorcat/update-manifests/<channel>.json`
+   (cached for up to 5 minutes). Check the run is green and the manifest shows the new version.
+
+**Pulling a bad release:** turn it back into a draft on GitHub (or delete it), then run
+**Actions › Publish updates › Run workflow**. A manual run sets each channel to the highest
+published, signed release, even if that's lower; a publish only ever moves a channel up. Copies
+that already installed the bad release keep it (the updater never goes down a version), so
+the fix is the next release.
+
+If the workflow fails, fix the problem on `main`, then move the tag and push it again:
+`git tag -f -a v… -m "…"` and `git push -f origin v…`. A re-run replaces the files on an
+existing draft.
+
+To test the pipeline without releasing, run the workflow by hand (**Actions › Release › Run
+workflow**). It runs the same checks and build, and keeps the installer as a workflow artifact
+for 14 days. Manual runs sign for the updater too, so they prove the key still works.
+
+### The updater key
+
+Updates are signed with Tauri's updater key (minisign, not Windows code signing), and every
+installed copy only accepts updates signed with it. The public key is in `tauri.conf.json`
+(`plugins.updater.pubkey`, key ID `07D6AE0731FCCA34`). The private key and its password are
+kept by the maintainer and in the `release` environment's secrets
+(`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`), which only `v*` tags and
+`main` can use. The workflow gives them to the installer build step only, and that step reuses
+the `dist/` built earlier instead of running Vite again, so no npm script or bundler has the key
+in its environment. Never put the key in the repo or a `VITE_` variable.
+
+- **If the key is lost,** installed copies can never update again: users must install a build
+  with a new key by hand.
+- **If the key leaks,** rotate it: generate a new one (`npx tauri signer generate`) and ship a
+  release that carries the new public key but is still signed with the old key, so installed
+  copies accept it; sign everything after that with the new key. A leaked key alone can't push
+  an update: the manifests and installers also come from this repo.
 
 ## Logs and crash reports
 
