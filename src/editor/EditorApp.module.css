@@ -1446,6 +1446,24 @@
   color: var(--error-text);
 }
 
+/* A message that says something's done fades after a moment (its delay set inline), as
+   Settings' confirmations do; the hints come back. */
+.noticeFades {
+  animation: noticeFade 0.4s ease forwards;
+}
+
+@keyframes noticeFade {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .noticeFades {
+    animation-duration: 1ms;
+  }
+}
+
 /* An autosave's mark (PLAN PR4): a disk with a check, shown a moment, left of Snap. */
 .autosaved {
   display: flex;

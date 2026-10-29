@@ -1040,6 +1040,8 @@ export function EditorApp() {
       },
     },
   };
+  /** The status bar's message: a job under way, else the last said, else the proxies'. */
+  const shownNotice = exportNotice ?? conversion ?? notice ?? making;
   return (
     <div className={styles.app}>
       <CommandBar
@@ -1097,7 +1099,9 @@ export function EditorApp() {
         )}
       </div>
       <StatusBar
-        notice={exportNotice ?? conversion ?? notice ?? making}
+        notice={shownNotice}
+        fades={notice !== null && shownNotice === notice && !notice.error && !notice.action}
+        onFaded={() => setNotice((n) => (n === shownNotice ? null : n))}
         empty={empty}
         autosavedAt={autosavedAt}
         scrollHints={settings?.appearance.scrollHints ?? true}

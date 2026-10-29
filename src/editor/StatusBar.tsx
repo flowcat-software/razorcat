@@ -16,9 +16,30 @@ export interface Notice {
   progress?: number;
 }
 
+/** A message that says something's done shows this long, then fades (as Settings' do). */
+const SHOWN_MS = 4000;
+
+/** Each message's own number: a new one, even the same words, shows its full time again. */
+const noticeIds = new WeakMap<Notice, number>();
+let nextNoticeId = 0;
+function noticeId(n: Notice): number {
+  let id = noticeIds.get(n);
+  if (id === undefined) {
+    id = ++nextNoticeId;
+    noticeIds.set(n, id);
+  }
+  return id;
+}
+
 interface Props {
   /** The message on the left; "Ready" without one. */
   notice: Notice | null;
+  /**
+   * The message says something's done: it fades after a moment, then `onFaded`, and the hints
+   * are back. Errors, and messages with a button or a bar, stay.
+   */
+  fades: boolean;
+  onFaded: () => void;
   /** No video yet: the timeline's view controls don't apply. */
   empty: boolean;
   /** When the last autosave was written (PLAN PR4), else 0: its mark shows a moment. */
@@ -31,7 +52,7 @@ interface Props {
  * The bottom row: messages, else the hint line (PLAN 4.6b; why a key did nothing even over a
  * message), snapping, the timeline's zoom, and Settings (Vandal's gear).
  */
-export function StatusBar({ notice, empty, autosavedAt, scrollHints }: Props) {
+export function StatusBar({ notice, fades, onFaded, empty, autosavedAt, scrollHints }: Props) {
   const timeline = useTimeline();
   const slider = Math.round(timeline.slider() * 1000);
   const said = useHintSources((s) => s.said !== null);
@@ -40,7 +61,15 @@ export function StatusBar({ notice, empty, autosavedAt, scrollHints }: Props) {
   return (
     <footer className={styles.status}>
       {message || !hints ? (
-        <span className={message?.error ? styles.noticeError : undefined} role="status">
+        <span
+          key={message ? noticeId(message) : 0}
+          className={
+            message?.error ? styles.noticeError : message && fades ? styles.noticeFades : undefined
+          }
+          style={message && fades ? { animationDelay: `${SHOWN_MS}ms` } : undefined}
+          role="status"
+          onAnimationEnd={message && fades ? onFaded : undefined}
+        >
           {message?.text ?? "Ready"}
         </span>
       ) : (
