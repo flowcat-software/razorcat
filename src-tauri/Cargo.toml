@@ -1,6 +1,6 @@
 [package]
 name = "razorcat"
-version = "0.1.0"
+version = "0.5.0-beta.1"
 description = "A small, fast, precise video editor for Windows"
 authors = ["Flowcat Software"]
 license = "GPL-3.0-or-later"
