@@ -38,3 +38,38 @@ export function openedDoc(
     changed,
   };
 }
+
+/**
+ * A project's view (PLAN PR6): the playhead, and the timeline's zoom and scroll (or fitted). Saved
+ * beside the document, not in it: moving the playhead or zooming isn't an edit.
+ */
+export interface SavedView {
+  playhead: number;
+  /** Pixels per frame, and the frame at the left edge (timelineView.ts's `View`). */
+  zoom: number;
+  scroll: number;
+  /** Fitted: it opens fitted to the window, whatever its width. */
+  fitted: boolean;
+}
+
+/** The view saved with a project (`text`, its JSON), or null if there's none or it's damaged. */
+export function savedView(text: string | null | undefined): SavedView | null {
+  if (!text) return null;
+  let v: Partial<Record<keyof SavedView, unknown>>;
+  try {
+    v = JSON.parse(text) as typeof v;
+  } catch {
+    return null;
+  }
+  const { playhead, zoom, scroll, fitted } = v ?? {};
+  const ok =
+    Number.isInteger(playhead) &&
+    (playhead as number) >= 0 &&
+    typeof zoom === "number" &&
+    Number.isFinite(zoom) &&
+    zoom > 0 &&
+    typeof scroll === "number" &&
+    Number.isFinite(scroll) &&
+    typeof fitted === "boolean";
+  return ok ? { playhead: playhead as number, zoom, scroll, fitted } : null;
+}

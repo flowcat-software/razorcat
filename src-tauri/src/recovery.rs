@@ -41,15 +41,20 @@ fn dir(app: &AppHandle) -> Option<PathBuf> {
         .map(|d| d.join("recovery"))
 }
 
-/// Writes the timeline's document `doc`, showing `paths`, as the copy to recover, if it still
-/// has unsaved changes. True once it's written (false: it hadn't any).
-pub fn autosave(app: &AppHandle, doc: &str, paths: Vec<String>) -> Result<bool, String> {
+/// Writes the timeline's document `doc` and its `view` (PLAN PR6), showing `paths`, as the copy
+/// to recover, if it still has unsaved changes. True once it's written (false: it hadn't any).
+pub fn autosave(
+    app: &AppHandle,
+    doc: &str,
+    view: &str,
+    paths: Vec<String>,
+) -> Result<bool, String> {
     let _held = FILES.lock().unwrap_or_else(|e| e.into_inner());
     if !editor::is_unsaved(app) {
         logln!("[recovery] autosave skipped: nothing unsaved");
         return Ok(false);
     }
-    let doc: serde_json::Value = serde_json::from_str(doc).map_err(|e| e.to_string())?;
+    let saved = project::Saved::parse(doc, view).map_err(|e| e.to_string())?;
     let dir = dir(app).ok_or("There's no folder for autosaves.")?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let open = editor::project_path(app);
@@ -57,7 +62,7 @@ pub fn autosave(app: &AppHandle, doc: &str, paths: Vec<String>) -> Result<bool, 
     let base = open.as_deref().and_then(Path::parent).unwrap_or(&dir);
     let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
     let version = app.package_info().version.to_string();
-    let text = project::write_recovery(base, &paths, doc, &version, open.as_deref());
+    let text = project::write_recovery(base, &paths, saved, &version, open.as_deref());
     let partial = dir.join(format!("{LATEST}.partial"));
     let written = std::fs::write(&partial, text)
         .and_then(|()| std::fs::rename(&partial, dir.join(LATEST)))

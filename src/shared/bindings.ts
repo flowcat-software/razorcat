@@ -25,11 +25,12 @@ export const commands = {
 	 */
 	answerOffer: (add: boolean | null, at: number | null) => __TAURI_INVOKE<void>("answer_offer", { add, at }),
 	/**
-	 *  Save the timeline as a project (PLAN PR2): `doc`, the page's document, its files' `paths` in
-	 *  its order; to the project open, or (`save_as`, or none open) where the Save dialog says.
+	 *  Save the timeline as a project (PLAN PR2): `doc`, the page's document, and its `view` (PLAN
+	 *  PR6), its files' `paths` in its order; to the project open, or (`save_as`, or none open)
+	 *  where the Save dialog says.
 	 *  The file's name once saved; none if the dialog was cancelled.
 	 */
-	saveProject: (doc: string, paths: string[], saveAs: boolean) => typedError<string | null, string>(__TAURI_INVOKE("save_project", { doc, paths, saveAs })),
+	saveProject: (doc: string, view: string, paths: string[], saveAs: boolean) => typedError<string | null, string>(__TAURI_INVOKE("save_project", { doc, view, paths, saveAs })),
 	/**
 	 *  The Windows accent color, if Windows has one, read on a worker thread (WinRT and a COM init,
 	 *  kept off the main thread amid the window's start-up). The rare start-up crash here was
@@ -134,10 +135,10 @@ export const commands = {
 	 */
 	updateAnswer: (go: boolean) => __TAURI_INVOKE<void>("update_answer", { go }),
 	/**
-	 *  The timeline's document, with unsaved changes, written where it's recovered from after a
-	 *  crash (PLAN PR4). True once written (the status bar shows it).
+	 *  The timeline's document, with unsaved changes, and its view (PLAN PR6), written where it's
+	 *  recovered from after a crash (PLAN PR4). True once written (the status bar shows it).
 	 */
-	autosave: (doc: string, paths: string[]) => typedError<boolean, string>(__TAURI_INVOKE("autosave", { doc, paths })),
+	autosave: (doc: string, view: string, paths: string[]) => typedError<boolean, string>(__TAURI_INVOKE("autosave", { doc, view, paths })),
 	/**
 	 *  Unsaved work the last run left (it didn't quit: PLAN PR4), if any: asked as the editor
 	 *  comes up.
@@ -941,6 +942,8 @@ export type ProjectOpened = {
 	name: string,
 	sources: SourceInfo[],
 	doc: string,
+	/**  Its view (PLAN PR6), the page's JSON, if it was saved with one. */
+	view: string | null,
 	/**
 	 *  Unsaved work a run left behind (PLAN PR4), not the project as saved: `name` is its
 	 *  project's, or (`untitled`, never saved) the first video's.

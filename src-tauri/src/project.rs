@@ -3,8 +3,9 @@
 //! kept by its path relative to the project and its absolute path, so a folder moved with its
 //! videos still opens, and so does a project moved away from them.
 //!
-//! Rust doesn't read the document: it's the page's, carried whole. `version` is the file's
-//! format, raised when either changes so an older file can be brought up to date.
+//! Rust doesn't read the document: it's the page's, carried whole, and so is its view (PLAN
+//! PR6). `version` is the file's format, raised when either changes so an older file can be
+//! brought up to date.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -27,6 +28,10 @@ pub struct ProjectFile {
     pub sources: Vec<ProjectSource>,
     /// The page's document.
     pub doc: serde_json::Value,
+    /// The page's view of it (PLAN PR6): the playhead, the timeline's zoom and scroll. Not part
+    /// of the document (moving it isn't an edit); a file saved before PR6 has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<serde_json::Value>,
     /// An autosave to recover (PLAN PR4, recovery.rs): the project it's of, if it was saved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovers: Option<String>,
@@ -42,17 +47,34 @@ pub struct ProjectSource {
 
 const KIND: &str = "project";
 
-/// The file for `doc` showing `paths`, saved in folder `dir`, as written: packed, as no one
+/// The page's document and its view (PLAN PR6), as a project holds them.
+pub struct Saved {
+    pub doc: serde_json::Value,
+    pub view: Option<serde_json::Value>,
+}
+
+impl Saved {
+    /// The page's JSON: a document that isn't JSON is an error; a view that isn't is left out
+    /// (it isn't worth losing a save for).
+    pub fn parse(doc: &str, view: &str) -> Result<Self, serde_json::Error> {
+        Ok(Self {
+            doc: serde_json::from_str(doc)?,
+            view: serde_json::from_str(view).ok(),
+        })
+    }
+}
+
+/// The file for `saved` showing `paths`, saved in folder `dir`, as written: packed, as no one
 /// reads it by hand (a JSON formatter lays it out).
-pub fn write(dir: &Path, paths: &[PathBuf], doc: serde_json::Value, app: &str) -> String {
-    write_recovery(dir, paths, doc, app, None)
+pub fn write(dir: &Path, paths: &[PathBuf], saved: Saved, app: &str) -> String {
+    write_recovery(dir, paths, saved, app, None)
 }
 
 /// As [`write`], an autosave to recover (PLAN PR4) of project `recovers`, if it was saved.
 pub fn write_recovery(
     dir: &Path,
     paths: &[PathBuf],
-    doc: serde_json::Value,
+    saved: Saved,
     app: &str,
     recovers: Option<&Path>,
 ) -> String {
@@ -67,7 +89,8 @@ pub fn write_recovery(
                 relative: relative(dir, p).map(|r| r.to_string_lossy().into_owned()),
             })
             .collect(),
-        doc,
+        doc: saved.doc,
+        view: saved.view,
         recovers: recovers.map(|p| p.to_string_lossy().into_owned()),
     };
     serde_json::to_string(&file).expect("a project serializes")
@@ -172,10 +195,16 @@ mod tests {
         let dir = Path::new(r"C:\Videos\Project");
         let paths = [PathBuf::from(r"C:\Videos\Project\a.mp4")];
         let doc = serde_json::json!({ "clips": [], "nextId": 2 });
-        let text = write(dir, &paths, doc.clone(), "0.1.0");
+        let view = serde_json::json!({ "playhead": 137, "fitted": true });
+        let saved = Saved {
+            doc: doc.clone(),
+            view: Some(view.clone()),
+        };
+        let text = write(dir, &paths, saved, "0.1.0");
         let file = read(&text, "p.rct").unwrap();
         assert_eq!(file.version, VERSION);
         assert_eq!(file.doc, doc);
+        assert_eq!(file.view, Some(view));
         assert_eq!(file.recovers, None);
         assert_eq!(
             file.sources,
@@ -191,9 +220,28 @@ mod tests {
         let dir = Path::new(r"C:\Videos\Project");
         let paths = [PathBuf::from(r"C:\Videos\Project\a.mp4")];
         let project = Path::new(r"C:\Videos\Project\p.rct");
-        let text = write_recovery(dir, &paths, serde_json::json!({}), "0.1.0", Some(project));
+        let saved = Saved {
+            doc: serde_json::json!({}),
+            view: None,
+        };
+        let text = write_recovery(dir, &paths, saved, "0.1.0", Some(project));
         let file = read(&text, "recovery.rct").unwrap();
         assert_eq!(file.recovers.as_deref(), Some(r"C:\Videos\Project\p.rct"));
+    }
+
+    #[test]
+    fn a_project_from_before_views_opens_without_one() {
+        let text = r#"{"razorcat":"project","version":1,"sources":[],"doc":{}}"#;
+        assert_eq!(read(text, "old.rct").unwrap().view, None);
+    }
+
+    #[test]
+    fn a_view_that_isnt_json_is_left_out_but_a_document_must_be() {
+        let saved = Saved::parse("{}", "not json").unwrap();
+        assert_eq!(saved.view, None);
+        assert!(Saved::parse("not json", "{}").is_err());
+        let text = write(Path::new(r"C:\p"), &[], saved, "0.1.0");
+        assert!(!text.contains("\"view\""));
     }
 
     #[test]

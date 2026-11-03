@@ -52,7 +52,7 @@ import { checkFrames } from "./frameCheck";
 import { checkLayout } from "./layoutCheck";
 import { FrameOptions } from "./FrameOptions";
 import { playbackGain, usePlayback } from "./playback";
-import { openedDoc } from "./project";
+import { openedDoc, savedView, type SavedView } from "./project";
 import { Player } from "./player";
 import { Preview } from "./Preview";
 import { StatusBar, type Notice } from "./StatusBar";
@@ -321,6 +321,21 @@ export function EditorApp() {
   const projectDoc = useRef<Doc | null>(null);
   /** ...and it's unsaved work recovered (PLAN PR4), not the project as saved. */
   const projectRecovered = useRef(false);
+  /** ...and its view (PLAN PR6), put back once its document is played. */
+  const projectView = useRef<SavedView | null>(null);
+  /** The player, for the view saved with a project (it's made further down). */
+  const playerNow = useRef<Player | null>(null);
+  /** The view to save with the document (PLAN PR6): the playhead, the timeline's zoom. */
+  const viewToSave = (): string => {
+    const { view, isFitted } = useTimeline.getState();
+    const saved: SavedView = {
+      playhead: playerNow.current?.getState().frame ?? 0,
+      zoom: view.zoom,
+      scroll: view.scroll,
+      fitted: isFitted,
+    };
+    return JSON.stringify(saved);
+  };
   /**
    * Saves the timeline as a project (PLAN PR2): to the one open, or (`as`, or none yet) where
    * the Save dialog says. True once it's saved (not if the dialog was cancelled, or it failed).
@@ -333,7 +348,7 @@ export function EditorApp() {
       setNotice({ text: "The project couldn't be saved: a file is missing.", error: true });
       return false;
     }
-    const r = await commands.saveProject(JSON.stringify(doc), paths as string[], as);
+    const r = await commands.saveProject(JSON.stringify(doc), viewToSave(), paths as string[], as);
     if (r.status === "error") {
       setNotice({ text: r.error, error: true });
       return false;
@@ -384,7 +399,7 @@ export function EditorApp() {
       if (!unsaved(s) || s.gestureStart) return;
       const paths = s.doc.sources.map((r) => latest.current.find((f) => f.id === r.id)?.path);
       if (paths.some((p) => p === undefined)) return;
-      void commands.autosave(JSON.stringify(s.doc), paths as string[]).then((r) => {
+      void commands.autosave(JSON.stringify(s.doc), viewToSave(), paths as string[]).then((r) => {
         if (r.status === "error") console.error("[autosave]", r.error);
         else if (r.data) setAutosavedAt(Date.now());
       });
@@ -475,6 +490,9 @@ export function EditorApp() {
   const sourceId = source?.id;
   const fps = source ? source.rateNum / source.rateDen : 0;
   const player = useMemo(() => (sourceId ? new Player(fps) : null), [sourceId, fps]);
+  useEffect(() => {
+    playerNow.current = player;
+  }, [player]);
   // Settings › Editing › Fade the camera between keyframes (PLAN 5d.9), at the timeline's rate.
   const keyFades = settings?.editing.cameraKeyFades ?? true;
   useEffect(() => {
@@ -551,6 +569,7 @@ export function EditorApp() {
       unstarted.current = new Map();
       return;
     }
+    projectView.current = null;
     doc.load(sourceFrames, { width: sourceWidth, height: sourceHeight }, sourceId);
     for (const s of latest.current.slice(1)) doc.addSource(s.id, s.frames);
     useDoc.setState({ past: [], future: [] });
@@ -568,6 +587,17 @@ export function EditorApp() {
     return useDoc.subscribe((s, before) => {
       if (s.doc !== before.doc) player.setEdit(played(s.doc));
     });
+  }, [player]);
+
+  // A project's view as it was saved (PLAN PR6), once the player has its edit (above, so the
+  // playhead is kept to its length) and the timeline has fitted the new files (its own effect,
+  // a child's, runs first). The playhead first: the timeline follows it.
+  useEffect(() => {
+    const view = projectView.current;
+    projectView.current = null;
+    if (!player || !view) return;
+    player.seek(view.playhead);
+    useTimeline.getState().restore({ zoom: view.zoom, scroll: view.scroll }, view.fitted);
   }, [player]);
 
   useEffect(() => {
@@ -629,6 +659,7 @@ export function EditorApp() {
         const opened = openedDoc(payload.doc, files);
         projectDoc.current = opened?.doc ?? null;
         projectRecovered.current = payload.recovered;
+        projectView.current = opened ? savedView(payload.view) : null;
         setSources(files);
         setProjectName(opened && !payload.untitled ? payload.name : null);
         useTimeline.getState().setDropAt(null);

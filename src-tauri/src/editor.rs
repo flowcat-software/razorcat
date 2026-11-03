@@ -69,6 +69,8 @@ pub struct ProjectOpened {
     pub name: String,
     pub sources: Vec<SourceInfo>,
     pub doc: String,
+    /// Its view (PLAN PR6), the page's JSON, if it was saved with one.
+    pub view: Option<String>,
     /// Unsaved work a run left behind (PLAN PR4), not the project as saved: `name` is its
     /// project's, or (`untitled`, never saved) the first video's.
     pub recovered: bool,
@@ -603,6 +605,7 @@ fn open_document(
         name,
         sources,
         doc: file.doc.to_string(),
+        view: file.view.as_ref().map(ToString::to_string),
         recovered,
         untitled: project.is_none(),
     };
@@ -628,17 +631,18 @@ fn locate(app: &AppHandle, was: &str) -> Option<PathBuf> {
     dialog.blocking_pick_file()?.into_path().ok()
 }
 
-/// Saves the timeline as a project (PLAN PR2): `doc`, the page's document, showing `paths` in
-/// its order. To the project open, unless `save_as` or there's none: then where the Save
-/// dialog says. Its file name, once saved; none if the dialog was cancelled.
+/// Saves the timeline as a project (PLAN PR2): `doc`, the page's document, and its `view` (PLAN
+/// PR6), showing `paths` in its order. To the project open, unless `save_as` or there's none:
+/// then where the Save dialog says. Its file name, once saved; none if the dialog was cancelled.
 pub fn save_project(
     app: &AppHandle,
     doc: &str,
+    view: &str,
     paths: Vec<String>,
     save_as: bool,
 ) -> Result<Option<String>, String> {
-    let doc: serde_json::Value =
-        serde_json::from_str(doc).map_err(|e| format!("The project couldn't be saved: {e}"))?;
+    let saved = project::Saved::parse(doc, view)
+        .map_err(|e| format!("The project couldn't be saved: {e}"))?;
     let open = app
         .state::<AppState>()
         .editor
@@ -655,7 +659,7 @@ pub fn save_project(
     };
     let dir = target.parent().unwrap_or(Path::new(""));
     let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-    let text = project::write(dir, &paths, doc, &app.package_info().version.to_string());
+    let text = project::write(dir, &paths, saved, &app.package_info().version.to_string());
     // Written beside it, then put in its place: a crash midway never leaves half a project.
     let partial = target.with_extension("rct.partial");
     std::fs::write(&partial, text)

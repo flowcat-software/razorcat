@@ -56,6 +56,8 @@ interface TimelineState {
   reveal: (f: number) => void;
   /** Scrolls to `scroll` frames at the left edge (the scrollbar). */
   scrollTo: (scroll: number) => void;
+  /** A project's view as it was saved (PLAN PR6): fitted, else `view` (kept in its limits). */
+  restore: (view: View, fitted: boolean) => void;
 }
 
 export const useTimeline = create<TimelineState>((set, get) => ({
@@ -141,5 +143,13 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   scrollTo: (scroll) => {
     const { view, width, frames } = get();
     set({ isFitted: false, view: scrolledTo(view, scroll, width, frames) });
+  },
+
+  restore: (view, isFitted) => {
+    const { width, frames } = get();
+    set({
+      isFitted,
+      view: isFitted ? fitted(width, frames) : clampScroll(view, width, frames),
+    });
   },
 }));
