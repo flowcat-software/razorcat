@@ -6,11 +6,12 @@ All notable changes to Razorcat are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0-beta.3] - 2026-11-04
+
 ### Added
 
 - **Projects open where you left them.** A saved project remembers the playhead's frame and the
-  timeline's zoom and scroll, so you can carry on where you were. Moving around doesn't count
-  as a change: nothing to save, nothing to undo.
+  timeline's zoom and scroll, so you can carry on where you were.
 
 ### Fixed
 
@@ -67,6 +68,7 @@ testing it. Please [report anything odd](https://github.com/flowcat-software/raz
 - **The installer is about 50 MB**, most of it ffmpeg. A smaller build of ffmpeg, with only what
   Razorcat uses, is planned.
 
-[Unreleased]: https://github.com/flowcat-software/razorcat/compare/v0.5.0-beta.2...HEAD
+[Unreleased]: https://github.com/flowcat-software/razorcat/compare/v0.5.0-beta.3...HEAD
+[0.5.0-beta.3]: https://github.com/flowcat-software/razorcat/compare/v0.5.0-beta.2...v0.5.0-beta.3
 [0.5.0-beta.2]: https://github.com/flowcat-software/razorcat/compare/v0.5.0-beta.1...v0.5.0-beta.2
 [0.5.0-beta.1]: https://github.com/flowcat-software/razorcat/releases/tag/v0.5.0-beta.1
