@@ -4,6 +4,7 @@ mod log;
 
 mod appearance;
 mod audio;
+mod autofill;
 mod camera;
 mod check;
 mod cli;
@@ -245,6 +246,13 @@ pub fn run() {
                 .args([tray::STARTED_ARG])
                 .build(),
         )
+        // Every webview, as its page starts loading: autofill is one setting for the profile they
+        // share, so each must have it off (autofill.rs).
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                autofill::off(webview);
+            }
+        })
         .register_asynchronous_uri_scheme_protocol(protocol::SCHEME, protocol::handle)
         .invoke_handler(specta.invoke_handler())
         .setup(move |app| {
