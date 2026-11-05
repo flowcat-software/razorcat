@@ -1763,6 +1763,12 @@ pub fn exclude_from_capture(window: &tauri::WebviewWindow) {
     use windows::Win32::UI::WindowsAndMessaging::{
         SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
     };
+    // Screenshots of these windows (the screenshot kit's, of recording itself) need them
+    // capturable: every way of capturing the screen leaves an excluded window out. Only the kit
+    // sets this, for the Razorcat it starts.
+    if std::env::var_os("RAZORCAT_CAPTURE_OVERLAYS").is_some() {
+        return;
+    }
     if let Ok(hwnd) = window.hwnd() {
         if let Err(e) = unsafe { SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) } {
             logln!(
