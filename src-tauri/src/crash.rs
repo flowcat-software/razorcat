@@ -151,7 +151,7 @@ unsafe extern "system" fn on_crash(info: *const EXCEPTION_POINTERS) -> i32 {
         }
         crate::log::crash_line(&what, product);
     }
-    let result = match dump(Some(info)) {
+    let result = match dump("crash", Some(info)) {
         Ok(name) => format!("[crash] dump written: {name}"),
         Err(e) => format!("[crash] no dump: {e}"),
     };
@@ -180,9 +180,14 @@ pub fn place(address: usize) -> String {
     format!("{name}+0x{:x}", address - module.0 as usize)
 }
 
-/// Writes a minidump to the logs folder (`crash-20261024-001203.dmp`), with the exception
-/// when there is one; its file name.
-pub fn dump(info: Option<*const EXCEPTION_POINTERS>) -> Result<String, String> {
+/// Whether `name` is one of ours: a crash's dump or a hang's ([`dump`]).
+pub fn is_dump(name: &str) -> bool {
+    (name.starts_with("crash-") || name.starts_with("hang-")) && name.ends_with(".dmp")
+}
+
+/// Writes a minidump to the logs folder (`crash-20261024-001203.dmp`, or `hang-…` for an app
+/// found stuck), with the exception when there is one; its file name.
+pub fn dump(kind: &str, info: Option<*const EXCEPTION_POINTERS>) -> Result<String, String> {
     if !crate::log::enabled() {
         return Err("logging is off".into());
     }
@@ -190,7 +195,7 @@ pub fn dump(info: Option<*const EXCEPTION_POINTERS>) -> Result<String, String> {
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let t = unsafe { GetLocalTime() };
     let name = format!(
-        "crash-{:04}{:02}{:02}-{:02}{:02}{:02}.dmp",
+        "{kind}-{:04}{:02}{:02}-{:02}{:02}{:02}.dmp",
         t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond
     );
     let file = File::create(dir.join(&name)).map_err(|e| e.to_string())?;
@@ -240,12 +245,18 @@ fn blank_names(path: &Path) {
 /// `native` (an access violation), `panic` (on the main thread), `thread-panic`, `webview`
 /// (the editor's renderer) or `browser` (the whole webview), a few seconds after startup; or
 /// `accent`, which asks for the Windows accent again and again (the start-up crash's hunt), or
-/// `flood`, which fills the log past its cap and then panics.
+/// `flood`, which fills the log past its cap and then panics; or `picker-hang`, which blocks the
+/// main thread for 20 s when the picker next opens (its watchdog's test).
 pub fn test_from_env(app: &tauri::AppHandle) {
     use tauri::Manager;
     let Ok(kind) = std::env::var("RAZORCAT_CRASH_TEST") else {
         return;
     };
+    if kind == "picker-hang" {
+        logln!("[crash] test: the next picker hangs");
+        crate::picker::HANG_FOR_TEST.store(true, std::sync::atomic::Ordering::SeqCst);
+        return;
+    }
     logln!("[crash] test: {kind} in 3 s");
     let app = app.clone();
     std::thread::spawn(move || {
@@ -299,10 +310,7 @@ pub fn prune(dir: &Path) {
     };
     let mut dumps: Vec<_> = entries
         .flatten()
-        .filter(|e| {
-            let name = e.file_name().to_string_lossy().into_owned();
-            name.starts_with("crash-") && name.ends_with(".dmp")
-        })
+        .filter(|e| is_dump(&e.file_name().to_string_lossy()))
         .map(|e| e.path())
         .collect();
     // The names sort by time.

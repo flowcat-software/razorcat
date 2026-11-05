@@ -6,6 +6,24 @@ All notable changes to Razorcat are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0-beta.3] - 2026-11-04
+
+### Added
+
+- **Projects open where you left them.** A saved project remembers the playhead's frame and the
+  timeline's zoom and scroll, so you can carry on where you were.
+
+### Fixed
+
+- **Clicks in a window recording land where you clicked.** Recording a window left out its title
+  bar, so in many apps the highlighted clicks showed up a little below the pointer. Window
+  recordings now include the whole window, title bar and all, as the picker shows it.
+- **The record key can't leave Razorcat stuck.** If choosing what to record doesn't come up
+  within a few seconds, Razorcat now gives up and brings the editor back, rather than leaving
+  it minimized and unresponsive. It also writes a small report to the logs folder
+  (**Settings › About › Debugging › Open logs folder**) to help find the cause; please attach it if you
+  [report it](https://github.com/flowcat-software/razorcat/issues).
+
 ## [0.5.0-beta.2] - 2026-10-29
 
 ### Added
@@ -50,6 +68,7 @@ testing it. Please [report anything odd](https://github.com/flowcat-software/raz
 - **The installer is about 50 MB**, most of it ffmpeg. A smaller build of ffmpeg, with only what
   Razorcat uses, is planned.
 
-[Unreleased]: https://github.com/flowcat-software/razorcat/compare/v0.5.0-beta.2...HEAD
+[Unreleased]: https://github.com/flowcat-software/razorcat/compare/v0.5.0-beta.3...HEAD
+[0.5.0-beta.3]: https://github.com/flowcat-software/razorcat/compare/v0.5.0-beta.2...v0.5.0-beta.3
 [0.5.0-beta.2]: https://github.com/flowcat-software/razorcat/compare/v0.5.0-beta.1...v0.5.0-beta.2
 [0.5.0-beta.1]: https://github.com/flowcat-software/razorcat/releases/tag/v0.5.0-beta.1

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/razorcat-icon.png" width="128" height="128" alt="Razorcat logo">
+  <img src="assets/razorcat-app-icon.png" width="128" height="128" alt="Razorcat logo">
 </p>
 
 <h1 align="center">Razorcat</h1>

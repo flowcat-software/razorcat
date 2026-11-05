@@ -104,7 +104,7 @@ pub fn init(identifier: &str) {
             "[panic] thread {}: {info}\n{backtrace:#}",
             thread.name().unwrap_or("unnamed")
         ));
-        match crate::crash::dump(None) {
+        match crate::crash::dump("crash", None) {
             Ok(name) => urgent_line(&format!("[panic] dump written: {name}")),
             Err(e) => urgent_line(&format!("[panic] no dump: {e}")),
         }
@@ -294,7 +294,7 @@ pub fn clear() -> Result<(), String> {
         let name = entry.file_name().to_string_lossy().into_owned();
         let older_log =
             name.starts_with("razorcat.") && name.ends_with(".log") && name != "razorcat.log";
-        let dump = name.starts_with("crash-") && name.ends_with(".dmp");
+        let dump = crate::crash::is_dump(&name);
         let current = name == "razorcat.log" && log.file.is_none();
         if older_log || dump || current {
             if let Err(e) = fs::remove_file(entry.path()) {

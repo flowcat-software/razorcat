@@ -744,10 +744,13 @@ impl Target {
 
     /// `gfxcapture`'s options for it: the monitor, and the crop (on the GPU); or the window, its
     /// sides rounded down to even, and if it's resized while recording, scaled to fit the size it
-    /// started at.
+    /// started at. A window is recorded whole, title bar and all (`capture_border`; without it,
+    /// only its client area): its frame, as the picker showed it and the clicks are placed on.
     fn source(&self) -> String {
         if let Some((hwnd, _, _)) = self.window {
-            return format!("hwnd={hwnd}:width=-2:height=-2:resize_mode=scale_aspect");
+            return format!(
+                "hwnd={hwnd}:capture_border=1:width=-2:height=-2:resize_mode=scale_aspect"
+            );
         }
         let s = &self.screen;
         let (x, y) = self.area.map_or((0, 0), |a| (a.0, a.1));
@@ -1894,7 +1897,7 @@ mod tests {
         assert_eq!(t.on_screen(), (120, 40, 1001, 16));
         assert_eq!(
             t.source(),
-            "hwnd=4660:width=-2:height=-2:resize_mode=scale_aspect"
+            "hwnd=4660:capture_border=1:width=-2:height=-2:resize_mode=scale_aspect"
         );
     }
 
