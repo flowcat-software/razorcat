@@ -72,6 +72,15 @@ npm run tauri:dev   # smoke run
 If the change is something users would notice, add it under `## [Unreleased]` in `CHANGELOG.md`,
 written for testers, in the same commit.
 
+## Releasing
+
+The steps are in `DEVELOPMENT.md` › Releasing. Each release also updates the website
+(https://flowcat.studio/razorcat/, kept in its own repo): the version, the installer's SHA-256
+once the draft is built and checked, and any changed features. With `internal/`, follow
+`internal/landing-page.md` › On each release alongside the release commit and tag. Don't
+deploy the site: remind the maintainer to deploy it once the GitHub release is tested and
+published (until then its new download link 404s).
+
 ## Working on Windows
 
 - **Waiting for the dev app:** after a restart, wait for the app's own "ready" log line, not

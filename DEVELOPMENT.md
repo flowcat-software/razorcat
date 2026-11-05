@@ -231,15 +231,18 @@ before the release itself (`0.5.0`). Every release must have a new, higher numbe
    that version's CHANGELOG section. Tags with a `-` are marked as prereleases.
 6. Download the installer from the draft, install it over the previous version and smoke-test
    it. Check `gh attestation verify <installer> --repo flowcat-software/razorcat` passes and
-   that its SHA-256 (`Get-FileHash`) matches the draft's `SHA256SUMS.txt`. Once Razorcat has a
-   website, put the SHA-256 there too: it's hosted apart from GitHub, so a swapped installer
-   can't come with a matching hash. Then press **Publish release** on GitHub.
+   that its SHA-256 (`Get-FileHash`) matches the draft's `SHA256SUMS.txt`. Put the SHA-256 on
+   the [website](https://flowcat.studio/razorcat/) too, under the version: it's hosted apart
+   from GitHub, so a swapped installer can't come with a matching hash. Then press **Publish
+   release** on GitHub.
 7. Publishing starts the **Publish updates** workflow (`.github/workflows/publish-updates.yml`).
    It checks the installer's updater signature against the public key and writes the channel
    manifests to the `update-manifests` branch: `beta.json` gets every release, `stable.json`
    only final ones. Installed copies read them from
    `https://raw.githubusercontent.com/flowcat-software/razorcat/update-manifests/<channel>.json`
    (cached for up to 5 minutes). Check the run is green and the manifest shows the new version.
+8. Deploy the website with the new version, its hash and download link. It goes live only now:
+   before the release is published, its download link would 404.
 
 **Pulling a bad release:** turn it back into a draft on GitHub (or delete it), then run
 **Actions › Publish updates › Run workflow**. A manual run sets each channel to the highest
