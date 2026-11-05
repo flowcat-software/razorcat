@@ -69,6 +69,9 @@ npm run security    # if dependencies or lockfiles changed
 npm run tauri:dev   # smoke run
 ```
 
+If the change is something users would notice, add it under `## [Unreleased]` in `CHANGELOG.md`,
+written for testers, in the same commit.
+
 ## Working on Windows
 
 - **Waiting for the dev app:** after a restart, wait for the app's own "ready" log line, not
