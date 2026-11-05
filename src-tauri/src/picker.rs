@@ -5,6 +5,8 @@
 //! what was picked.
 
 use std::ffi::c_void;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -67,6 +69,8 @@ pub struct PickRect {
 }
 
 struct Picking {
+    /// Which opening this is ([`OPENED`]).
+    id: u64,
     /// The editor was showing (not hidden in the tray, nor minimized): Esc brings it back.
     editor_shown: bool,
     screens: Vec<Screen>,
@@ -74,6 +78,18 @@ struct Picking {
 }
 
 static PICKING: Mutex<Option<Picking>> = Mutex::new(None);
+
+/// Openings so far: each picking's id.
+static OPENED: AtomicU64 = AtomicU64::new(0);
+/// The newest opening an overlay's page has loaded for: its webview is up and the main thread
+/// answers.
+static LOADED: AtomicU64 = AtomicU64::new(0);
+/// How long an opening has for an overlay to load before it's taken as stuck. Overlays load in
+/// well under a second; a release copy left running for two days once never showed them, with
+/// the editor minimized and the app frozen.
+const STUCK_AFTER: Duration = Duration::from_secs(8);
+/// `RAZORCAT_CRASH_TEST=picker-hang`: the next opening blocks the main thread for a while.
+pub static HANG_FOR_TEST: AtomicBool = AtomicBool::new(false);
 
 pub fn label(index: usize) -> String {
     format!("{PREFIX}{index}")
@@ -101,7 +117,7 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         .as_ref()
         .and_then(|e| e.hwnd().ok())
         .map(|h| h.0 as isize);
-    let windows = winenum::enumerate(&bounds)
+    let windows: Vec<SnapWindow> = winenum::enumerate(&bounds)
         .into_iter()
         .filter(|w| Some(w.hwnd) != mine)
         .collect();
@@ -109,7 +125,15 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
     let editor_shown = editor
         .as_ref()
         .is_some_and(|e| e.is_visible().unwrap_or(false) && !e.is_minimized().unwrap_or(false));
+    let id = OPENED.fetch_add(1, Ordering::SeqCst) + 1;
+    logln!(
+        "[picker] opening {id}: {} monitors, {} windows, the editor {}",
+        screens.len(),
+        windows.len(),
+        if editor_shown { "shown" } else { "aside" }
+    );
     *PICKING.lock().unwrap() = Some(Picking {
+        id,
         editor_shown,
         screens: screens.clone(),
         windows,
@@ -118,20 +142,32 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
     if let Some(editor) = editor.filter(|_| editor_shown) {
         let _ = editor.minimize();
     }
+    watch(app, id);
     // Creating webviews from a command can deadlock on Windows: elsewhere.
     let app = app.clone();
     std::thread::spawn(move || {
+        if HANG_FOR_TEST.swap(false, Ordering::SeqCst) {
+            logln!("[picker] test: the main thread blocked for 20 s");
+            let _ = app.run_on_main_thread(|| std::thread::sleep(Duration::from_secs(20)));
+        }
         let cursor = cursor();
         let mut focus = None;
         for (i, s) in screens.iter().enumerate() {
             match create(&app, i, s) {
                 Ok(w) => {
+                    logln!("[picker] overlay {i} shown");
                     if cursor.is_some_and(|(x, y)| s.contains(x, y)) {
                         focus = Some(w);
                     }
                 }
                 Err(e) => logln!("[picker] overlay {i} failed: {e}"),
             }
+        }
+        // Given up on while they were made (the watchdog): none are left behind.
+        if !is_current(id) {
+            logln!("[picker] opening {id} given up: its overlays closed");
+            close(&app);
+            return;
         }
         // The one under the pointer has the keys.
         if let Some(w) = focus {
@@ -141,6 +177,47 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         crate::camera::sync(&app);
     });
     Ok(())
+}
+
+/// Whether opening `id` is the picking under way.
+fn is_current(id: u64) -> bool {
+    PICKING.lock().unwrap().as_ref().is_some_and(|p| p.id == id)
+}
+
+/// If no overlay of opening `id` has loaded in [`STUCK_AFTER`], it's stuck: a dump of where
+/// every thread is (`hang-*.dmp`, the cause unknown when this was written), then the picking is
+/// given up and the editor brought back. If the main thread is what's stuck, the dump is still
+/// written; bringing the editor back waits for it.
+fn watch(app: &AppHandle, id: u64) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(STUCK_AFTER);
+        if LOADED.load(Ordering::SeqCst) >= id || !is_current(id) {
+            return;
+        }
+        logln!(
+            "[picker] opening {id} stuck: no overlay loaded in {} s",
+            STUCK_AFTER.as_secs()
+        );
+        match crate::crash::dump("hang", None) {
+            Ok(name) => logln!("[picker] dump written: {name}"),
+            Err(e) => logln!("[picker] no dump: {e}"),
+        }
+        let taken = {
+            let mut picking = PICKING.lock().unwrap();
+            match picking.as_ref() {
+                Some(p) if p.id == id => picking.take(),
+                _ => None,
+            }
+        };
+        if let Some(p) = taken {
+            close(&app);
+            if p.editor_shown {
+                crate::recording::show_editor(&app);
+            }
+            logln!("[picker] opening {id} given up");
+        }
+    });
 }
 
 fn create(app: &AppHandle, index: usize, s: &Screen) -> tauri::Result<WebviewWindow> {
@@ -238,6 +315,9 @@ pub fn load(app: &AppHandle, index: u32) -> Option<PickLoad> {
     let guard = PICKING.lock().unwrap();
     let p = guard.as_ref()?;
     let s = p.screens.get(index as usize)?;
+    if LOADED.swap(p.id, Ordering::SeqCst) != p.id {
+        logln!("[picker] opening {} loaded", p.id);
+    }
     Some(PickLoad {
         x: s.x,
         y: s.y,
