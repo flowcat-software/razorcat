@@ -1,11 +1,11 @@
 {
-  "version": "0.5.0-beta.2",
-  "notes": "### Added\n\n- **Settings › Keyboard shortcuts lists every shortcut.** Under the recording shortcuts you can\n  change, the editor's own keys are all there: the tools, playing, editing, marking up,\n  cropping, files and choosing what to record. Search Settings by what a key does (\"split\",\n  \"zoom\") to find it. The same lists are in the README's\n  [Keyboard reference](https://github.com/flowcat-software/razorcat#keyboard-reference).\n",
-  "pub_date": "2026-10-29T18:59:45Z",
+  "version": "0.5.0-beta.3",
+  "notes": "### Added\n\n- **Projects open where you left them.** A saved project remembers the playhead's frame and the\n  timeline's zoom and scroll, so you can carry on where you were.\n\n### Fixed\n\n- **Clicks in a window recording land where you clicked.** Recording a window left out its title\n  bar, so in many apps the highlighted clicks showed up a little below the pointer. Window\n  recordings now include the whole window, title bar and all, as the picker shows it.\n- **The record key can't leave Razorcat stuck.** If choosing what to record doesn't come up\n  within a few seconds, Razorcat now gives up and brings the editor back, rather than leaving\n  it minimized and unresponsive. It also writes a small report to the logs folder\n  (**Settings › About › Debugging › Open logs folder**) to help find the cause; please attach it if you\n  [report it](https://github.com/flowcat-software/razorcat/issues).\n",
+  "pub_date": "2026-11-05T01:30:33Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRMHl2d3hCNjdXQnhUWXRLOUxZaUw5RFpLMzF4Yk9CRUx0L3FoYWR0T01neW1mWkZoTm9tZXY1L2V5b0I4YWhjbXRUWHF1L2l3Q1AvU0NWVnJzb3h0TWxKK3VWR044dlFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMzAwMjgwCWZpbGU6UmF6b3JjYXRfMC41LjAtYmV0YS4yX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjUuMC1iZXRhLjIKTDk1bHNoOFc3SE10NklQUTZZYnNmdW5iMkhlSWhJWlNIdlNWdVRRK2duOW1kWjdVQ3pCT3JHQzJweEJoY2NHNzFuTTlRb2MyOFhEL3hqUENNQUhuQUE9PQo=",
-      "url": "https://github.com/flowcat-software/razorcat/releases/download/v0.5.0-beta.2/Razorcat_0.5.0-beta.2_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRMHl2d3hCNjdXQnlrN29tR0F6UGE2OEpTSUo0UTE1RDNqVzZnaWErYXl0QklhZy9abWdvTGNVU1lzOGQ1ckNudWd1Z0xmMEZEUUNUU21wbS9HbFNyTm9wVmVGOXdtRVE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzODQyMDA3CWZpbGU6UmF6b3JjYXRfMC41LjAtYmV0YS4zX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjUuMC1iZXRhLjMKRDJIbFVTSm02WUg4bGlYYjZDb3YyakgyNjVYdVE1RytQRmJjUXdmYXYrV3FxM3laNEU3VWxEMjRIUUkxUkdOQm80NVViUnpqUVp2L0syWGdzUFJkQ1E9PQo=",
+      "url": "https://github.com/flowcat-software/razorcat/releases/download/v0.5.0-beta.3/Razorcat_0.5.0-beta.3_x64-setup.exe"
     }
   }
 }
