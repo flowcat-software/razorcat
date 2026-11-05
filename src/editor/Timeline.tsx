@@ -616,6 +616,78 @@ function hitAt(
   return under && { kind: "move", clip: under.clip };
 }
 
+/** What `pointOf` finds: a clip, a markup item, a range, a camera keyframe, or a frame. */
+export type TimelineThing = "clip" | "mark" | "range" | "key" | "frame";
+
+/**
+ * Where a part of something on the timeline is (canvas px): the inverse of `hitAt`, from the
+ * same geometry, so a press there lands on that part. `n` counts from 0: clips in their order,
+ * markup in the document's (the order it was made in), ranges and keyframes along the timeline;
+ * for "frame", `n` is the frame. Parts:
+ * - clip: "title" (moves it; the default), "in" / "out" (its edges, trim), "fadeIn" /
+ *   "fadeOut" (its fade handles), "cut" (the crossfade handle where it starts), "body";
+ * - mark: "bar" (the default), "start" / "end" (its edges), "fadeIn" / "fadeOut";
+ * - range: "bar" (the default), "a" / "b" (its edges);
+ * - key: the keyframe's mark;
+ * - frame: "ruler" (a press moves the playhead; the default), "strip" (a drag draws a range).
+ * Null if there's no such thing, or it's scrolled out of the canvas's `width`.
+ */
+export function pointOf(
+  doc: Doc,
+  view: View,
+  L: Lanes,
+  width: number,
+  what: TimelineThing,
+  n: number,
+  part = "",
+): { x: number; y: number } | null {
+  const seen = (x: number, y: number) => (x >= HEADER && x <= width ? { x, y } : null);
+  switch (what) {
+    case "frame":
+      return seen(xOf(view, n), part === "strip" ? RANGE_STRIP / 2 : (RANGE_STRIP + RULER) / 2);
+    case "range": {
+      const r = shownRanges(doc)[n];
+      if (!r) return null;
+      const y = RANGE_STRIP / 2;
+      if (part === "a") return seen(xOf(view, r.a), y);
+      if (part === "b") return seen(xOf(view, r.b), y);
+      return seen(xOf(view, (r.a + r.b) / 2), y);
+    }
+    case "key": {
+      const k = shownKeys(doc)[n];
+      return k ? seen(xOf(view, k.f), KEY_TOP + KEY_H / 2) : null;
+    }
+    case "mark": {
+      const kept = doc.marks[n];
+      const m = kept && shownMarks(doc).find((s) => s.id === kept.id);
+      if (!m) return null;
+      const y0 = laneY(L, m.lane);
+      if (y0 < LANE_TOP || y0 + L.h > LANE_TOP + LANES_H) return null;
+      const f = markFades(kept, m.end - m.start);
+      if (part === "start") return seen(xOf(view, m.start) + 1, y0 + L.h - 4);
+      if (part === "end") return seen(xOf(view, m.end) - 1, y0 + L.h - 4);
+      if (part === "fadeIn") return seen(xOf(view, m.start + f.fadeIn), y0 + FADE_HIT / 2);
+      if (part === "fadeOut") return seen(xOf(view, m.end - f.fadeOut), y0 + FADE_HIT / 2);
+      return seen(xOf(view, (m.start + m.end) / 2), y0 + L.h / 2 + 2);
+    }
+    case "clip": {
+      const clip = doc.clips[n];
+      if (!clip) return null;
+      const start = clipStarts(doc)[n];
+      const end = start + clipLength(clip);
+      const mid = CLIP_TOP + CLIP_H / 2;
+      const fades = fadesOf(doc, n);
+      if (part === "in") return seen(xOf(view, start) + 2, mid);
+      if (part === "out") return seen(xOf(view, end) - 2, mid);
+      if (part === "fadeIn") return seen(xOf(view, start + fades.fadeIn), CLIP_TOP + FADE_HIT / 2);
+      if (part === "fadeOut") return seen(xOf(view, end - fades.fadeOut), CLIP_TOP + FADE_HIT / 2);
+      if (part === "cut") return seen(xOf(view, start), CLIP_TOP + CLIP_H - CROSSFADE_HIT / 2);
+      if (part === "body") return seen(xOf(view, (start + end) / 2), mid);
+      return seen(xOf(view, (start + end) / 2), CLIP_TOP + LABEL_H / 2);
+    }
+  }
+}
+
 /** What a hit is on: its clip, range or markup, for telling hits apart. */
 const hitId = (h: Hit) =>
   "clip" in h
@@ -970,6 +1042,21 @@ export function Timeline({ source, sources, player, inFrames, thumbs, waves }: P
     laneScroll.current = L.scroll;
     return L;
   };
+  // Where things on the timeline are, in page px, for scripts driving the editor (the
+  // screenshot kit): the canvas draws them, so there's no element to find. Read-only.
+  useEffect(() => {
+    const w = window as { __razorcatTimeline?: unknown };
+    w.__razorcatTimeline = (what: TimelineThing, n = 0, part = "") => {
+      const canvas = canvasRef.current;
+      if (!canvas) return null;
+      const r = canvas.getBoundingClientRect();
+      const { doc } = useDoc.getState();
+      const L = lanesOf(doc, laneScroll.current);
+      const p = pointOf(doc, useTimeline.getState().view, L, r.width, what, n, part);
+      return p && { x: r.left + p.x, y: r.top + p.y };
+    };
+    return () => void delete w.__razorcatTimeline;
+  }, []);
   /** Where a drag snapped to: the guide is drawn there. */
   const guide = useRef<number | null>(null);
   const readout = useRef<HTMLDivElement>(null);
