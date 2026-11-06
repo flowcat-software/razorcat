@@ -14,6 +14,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/flowcat-software/razorcat/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fflowcat-software%2Frazorcat%2Fbadges%2Fdownloads.json&logo=github" alt="Downloads"></a>
+</p>
+
+<p align="center">
   <a href="https://github.com/flowcat-software/razorcat/releases"><strong>Download the latest beta</strong></a>
 </p>
 
